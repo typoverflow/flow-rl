@@ -1,9 +1,11 @@
 
+from collections import namedtuple
 import numpy as np
 import sklearn
 import sklearn.datasets
-from .dataset import Dataset
 from sklearn.utils import shuffle as util_shuffle
+
+from .base import Batch
 
 # Dataset iterator
 def inf_train_gen(data, batch_size=200):
@@ -141,22 +143,45 @@ def inf_train_gen(data, batch_size=200):
     else:
         assert False
 
-class Toy_dataset(Dataset):
-    def __init__(self, name, datanum=1000000, scanning=True):
-        assert name in ["swissroll", "8gaussians", "moons", "rings", "checkerboard", "2spirals"]
-        self.datanum =datanum
-        self.name = name
-        datas, energy = inf_train_gen(name, batch_size=datanum)
-        self.datadim = 2
-        super().__init__(
-            observations=np.zeros((datanum, 1)).astype(np.float32), # Dummy data
-            actions=datas.astype(np.float32),
-            rewards=energy.astype(np.float32).squeeze(-1),
-            masks=np.ones((datanum,)).astype(np.float32), # Dummy data
-            dones_float=np.zeros((datanum,)).astype(np.float32), # Dummy data
-            next_observations=np.zeros((datanum, 1)).astype(np.float32), # Dummy data
-            size=datanum,
-            scanning=scanning
-        )
 
+class Toy2dDataset(object):
+    def __init__(self, task: str, data_size: int=1000000, scan: bool=True):
+        assert task in ["swissroll", "8gaussians", "moons", "rings", "checkerboard", "2spirals"]
+        self.task = task
+        self.data_size = data_size
+        data, energy = inf_train_gen(task, batch_size=data_size)
+
+        dataset = {
+            "obs": np.zeros((data_size, 1), dtype=np.float32), 
+            "action": np.asarray(data, dtype=np.float32), 
+            "reward": np.asarray(energy, dtype=np.float32), 
+            "terminal": np.zeros((data_size, 1), dtype=np.float32), 
+            "next_obs": np.zeros((data_size, 1), dtype=np.float32), 
+        }
+
+        if self.scan:
+            self.scan_index = np.arange(len(dataset["obs"]))
+            np.random.shuffle(self.scan_index)
+            self.batch_idx = 0
+
+        self.dataset = dataset
+        self.size = data_size
+
+    def sample(self, batch_size: int):
+        if self.scan:
+            if self.batch_idx + batch_size >= self.size:
+                np.random.shuffle(self.scan_index)
+                self.batch_idx = 0
+            indices = self.scan_index[self.batch_idx:self.batch_idx + batch_size]
+            self.batch_idx += batch_size
+        else:
+            indices = np.random.randint(0, self.size, batch_size)
+            
+        return Batch(
+            obs=self.dataset["obs"][indices],
+            action=self.dataset["action"][indices],
+            reward=self.dataset["reward"][indices],
+            terminal=self.dataset["terminal"][indices],
+            next_obs=self.dataset["next_obs"][indices],
+        )
 

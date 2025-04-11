@@ -1,8 +1,3 @@
-"""
-Take from
-https://github.com/openai/atari-reset/blob/master/atari_reset/wrappers.py
-"""
-
 import gym
 import numpy as np
 

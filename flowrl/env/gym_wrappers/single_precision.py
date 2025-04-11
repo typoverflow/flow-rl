@@ -22,7 +22,7 @@ class SinglePrecision(gym.ObservationWrapper):
         else:
             raise NotImplementedError
 
-    def observation(self, observation: np.ndarray) -> np.ndarray:
+    def observation(self, observation) -> np.ndarray:
         if isinstance(observation, np.ndarray):
             return observation.astype(np.float32)
         elif isinstance(observation, dict):

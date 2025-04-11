@@ -1,18 +1,19 @@
-import os
+from typing import Dict
 import jax.numpy as jnp
-from flowrl.networks.types import Batch, InfoDict, Dict
 import flax.nnx as nnx
 import orbax.checkpoint as orbax
 
-"""
-Base class for all agents.
-"""
+from flowrl.dataset import Batch
+
 
 class BaseAgent():
+    """
+    Base class for all agents.
+    """
     name = "BaseAgent"
     model_names = []
 
-    def train_step(self, batch: Batch) -> InfoDict:
+    def train_step(self, batch: Batch) -> Dict:
         """
         Perform a training step on the agent.
 
@@ -20,27 +21,27 @@ class BaseAgent():
             batch (Batch): The batch of data to train on.
 
         Returns:
-            InfoDict: The information dictionary containing training statistics.
+            Dict: The information dictionary containing training statistics.
         """
         raise NotImplementedError("train_step not implemented for this agent")
     
-    def pretrain_step(self, batch: Batch) -> InfoDict:
+    def pretrain_step(self, batch: Batch) -> Dict:
         """
         Perform a pretraining step on the agent.
         Args:
             batch (Batch): The batch of data to pretrain on.
         Returns:
-            InfoDict: The information dictionary containing pretraining statistics.
+            Dict: The information dictionary containing pretraining statistics.
         """
         raise NotImplementedError("pretrain_step not implemented for this agent")
     
     def sample_actions(
             self,
-            observations: jnp.ndarray,
+            obs: jnp.ndarray,
             temperature: float = 0.0,
             num_actions: int = 1,
             return_history: bool = False,
-        ) -> Dict[str, jnp.ndarray]:
+        ) -> Dict:
         """
         Sample actions from the agent's policy.
 
