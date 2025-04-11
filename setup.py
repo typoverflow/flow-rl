@@ -20,7 +20,7 @@ def get_extras_require():
     return {}
 
 setup(
-    name                = "wiserl",
+    name                = "flowrl",
     version             = VERSION,
     description         = "A library desgined for flow-based RL algorithms",
     long_description    = README,
