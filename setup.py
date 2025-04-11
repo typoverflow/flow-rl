@@ -14,6 +14,16 @@ VERSION = get_version()
 
 def get_install_requires():
     return [
+        "jax[cuda12]==0.5.3",
+        "flax==0.10.5",
+        "git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl",
+        "git+https://github.com/aravindr93/mjrl@master#egg=mjrl", # for d4rl
+        "gymnasium==0.29.1", # We can't use gymnasium >= 1.0.0 because it breaks d4rl.
+        "gym==0.23.1", # for d4rl
+        "numpy==1.26.4", # for d4rl
+        "shimmy[gym-v21,gym-v26]==1.0.0", # for d4rl
+        'cython<3' # for d4rl
+        'six==1.17.0', # for mjrl
     ]
 
 def get_extras_require():
@@ -32,6 +42,6 @@ setup(
     packages            = find_packages(),
     include_package_data = True,
     tests_require=["pytest", "mock"],
-    python_requires=">=3.10",
+    python_requires=">=3.12",
     install_requires = get_install_requires()
 )
