@@ -1,0 +1,46 @@
+name: build and upload
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - v*
+
+jobs:
+  build_sdist:
+    name: build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: setup version
+        run: |
+          [ "v"`grep -e '[0-9]\.[0-9]\.[0-9]*' -o -- flowrl/__init__.py` = ${GITHUB_REF##*/} ] && echo "VERSION=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      - name: build sdist
+        run: pipx run build --sdist
+
+      - name: check metadata
+        run: pipx run twine check dist/*
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: dist/*.tar.gz
+
+  upload:
+    name: upload to pypi
+    needs: [build_sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v2
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: artifact
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: "__token__"
+          password: ${{ secrets.PYPI_TOKEN }}

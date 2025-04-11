@@ -1,0 +1,14 @@
+**/*.ipynb
+**/log
+**/.vscode
+**/__pycache__
+*.egg-info
+# scripts/
+out/
+wandb
+tests/
+/datasets
+datasets/
+shells/
+ckpts
+log_bkp/
