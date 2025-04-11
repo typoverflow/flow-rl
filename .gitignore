@@ -7,8 +7,6 @@
 out/
 wandb
 tests/
-/datasets
-datasets/
 shells/
 ckpts
 log_bkp/
