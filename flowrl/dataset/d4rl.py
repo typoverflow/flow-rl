@@ -1,13 +1,13 @@
 
+from collections import namedtuple
 from typing import Optional
 
 import d4rl
 import gym
 import numpy as np
-import d4rl
-from collections import namedtuple
 
-from .base import Batch
+from flowrl.types import Batch
+
 
 def compute_returns(reward, end):
     return_ = []
@@ -29,13 +29,13 @@ def normalize_reward(reward, end, method="none"):
         factor = 1000.0 / (max_return - min_return)
         print(f"norm reward {method}: return max = {max_return}, return min = {min_return}, factor = {factor}")
         return reward * factor
-    elif method == "white": 
+    elif method == "white":
         r_mean, r_std = np.mean(reward), np.std(reward)
         print(f"norm reward {method}: mean = {r_mean}, std = {r_std}")
         return (reward - r_mean) / r_std
     elif method == "iql_antmaze":
         return reward - 1.0
-    elif method == "cql_antmaze": 
+    elif method == "cql_antmaze":
         return (reward - 0.5) * 4.0
     elif method == "antmaze100":
         return reward * 100.0
@@ -45,17 +45,17 @@ def normalize_reward(reward, end, method="none"):
 
 class D4RLDataset():
     def __init__(
-        self, 
-        task: str, 
-        clip_eps: float=0.0, 
-        scan: bool=True, 
-        norm_obs: bool=False, 
-        norm_reward: Optional[str]=None, 
+        self,
+        task: str,
+        clip_eps: float=0.0,
+        scan: bool=True,
+        norm_obs: bool=False,
+        norm_reward: Optional[str]=None,
     ):
         self.scan = scan
         self.norm_obs = norm_obs
         self.norm_reward = norm_reward
-        
+
         raw_dataset = d4rl.qlearning_dataset(gym.make(task))
         dataset = {
             "obs": raw_dataset["observations"],
@@ -89,13 +89,13 @@ class D4RLDataset():
             dataset["next_obs"] = (dataset["next_obs"] - self.obs_mean[None, ...]) / self.obs_std[None, ...]
         else:
             self.obs_mean, self.obs_std = 0.0, 1.0
-        
+
         if norm_reward:
             dataset["reward"] = normalize_reward(dataset["reward"], end, norm_reward)
 
         self.dataset = dataset
         self.size = len(dataset["obs"])
-            
+
     def get_obs_stats(self):
         return self.obs_mean, self.obs_std
 
@@ -108,7 +108,7 @@ class D4RLDataset():
             self.batch_idx += batch_size
         else:
             indices = np.random.randint(0, self.size, batch_size)
-            
+
         return Batch(
             obs=self.dataset["obs"][indices],
             action=self.dataset["action"][indices],
@@ -116,4 +116,3 @@ class D4RLDataset():
             terminal=self.dataset["terminal"][indices],
             next_obs=self.dataset["next_obs"][indices],
         )
-

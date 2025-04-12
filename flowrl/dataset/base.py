@@ -1,8 +1,4 @@
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 import collections
-import flax
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
-Batch = collections.namedtuple(
-    'Batch',
-    ['obs', 'action', 'reward', 'terminal', 'next_obs']
-)
+import flax

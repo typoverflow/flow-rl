@@ -1,8 +1,8 @@
 import distrax
 import flax.linen as nn
 import jax.numpy as jnp
-from module.types import *
 
+from flowrl.types import *
 from flowrl.utils.distribution import TanhMultivariateNormalDiag
 
 from .mlp import MLP

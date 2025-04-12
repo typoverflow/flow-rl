@@ -1,7 +1,7 @@
 import flax.linen as nn
 import jax.numpy as jnp
 
-from flowrl.module.types import *
+from flowrl.types import *
 
 from .mlp import MLP
 

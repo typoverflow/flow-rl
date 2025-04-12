@@ -2,7 +2,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 
-from flowrl.module.types import PRNGKey, Shape
+from flowrl.types import PRNGKey, Shape
 
 
 class TanhMultivariateNormalDiag(distrax.Transformed):

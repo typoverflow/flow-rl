@@ -1,11 +1,13 @@
 
 from collections import namedtuple
+
 import numpy as np
 import sklearn
 import sklearn.datasets
 from sklearn.utils import shuffle as util_shuffle
 
-from .base import Batch
+from flowrl.types import Batch
+
 
 # Dataset iterator
 def inf_train_gen(data, batch_size=200):
@@ -152,11 +154,11 @@ class Toy2dDataset(object):
         data, energy = inf_train_gen(task, batch_size=data_size)
 
         dataset = {
-            "obs": np.zeros((data_size, 1), dtype=np.float32), 
-            "action": np.asarray(data, dtype=np.float32), 
-            "reward": np.asarray(energy, dtype=np.float32), 
-            "terminal": np.zeros((data_size, 1), dtype=np.float32), 
-            "next_obs": np.zeros((data_size, 1), dtype=np.float32), 
+            "obs": np.zeros((data_size, 1), dtype=np.float32),
+            "action": np.asarray(data, dtype=np.float32),
+            "reward": np.asarray(energy, dtype=np.float32),
+            "terminal": np.zeros((data_size, 1), dtype=np.float32),
+            "next_obs": np.zeros((data_size, 1), dtype=np.float32),
         }
 
         if self.scan:
@@ -176,7 +178,7 @@ class Toy2dDataset(object):
             self.batch_idx += batch_size
         else:
             indices = np.random.randint(0, self.size, batch_size)
-            
+
         return Batch(
             obs=self.dataset["obs"][indices],
             action=self.dataset["action"][indices],
@@ -184,4 +186,3 @@ class Toy2dDataset(object):
             terminal=self.dataset["terminal"][indices],
             next_obs=self.dataset["next_obs"][indices],
         )
-

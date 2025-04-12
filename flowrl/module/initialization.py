@@ -1,7 +1,7 @@
 import flax.linen as nn
 from jax import numpy as jnp
 
-from flowrl.module.types import *
+from flowrl.types import *
 
 
 def orthogonal_init(scale: Optional[float] = None):
