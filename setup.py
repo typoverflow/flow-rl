@@ -18,11 +18,12 @@ def get_install_requires():
         "flax==0.10.5",
         "gymnasium==0.29.1",
         "gym==0.23.1",
-        "mujoco_py==2.1.2.14", 
-        'Cython<3', 
+        "mujoco_py==2.1.2.14",
+        'Cython<3',
         'six==1.17.0',
-        "tqdm", 
+        "tqdm",
         "hydra-core"
+        "distrax"
     ]
 
 def get_extras_require():
