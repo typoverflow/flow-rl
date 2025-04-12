@@ -202,7 +202,7 @@ class TensorboardLogger(BaseLogger):
         super().__init__(log_dir, name, unique_name, backup_stdout, activate, level)
         if not self.activate:
             return
-        from torch.utils.tensorboard.writer import SummaryWriter
+        from tensorboardX import SummaryWriter
         self.tb_dir = os.path.join(self.log_dir, "tb")
         os.makedirs(self.tb_dir, exist_ok=True)
         # self.output_dir = self.tb_dir

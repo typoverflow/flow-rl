@@ -23,7 +23,9 @@ def get_install_requires():
         'six==1.17.0',
         "tqdm",
         "hydra-core"
-        "distrax"
+        "distrax",
+        "tensorboardX==2.6.2.2",
+        "scikit-learn==1.6.1",
     ]
 
 def get_extras_require():

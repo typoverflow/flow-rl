@@ -1,0 +1,6 @@
+defaults:
+  - /algo/dummy@_here_
+  - _self_
+
+name: dummy
+discount: 0.8

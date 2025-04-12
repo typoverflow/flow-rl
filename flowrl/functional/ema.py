@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 
-from flowrl.dataset.base import Batch
 from flowrl.types import *
 
 
