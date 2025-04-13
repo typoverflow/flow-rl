@@ -1,6 +1,5 @@
 from .base import BaseAlgoConfig
-from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from dataclasses import dataclass
 
 @dataclass
 class DummyConfig(BaseAlgoConfig):

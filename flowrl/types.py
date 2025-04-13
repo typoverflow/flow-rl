@@ -2,7 +2,6 @@ import collections
 from typing import Any, Callable, Dict, NewType, Optional, Sequence, Union
 
 import flax
-import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
 

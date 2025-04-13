@@ -1,10 +1,10 @@
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 import jax.numpy as jnp
-import flax.nnx as nnx
 import orbax.checkpoint as orbax
+from flax.training import orbax_utils
 
 from flowrl.config.d4rl.algo.base import BaseAlgoConfig
-from flowrl.types import Batch
+from flowrl.types import Batch, Metric, Model
 
 
 class BaseAgent():
@@ -12,7 +12,7 @@ class BaseAgent():
     Base class for all agents.
     """
     name = "BaseAgent"
-    model_names = []
+    model_names: List[str] = []
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: BaseAlgoConfig) -> None:
         """
@@ -35,17 +35,17 @@ class BaseAgent():
         """
         pass
 
-    def compute_statistics(self, batch: Batch) -> Dict:
+    def compute_statistics(self, batch: Batch) -> Metric:
         """
         Evaluate the agent on a batch of data.
         Args:
             batch (Batch): The batch of data to compute statistics on.
         Returns:
-            Dict: The information dictionary containing statistics.
+            Metric: The information dictionary containing statistics.
         """
         return None
 
-    def train_step(self, batch: Batch, step: int) -> Dict:
+    def train_step(self, batch: Batch, step: int) -> Metric:
         """
         Perform a training step on the agent.
 
@@ -54,11 +54,11 @@ class BaseAgent():
             step (int): The current training step.
 
         Returns:
-            Dict: The information dictionary containing training statistics.
+            Metric: The information dictionary containing training statistics.
         """
         raise NotImplementedError("train_step not implemented for this agent")
     
-    def pretrain_step(self, batch: Batch, step: int) -> Dict:
+    def pretrain_step(self, batch: Batch, step: int) -> Metric:
         """
         Perform a pretraining step on the agent.
         Args:
@@ -66,7 +66,7 @@ class BaseAgent():
             step (int): The current pretraining step.
 
         Returns:
-            Dict: The information dictionary containing pretraining statistics.
+            Metric: The information dictionary containing pretraining statistics.
         """
         raise NotImplementedError("pretrain_step not implemented for this agent")
     
@@ -77,7 +77,7 @@ class BaseAgent():
             temperature: float = 0.0,
             num_samples: int = 1,
             return_history: bool = False,
-        ) -> Tuple[jnp.ndarray, Dict[str, any]]:
+        ) -> Tuple[jnp.ndarray, Metric]:
         """
         Sample actions from the agent's policy.
 
@@ -91,7 +91,7 @@ class BaseAgent():
 
         Returns:
             actions (jnp.ndarray): The sampled actions. Shape should be (batch_size, num_samples, action_dim).
-            info (Dict[str, any]): Additional information about the sampling process.
+            info (Metric): Additional information about the sampling process.
                                     
         """
         raise NotImplementedError("sample_actions not implemented for this agent")
@@ -102,9 +102,10 @@ class BaseAgent():
         Args:
             path (str): The path to save the agent's state.
         """
-        ckpt = {name: nnx.state(getattr(self, name)) for name in self.model_names}
+        ckpt: Dict[str, Model] = {name: getattr(self, name) for name in self.model_names}
         checkpointer = orbax.PyTreeCheckpointer()
-        checkpointer.save(path, ckpt)
+        save_args = orbax_utils.save_args_from_target(ckpt)
+        checkpointer.save(path, ckpt, save_args=save_args)
         
     def load(self, path: str) -> None:
         """
@@ -113,7 +114,6 @@ class BaseAgent():
             path (str): The path to load the agent's state from.
         """
         checkpointer = orbax.PyTreeCheckpointer()
-        ckpt = {name: nnx.state(getattr(self, name)) for name in self.model_names}
-        ckpt = checkpointer.restore(path, item=ckpt)
+        ckpt = checkpointer.restore(path)
         for name in self.model_names:
-            nnx.update(getattr(self, name), ckpt[name])
+            setattr(self, name, ckpt[name])
