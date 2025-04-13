@@ -32,9 +32,8 @@ class LogConfig:
 class Config:
     # base
     seed: int = 0
-    num_seeds: int = 1 # number of runs of different seeds
-    gpu: str = "0" # dot seperated string
-    env: str = "hopper-medium-replay-v2"  # the environment to train on
+    device: str = "0"
+    task: str = "hopper-medium-replay-v2"  # the environment to train on
     algo: BaseAlgoConfig = MISSING
     pretrain_steps: int = int(2e6)
     train_steps: int = int(2e6)

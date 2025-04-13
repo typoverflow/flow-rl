@@ -19,7 +19,7 @@ class Trainer():
         self.cfg = cfg
 
         self.logger = TensorboardLogger(
-            "/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.env]),
+            "/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.task]),
             "_".join(["seed"+str(cfg.seed), cfg.log.tag]),
             activate=True
         )
@@ -31,14 +31,14 @@ class Trainer():
         print(f"\nSave results to: {self.logger.log_dir}\n")
 
         self.dataset = D4RLDataset(
-            task=cfg.env, 
+            task=cfg.task, 
             clip_eps=cfg.data.clip_eps,
             scan=cfg.data.scan,
             norm_obs=cfg.norm_obs,
             norm_reward=cfg.data.norm_reward,
         )
         self.obs_mean, self.obs_std = self.dataset.get_obs_stats()
-        self.env = TransformObservation(make_env(cfg.env), lambda obs: (obs-self.obs_mean)/self.obs_std)
+        self.env = TransformObservation(make_env(cfg.task), lambda obs: (obs-self.obs_mean)/self.obs_std)
 
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.env.observation_space.shape[0],
@@ -114,7 +114,7 @@ class Trainer():
 
 @hydra.main(config_path="./config/d4rl", config_name="config", version_base=None)
 def main(cfg: Config):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
     trainer = Trainer(cfg)
