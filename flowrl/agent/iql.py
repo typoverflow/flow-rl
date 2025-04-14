@@ -1,25 +1,40 @@
 from functools import partial
 from typing import Tuple
+import distrax
 import jax
 from flowrl.config.d4rl.algo.iql import IQLConfig
 from flowrl.functional.ema import ema_udpate
 from flowrl.functional.loss import expectile_regression
 from flowrl.module.mlp import MLP
-from flowrl.module.actor import SquashedDeterministicActor
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.actor import SquashedDeterministicActor, TanhMeanGaussianActor
+from flowrl.module.critic import Critic, EnsembleCritic
 from flowrl.types import Batch, Metric, PRNGKey, Param
 from flowrl.module.model import Model
 from .base import BaseAgent
 import jax.numpy as jnp
 import optax
 
-@jax.jit
-def _jit_sample_action(actor: Model, obs: jnp.ndarray) -> jnp.ndarray:
+@partial(jax.jit, static_argnames=("deterministic_actor", "max_action", "min_action"))
+def _jit_sample_action(
+    rng: PRNGKey,
+    actor: Model,
+    obs: jnp.ndarray,
+    deterministic_actor: bool,
+    max_action: float,
+    min_action: float,
+) -> jnp.ndarray:
     """
     Sample action from the actor network.
     """
-    actor, action = actor(obs)
-    return actor, action
+    if deterministic_actor:
+        actor, action = actor(obs)
+    else:
+        actor, dist = actor(obs)
+        dist: distrax.MultivariateNormalDiag
+        rng, sample_key = jax.random.split(rng)
+        action = dist.sample(seed=sample_key)
+        action = jnp.clip(action, min_action, max_action)
+    return rng, actor, action
 
 def _update_v(
     q: jnp.ndarray,
@@ -48,7 +63,8 @@ def awr_update_actor(
     q: jnp.array,
     v: jnp.array,
     batch: Batch,
-    beta: float
+    beta: float,
+    deterministic_actor: bool,
 ) -> Tuple[Model, Metric]:
     exp_a = jnp.exp((q - v) * beta)
     exp_a = jnp.minimum(exp_a, 100.0)  # truncate the weights...
@@ -62,7 +78,12 @@ def awr_update_actor(
             training=True,
             rngs={'dropout': dropout_rng},
         )
-        actor_loss = jnp.mean((pred - batch.action) ** 2)
+        if deterministic_actor:
+            actor_loss = jnp.sum((pred - batch.action) ** 2, axis=-1, keepdims=True)
+        else:
+            dist: distrax.MultivariateNormalDiag = pred
+            actor_loss = - dist.log_prob(batch.action).reshape(-1, 1)
+        actor_loss = (exp_a * actor_loss).mean()
         adv = q - v
         return actor_loss, {
             'actor_loss': actor_loss, 
@@ -78,7 +99,7 @@ def update_q(
     batch: Batch,
     discount: float
 ) -> Tuple[Model, Metric]:
-    target_q = batch.reward + discount * (1-batch.terminal) * next_v
+    target_q = batch.reward.reshape(-1,1) + discount * (1-batch.terminal.reshape(-1,1)) * next_v
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         q1, q2 = critic.apply(
             {'params': critic_params},
@@ -99,7 +120,7 @@ def update_q(
         }
     return critic.apply_gradient(critic_loss_fn)
 
-@partial(jax.jit, static_argnames=("expectile", "discount", "tau"))
+@partial(jax.jit, static_argnames=("expectile", "discount", "tau", "deterministic_actor"))
 def _jit_update(
     actor: Model,
     critic: Model,
@@ -108,19 +129,21 @@ def _jit_update(
     batch: Batch,
     expectile: float,
     discount: float,
-    tau: float
+    tau: float,
+    deterministic_actor: bool,
 )-> Tuple[Model, Model, Model, Model, Metric]:
     critic_target, (q1, q2) = critic_target(batch.obs, batch.action)
     q = jnp.minimum(q1, q2)
+    value, v = value(batch.obs)
+    value, next_v = value(batch.next_obs)
     new_value, value_metric = _update_v(q, value, batch, expectile)
-    new_value, v = new_value(batch.obs)
-    new_value, next_v = new_value(batch.next_obs)
-    new_actor, actor_metric = awr_update_actor(
-        actor, q, v, batch, expectile
-    )
     new_critic, critic_metric = update_q(
         critic, next_v, batch, discount
     )
+    new_actor, actor_metric = awr_update_actor(
+        actor, q, v, batch, expectile, deterministic_actor
+    )
+    
     new_target_critic = ema_udpate(new_critic, critic_target, tau)
     return new_actor, new_critic, new_target_critic, new_value, {
         **actor_metric,
@@ -140,15 +163,28 @@ class IQLAgent(BaseAgent):
         self.cfg = cfg
         self.rng, actor_key, critic_key, value_key = jax.random.split(self.rng, 4)
 
-        actor_def = SquashedDeterministicActor(
-            backbone=MLP(
-                hidden_dims=cfg.actor_hidden_dims,
-                layer_norm=cfg.layer_norm,
-                dropout=cfg.dropout
-            ),
-            obs_dim=self.obs_dim,
-            action_dim=self.act_dim
-        )
+        if cfg.deterministic_actor:
+            actor_def = SquashedDeterministicActor(
+                backbone=MLP(
+                    hidden_dims=cfg.actor_hidden_dims,
+                    layer_norm=cfg.layer_norm,
+                    dropout=cfg.dropout
+                ),
+                obs_dim=self.obs_dim,
+                action_dim=self.act_dim
+            )
+        else:
+            actor_def = TanhMeanGaussianActor(
+                backbone=MLP(
+                    hidden_dims=cfg.actor_hidden_dims,
+                    layer_norm=cfg.layer_norm,
+                    dropout=cfg.dropout
+                ),
+                obs_dim=self.obs_dim,
+                action_dim=self.act_dim,
+                conditional_logstd=cfg.conditional_logstd,
+                logstd_min=cfg.policy_logstd_min
+            )
         if cfg.opt_decay_schedule == "cosine" and cfg.lr_decay_steps is not None:
             schedule_fn = optax.cosine_decay_schedule(-cfg.actor_lr, cfg.lr_decay_steps)
             act_opt = optax.chain(optax.scale_by_adam(),
@@ -182,7 +218,7 @@ class IQLAgent(BaseAgent):
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
         )
 
-        value_def = EnsembleCritic(
+        value_def = Critic(
             hidden_dims=cfg.value_hidden_dims,
             layer_norm=cfg.layer_norm,
             dropout=cfg.dropout,
@@ -205,6 +241,7 @@ class IQLAgent(BaseAgent):
             self.cfg.expectile,
             self.cfg.discount,
             self.cfg.tau,
+            self.cfg.deterministic_actor,
         )
         return metric
     
@@ -212,5 +249,12 @@ class IQLAgent(BaseAgent):
         assert not use_behavior, "IQL have no behavior policy"
         assert num_samples==1, "IQL only supports num_samples=1"
         assert not return_history, "IQL does not support return_history"
-        self.actor, action = _jit_sample_action(self.actor, obs)
+        self.rng, self.actor, action = _jit_sample_action(
+            self.rng,
+            self.actor,
+            obs,
+            self.cfg.deterministic_actor,
+            max_action=self.cfg.max_action,
+            min_action=self.cfg.min_action,
+        )
         return action, None

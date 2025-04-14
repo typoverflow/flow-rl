@@ -25,6 +25,7 @@ class Critic(nn.Module):
             x = jnp.concatenate([obs, action], axis=-1)
         x = MLP(
             hidden_dims=self.hidden_dims,
+            output_dim=1,
             activation=self.activation,
             layer_norm=self.layer_norm,
             dropout=self.dropout,

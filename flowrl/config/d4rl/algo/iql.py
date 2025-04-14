@@ -20,9 +20,16 @@ class IQLConfig(BaseAlgoConfig):
     dropout: Optional[float] = None
     layer_norm: bool = False
 
+    deterministic_actor: bool = False
+    conditional_logstd: bool = False
+    policy_logstd_min: float = -5.0
+
     actor_lr: float = 3e-4
     value_lr: float = 3e-4
     critic_lr: float = 3e-4
     clip_grad_norm: Optional[float] = None
     lr_decay_steps: Optional[int] = None
     opt_decay_schedule: str = "cosine"
+
+    min_action: float = -1.0
+    max_action: float = 1.0
