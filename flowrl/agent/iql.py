@@ -81,8 +81,8 @@ def awr_update_actor(
         if deterministic_actor:
             actor_loss = jnp.sum((pred - batch.action) ** 2, axis=-1, keepdims=True)
         else:
-            dist: distrax.MultivariateNormalDiag = pred
-            actor_loss = - dist.log_prob(batch.action).reshape(-1, 1)
+            dist: distrax.Normal = pred
+            actor_loss = - dist.log_prob(batch.action).sum(axis=-1, keepdims=True)
         actor_loss = (exp_a * actor_loss).mean()
         adv = q - v
         return actor_loss, {
@@ -128,6 +128,7 @@ def _jit_update(
     value: Model,
     batch: Batch,
     expectile: float,
+    beta: float,
     discount: float,
     tau: float,
     deterministic_actor: bool,
@@ -141,7 +142,7 @@ def _jit_update(
         critic, next_v, batch, discount
     )
     new_actor, actor_metric = awr_update_actor(
-        actor, q, v, batch, expectile, deterministic_actor
+        actor, q, v, batch, beta, deterministic_actor
     )
     
     new_target_critic = ema_udpate(new_critic, critic_target, tau)
@@ -239,6 +240,7 @@ class IQLAgent(BaseAgent):
             self.value,
             batch,
             self.cfg.expectile,
+            self.cfg.beta,
             self.cfg.discount,
             self.cfg.tau,
             self.cfg.deterministic_actor,

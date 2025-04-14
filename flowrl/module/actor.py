@@ -110,6 +110,8 @@ class TanhMeanGaussianActor(GaussianActor):
         else:
             mean = MLP(output_dim=self.action_dim)(x)
             logstd = self.param("logstd", nn.initializers.zeros, (self.action_dim,))
+            # broadcast logstd to the shape of mean
+            logstd = jnp.broadcast_to(logstd, mean.shape)
         logstd = jnp.clip(logstd, self.logstd_min, self.logstd_max)
-        distribution = distrax.MultivariateNormalDiag(jnp.tanh(mean), jnp.exp(logstd))
+        distribution = distrax.Normal(jnp.tanh(mean), jnp.exp(logstd))
         return distribution
