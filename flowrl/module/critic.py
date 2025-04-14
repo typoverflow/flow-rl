@@ -7,7 +7,7 @@ from .mlp import MLP
 
 
 class Critic(nn.Module):
-    hidden_dims: Sequence[int] = []
+    hidden_dims: Sequence[int]
     activation: Callable = nn.relu
     layer_norm: bool = False
     dropout: Optional[float] = None
@@ -33,7 +33,7 @@ class Critic(nn.Module):
 
 
 class EnsembleCritic(nn.Module):
-    hidden_dims: Sequence[int] = []
+    hidden_dims: Sequence[int]
     activation: Callable = nn.relu
     layer_norm: bool = False
     dropout: Optional[float] = None
@@ -46,19 +46,25 @@ class EnsembleCritic(nn.Module):
         action: Optional[jnp.ndarray] = None,
         training: bool = False,
     ) -> jnp.ndarray:
-        x = nn.vmap(
+        VmapCritic = nn.vmap(
             Critic,
             variable_axes={"params": 0},
             split_rngs={"params": True, "dropout": True},
             in_axes=None,
             out_axes=0,
             axis_size=self.ensemble_size
+        )
+        x = VmapCritic(
+            hidden_dims=self.hidden_dims,
+            activation=self.activation,
+            layer_norm=self.layer_norm,
+            dropout=self.dropout,
         )(obs, action, training)
         return x
 
 
 class Qt(nn.Module):
-    hidden_dims: Sequence[int] = []
+    hidden_dims: Sequence[int]
     activation: Callable = nn.relu
     layer_norm: bool = False
     dropout: Optional[float] = None
@@ -82,7 +88,7 @@ class Qt(nn.Module):
 
 
 class EnsembleQt(nn.Module):
-    hidden_dims: Sequence[int] = []
+    hidden_dims: Sequence[int]
     activation: Callable = nn.relu
     layer_norm: bool = False
     dropout: Optional[float] = None

@@ -1,10 +1,13 @@
 from typing import Dict, List, Tuple
+import jax
 import jax.numpy as jnp
 import orbax.checkpoint as orbax
 from flax.training import orbax_utils
+from flax.training.train_state import TrainState
 
 from flowrl.config.d4rl.algo.base import BaseAlgoConfig
-from flowrl.types import Batch, Metric, Model
+from flowrl.module.model import Model
+from flowrl.types import Batch, Metric
 
 
 class BaseAgent():
@@ -14,7 +17,7 @@ class BaseAgent():
     name = "BaseAgent"
     model_names: List[str] = []
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: BaseAlgoConfig) -> None:
+    def __init__(self, obs_dim: int, act_dim: int, cfg: BaseAlgoConfig, seed: int) -> None:
         """
         Initialize the agent.
 
@@ -23,9 +26,9 @@ class BaseAgent():
             act_dim (int): The dimension of the action space.
             cfg (BaseAlgoConfig): The configuration object for the algorithm.
         """
-        self.cfg = cfg
         self.obs_dim = obs_dim
         self.act_dim = act_dim
+        self.rng = jax.random.PRNGKey(seed)
 
     def prepare_training(self) -> None:
         """
@@ -102,7 +105,7 @@ class BaseAgent():
         Args:
             path (str): The path to save the agent's state.
         """
-        ckpt: Dict[str, Model] = {name: getattr(self, name) for name in self.model_names}
+        ckpt: Dict[str, TrainState] = {name: getattr(self, name).state for name in self.model_names}
         checkpointer = orbax.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(ckpt)
         checkpointer.save(path, ckpt, save_args=save_args)
@@ -116,4 +119,5 @@ class BaseAgent():
         checkpointer = orbax.PyTreeCheckpointer()
         ckpt = checkpointer.restore(path)
         for name in self.model_names:
-            setattr(self, name, ckpt[name])
+            model: Model = getattr(self, name)
+            setattr(self, name, model.replace(state=ckpt[name]))

@@ -41,7 +41,8 @@ class Trainer():
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.env.observation_space.shape[0],
             act_dim=self.env.action_space.shape[0],
-            cfg=cfg.algo
+            cfg=cfg.algo,
+            seed=cfg.seed,
         )
 
     def train(self):

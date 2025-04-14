@@ -9,8 +9,9 @@ class DummyAgent(BaseAgent):
     name = "DummyAgent"
     model_names = []
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: DummyConfig) -> None:
-        super().__init__(obs_dim, act_dim, cfg)
+    def __init__(self, obs_dim: int, act_dim: int, cfg: DummyConfig, seed: int) -> None:
+        super().__init__(obs_dim, act_dim, cfg, seed)
+        self.cfg = cfg
 
     def train_step(self, batch, step: int):
         return {"loss": 0.0}

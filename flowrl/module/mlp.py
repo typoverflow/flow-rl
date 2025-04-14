@@ -1,3 +1,4 @@
+from dataclasses import field
 import flax.linen as nn
 import jax.numpy as jnp
 
@@ -7,7 +8,7 @@ from .initialization import default_init
 
 
 class MLP(nn.Module):
-    hidden_dims: Sequence[int] = []
+    hidden_dims: Sequence[int] = field(default_factory=lambda: [])
     output_dim: int = 0
     activation: Callable = nn.relu
     layer_norm: bool = False
@@ -60,7 +61,7 @@ class ResidualLinear(nn.Module):
 
 
 class ResidualMLP(nn.Module):
-    hidden_dims: Sequence[int] = []
+    hidden_dims: Sequence[int] = field(default_factory=lambda: [])
     output_dim: int = 0
     multiplier: int = 4
     activation: Callable = nn.relu
