@@ -51,7 +51,7 @@ class Trainer():
             if self.cfg.mode == "pretrain":
                 for i in trange(self.cfg.pretrain_steps, desc="pretraining"):
                     if i % self.cfg.eval.interval == 0:
-                        self.eval_and_save(i, use_behavior=True)
+                        self.eval_and_save(i, use_behavior=True, prefix="pretrain_eval")
                     batch = self.dataset.sample(batch_size=self.cfg.data.batch_size)
                     update_info = self.agent.pretrain_step(batch, step=i)
                     if i % self.cfg.log.interval == 0:
@@ -79,7 +79,7 @@ class Trainer():
         except (KeyboardInterrupt, RuntimeError) as e:
             print("Stopped by exception: ", e)
     
-    def eval_and_save(self, step: int, use_behavior: bool, ):
+    def eval_and_save(self, step: int, use_behavior: bool, prefix: str = "eval"):
         returns, lengths, info = [], [], {}
         for _ in range(self.cfg.eval.num_episodes):
             (observation, _), done = self.env.reset(), False
@@ -106,7 +106,7 @@ class Trainer():
             'max': np.max(returns),
             'length': np.mean(lengths)
         }
-        self.logger.log_scalars("pretrain_eval", eval_metrics, step=step)
+        self.logger.log_scalars(prefix, eval_metrics, step=step)
         if self.cfg.log.save_ckpt:
             self.agent.save(os.path.join(self.ckpt_save_dir, f"{step}.ckpt"))
 

@@ -16,7 +16,6 @@ import optax
 
 @partial(jax.jit, static_argnames=("deterministic_actor", "max_action", "min_action"))
 def _jit_sample_action(
-    rng: PRNGKey,
     actor: Model,
     obs: jnp.ndarray,
     deterministic_actor: bool,
@@ -30,11 +29,10 @@ def _jit_sample_action(
         actor, action = actor(obs)
     else:
         actor, dist = actor(obs)
-        dist: distrax.MultivariateNormalDiag
-        rng, sample_key = jax.random.split(rng)
-        action = dist.sample(seed=sample_key)
+        dist: distrax.Normal
+        action = dist.mean()
         action = jnp.clip(action, min_action, max_action)
-    return rng, actor, action
+    return actor, action
 
 def _update_v(
     q: jnp.ndarray,
@@ -251,8 +249,7 @@ class IQLAgent(BaseAgent):
         assert not use_behavior, "IQL have no behavior policy"
         assert num_samples==1, "IQL only supports num_samples=1"
         assert not return_history, "IQL does not support return_history"
-        self.rng, self.actor, action = _jit_sample_action(
-            self.rng,
+        self.actor, action = _jit_sample_action(
             self.actor,
             obs,
             self.cfg.deterministic_actor,
