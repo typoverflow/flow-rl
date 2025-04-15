@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
-from .algo.base import BaseAlgoConfig
+
 from omegaconf import MISSING
+
+from .algo.base import BaseAlgoConfig
 
 
 @dataclass
@@ -9,7 +11,7 @@ class EvalConfig:
     interval: int = 50000
     stats_interval: int = 2000
     num_episodes: int = 10
-    num_samples: int = 10
+    num_samples: int = 1
     temperature: Optional[float] = 0.0 # None is uniform, 0.0 is greedy
 
 @dataclass
@@ -38,8 +40,8 @@ class Config:
     device: str = "0"
     task: str = "hopper-medium-replay-v2"  # the environment to train on
     algo: BaseAlgoConfig = MISSING
-    pretrain_steps: int = int(2e6)
-    train_steps: int = int(2e6)
+    pretrain_steps: int = int(1e6)
+    train_steps: int = int(1e6)
     norm_obs: bool = False
     mode: str = "train" # ["pretrain" or "train" or "debug"]
     load: Optional[str] = None

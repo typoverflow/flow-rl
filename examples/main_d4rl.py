@@ -1,17 +1,24 @@
 import os
+
 import hydra
 import numpy as np
 import omegaconf
-from tqdm import trange
-from omegaconf import OmegaConf
 import wandb
+from gymnasium.wrappers.transform_observation import TransformObservation
+from omegaconf import OmegaConf
+from tqdm import trange
 
+from flowrl.agent import *
+from flowrl.config.d4rl import Config
 from flowrl.dataset.d4rl import D4RLDataset
 from flowrl.env.offline.d4rl import make_env
-from flowrl.utils.logger import CompositeLogger, TensorboardLogger
-from gymnasium.wrappers.transform_observation import TransformObservation
-from flowrl.agent import SUPPORTED_AGENTS
-from flowrl.config.d4rl import Config
+from flowrl.types import *
+from flowrl.utils.logger import CompositeLogger
+
+SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
+    "dummy": DummyAgent,
+    "iql": IQLAgent,
+}
 
 
 class Trainer():
@@ -40,14 +47,15 @@ class Trainer():
         print(f"\nSave results to: {self.logger.log_dir}\n")
 
         self.dataset = D4RLDataset(
-            task=cfg.task, 
+            task=cfg.task,
             clip_eps=cfg.data.clip_eps,
             scan=cfg.data.scan,
             norm_obs=cfg.norm_obs,
             norm_reward=cfg.data.norm_reward,
         )
         self.obs_mean, self.obs_std = self.dataset.get_obs_stats()
-        self.env = TransformObservation(make_env(cfg.task), lambda obs: (obs-self.obs_mean)/self.obs_std)
+        self.env = make_env(cfg.task)
+        self.env = TransformObservation(self.env, lambda obs: (obs-self.obs_mean)/self.obs_std)
 
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.env.observation_space.shape[0],
@@ -86,10 +94,10 @@ class Trainer():
                 batch = self.dataset.sample(batch_size=self.cfg.data.batch_size)
                 update_info = self.agent.train_step(batch, step=i)
                 if i % self.cfg.log.interval == 0:
-                    self.logger.log_scalars("train", update_info, step=i)
+                    self.logger.log_scalars("", update_info, step=i)
         except (KeyboardInterrupt, RuntimeError) as e:
             print("Stopped by exception: ", e)
-    
+
     def eval_and_save(self, step: int, use_behavior: bool, prefix: str = "eval"):
         returns, lengths, info = [], [], {}
         for _ in range(self.cfg.eval.num_episodes):

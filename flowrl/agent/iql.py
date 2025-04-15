@@ -1,21 +1,25 @@
 from functools import partial
 from typing import Tuple
+
 import distrax
 import jax
-from flowrl.config.d4rl.algo.iql import IQLConfig
-from flowrl.functional.ema import ema_udpate
-from flowrl.functional.loss import expectile_regression
-from flowrl.module.mlp import MLP
-from flowrl.module.actor import SquashedDeterministicActor, TanhMeanGaussianActor
-from flowrl.module.critic import Critic, EnsembleCritic
-from flowrl.types import Batch, Metric, PRNGKey, Param
-from flowrl.module.model import Model
-from .base import BaseAgent
 import jax.numpy as jnp
 import optax
 
+from flowrl.config.d4rl.algo.iql import IQLConfig
+from flowrl.functional.ema import ema_udpate
+from flowrl.functional.loss import expectile_regression
+from flowrl.module.actor import SquashedDeterministicActor, TanhMeanGaussianActor
+from flowrl.module.critic import Critic, EnsembleCritic
+from flowrl.module.mlp import MLP
+from flowrl.module.model import Model
+from flowrl.types import Batch, Metric, Param, PRNGKey
+
+from .base import BaseAgent
+
+
 @partial(jax.jit, static_argnames=("deterministic_actor", "max_action", "min_action"))
-def _jit_sample_action(
+def jit_sample_action(
     actor: Model,
     obs: jnp.ndarray,
     deterministic_actor: bool,
@@ -26,55 +30,80 @@ def _jit_sample_action(
     Sample action from the actor network.
     """
     if deterministic_actor:
-        actor, action = actor(obs)
+        action = actor(obs, training=False)
     else:
-        actor, dist = actor(obs)
+        dist = actor(obs, training=False)
         dist: distrax.Normal
         action = dist.mean()
         action = jnp.clip(action, min_action, max_action)
-    return actor, action
+    return action
 
-def _update_v(
+def update_v(
+    rng: PRNGKey,
     q: jnp.ndarray,
     value: Model,
     batch: Batch,
     expectile: float,
-) -> Tuple[Model, Metric]:
-    def value_loss_fn(value_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
+) -> Tuple[PRNGKey, Model, Metric]:
+    rng, dropout_rng = jax.random.split(rng)
+    def value_loss_fn(value_params: Param) -> Tuple[jnp.ndarray, Metric]:
         v = value.apply(
-            {'params': value_params},
+            {"params": value_params},
             batch.obs,
             training=True,
-            rngs={'dropout': dropout_rng},
+            rngs={"dropout": dropout_rng},
         )
         value_loss = expectile_regression(v, q, expectile).mean()
         return value_loss, {
-            'value_loss': value_loss,
-            'v_mean': v.mean(),
-            'v_std': v.std(),
-            'v_norm': jnp.linalg.norm(v, axis=-1).mean(),
+            "loss/value_loss": value_loss,
+            "misc/v_mean": v.mean(),
         }
-    return value.apply_gradient(value_loss_fn)
+    new_value, metrics = value.apply_gradient(value_loss_fn)
+    return rng, new_value, metrics
+
+def update_q(
+    rng: PRNGKey,
+    critic: Model,
+    next_v: jnp.array,
+    batch: Batch,
+    discount: float
+) -> Tuple[PRNGKey, Model, Metric]:
+    rng, dropout_rng = jax.random.split(rng)
+    target_q = batch.reward + discount * (1-batch.terminal) * next_v
+    def critic_loss_fn(critic_params: Param) -> Tuple[jnp.ndarray, Metric]:
+        qs = critic.apply(
+            {"params": critic_params},
+            batch.obs,
+            batch.action,
+            training=True,
+            rngs={"dropout": dropout_rng},
+        )
+        critic_loss = ((qs - target_q[jnp.newaxis, ...])**2).mean()
+        return critic_loss, {
+            "loss/critic_loss": critic_loss,
+            "misc/q_mean": qs.mean()
+        }
+    new_critic, metrics = critic.apply_gradient(critic_loss_fn)
+    return rng, new_critic, metrics
 
 def awr_update_actor(
+    rng: PRNGKey,
     actor: Model,
     q: jnp.array,
     v: jnp.array,
     batch: Batch,
     beta: float,
     deterministic_actor: bool,
-) -> Tuple[Model, Metric]:
+) -> Tuple[PRNGKey, Model, Metric]:
+    rng, dropout_rng = jax.random.split(rng)
     exp_a = jnp.exp((q - v) * beta)
     exp_a = jnp.minimum(exp_a, 100.0)  # truncate the weights...
-    def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        # it creates a function of params, so it has to directly use net.apply() function rather than
-        # the __call__() function of the Model object "actor"
-        # here training is True for this forward pass is used for gradient descent
+    def actor_loss_fn(actor_params: Param) -> Tuple[jnp.ndarray, Metric]:
         pred = actor.apply(
-            {'params': actor_params},
+            {"params": actor_params},
             batch.obs,
             training=True,
-            rngs={'dropout': dropout_rng},
+            rngs={"dropout": dropout_rng},
         )
         if deterministic_actor:
             actor_loss = jnp.sum((pred - batch.action) ** 2, axis=-1, keepdims=True)
@@ -84,42 +113,16 @@ def awr_update_actor(
         actor_loss = (exp_a * actor_loss).mean()
         adv = q - v
         return actor_loss, {
-            'actor_loss': actor_loss, 
-            'adv_mean': adv.mean(),
-            'adv_std': adv.std(),
-            'adv_norm': jnp.linalg.norm(adv, axis=-1).mean(),
+            "loss/actor_loss": actor_loss,
+            "misc/adv_mean": adv.mean(),
+            "misc/weight_mean": exp_a.mean()
         }
-    return actor.apply_gradient(actor_loss_fn)
+    new_actor, metrics = actor.apply_gradient(actor_loss_fn)
+    return rng, new_actor, metrics
 
-def update_q(
-    critic: Model,
-    next_v: jnp.array,
-    batch: Batch,
-    discount: float
-) -> Tuple[Model, Metric]:
-    target_q = batch.reward.reshape(-1,1) + discount * (1-batch.terminal.reshape(-1,1)) * next_v
-    def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        q1, q2 = critic.apply(
-            {'params': critic_params},
-            batch.obs,
-            batch.action,
-            training=True,
-            rngs={'dropout': dropout_rng},
-        )
-        critic_loss = ((q1 - target_q)**2 + (q2 - target_q)**2).mean()
-        return critic_loss, {
-            'critic_loss': critic_loss,
-            'q1_mean': q1.mean(),
-            'q1_std': q1.std(),
-            'q1_norm': jnp.linalg.norm(q1, axis=-1).mean(),
-            'q2_mean': q2.mean(),
-            'q2_std': q2.std(),
-            'q2_norm': jnp.linalg.norm(q2, axis=-1).mean(),
-        }
-    return critic.apply_gradient(critic_loss_fn)
-
-@partial(jax.jit, static_argnames=("expectile", "discount", "tau", "deterministic_actor"))
-def _jit_update(
+@partial(jax.jit, static_argnames=("expectile", "beta", "discount", "tau", "deterministic_actor"))
+def jit_update_iql(
+    rng: PRNGKey,
     actor: Model,
     critic: Model,
     critic_target: Model,
@@ -130,21 +133,21 @@ def _jit_update(
     discount: float,
     tau: float,
     deterministic_actor: bool,
-)-> Tuple[Model, Model, Model, Model, Metric]:
-    critic_target, (q1, q2) = critic_target(batch.obs, batch.action)
-    q = jnp.minimum(q1, q2)
-    value, v = value(batch.obs)
-    value, next_v = value(batch.next_obs)
-    new_value, value_metric = _update_v(q, value, batch, expectile)
-    new_critic, critic_metric = update_q(
-        critic, next_v, batch, discount
+)-> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
+    q_target = critic_target(batch.obs, batch.action, training=False)
+    q_target = q_target.min(axis=0)
+    v = value(batch.obs, training=False)
+    next_v = value(batch.next_obs, training=False)
+    rng, new_value, value_metric = update_v(rng, q_target, value, batch, expectile)
+    rng, new_critic, critic_metric = update_q(
+        rng, critic, next_v, batch, discount
     )
-    new_actor, actor_metric = awr_update_actor(
-        actor, q, v, batch, beta, deterministic_actor
+    rng, new_actor, actor_metric = awr_update_actor(
+        rng, actor, q_target, v, batch, beta, deterministic_actor
     )
-    
+
     new_target_critic = ema_udpate(new_critic, critic_target, tau)
-    return new_actor, new_critic, new_target_critic, new_value, {
+    return rng, new_actor, new_critic, new_target_critic, new_value, {
         **actor_metric,
         **critic_metric,
         **value_metric,
@@ -231,7 +234,8 @@ class IQLAgent(BaseAgent):
         )
 
     def train_step(self, batch, step: int):
-        self.actor, self.critic, self.critic_target, self.value, metric = _jit_update(
+        self.rng, self.actor, self.critic, self.critic_target, self.value, metric = jit_update_iql(
+            self.rng,
             self.actor,
             self.critic,
             self.critic_target,
@@ -244,12 +248,12 @@ class IQLAgent(BaseAgent):
             self.cfg.deterministic_actor,
         )
         return metric
-    
+
     def sample_actions(self, obs, use_behavior = False, temperature = 0, num_samples = 1, return_history = False):
         assert not use_behavior, "IQL have no behavior policy"
         assert num_samples==1, "IQL only supports num_samples=1"
         assert not return_history, "IQL does not support return_history"
-        self.actor, action = _jit_sample_action(
+        action = jit_sample_action(
             self.actor,
             obs,
             self.cfg.deterministic_actor,

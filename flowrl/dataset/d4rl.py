@@ -59,8 +59,8 @@ class D4RLDataset():
         dataset = {
             "obs": raw_dataset["observations"],
             "action": raw_dataset["actions"],
-            "reward": raw_dataset["rewards"],
-            "terminal": raw_dataset["terminals"],
+            "reward": raw_dataset["rewards"][..., None],
+            "terminal": raw_dataset["terminals"][..., None],
             "next_obs": raw_dataset["next_observations"],
         }
         if clip_eps > 0:
