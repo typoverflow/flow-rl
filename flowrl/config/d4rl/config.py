@@ -27,6 +27,9 @@ class LogConfig:
     interval: int = 500
     save_ckpt: bool = False
     save_video: bool = False
+    # wandb
+    project: str = MISSING
+    entity: str = MISSING
 
 @dataclass
 class Config:

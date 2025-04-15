@@ -4,10 +4,11 @@ import numpy as np
 import omegaconf
 from tqdm import trange
 from omegaconf import OmegaConf
+import wandb
 
 from flowrl.dataset.d4rl import D4RLDataset
 from flowrl.env.offline.d4rl import make_env
-from flowrl.utils.logger import TensorboardLogger
+from flowrl.utils.logger import CompositeLogger, TensorboardLogger
 from gymnasium.wrappers.transform_observation import TransformObservation
 from flowrl.agent import SUPPORTED_AGENTS
 from flowrl.config.d4rl import Config
@@ -17,10 +18,19 @@ class Trainer():
     def __init__(self, cfg: Config):
         self.cfg = cfg
 
-        self.logger = TensorboardLogger(
-            "/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.task]),
-            "_".join(["seed"+str(cfg.seed), cfg.log.tag]),
-            activate=True
+        self.logger = CompositeLogger(
+            log_dir="/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.task]),
+            name="_".join(["seed"+str(cfg.seed), cfg.log.tag]),
+            logger_config={
+                "TensorboardLogger": {"activate": True},
+                "WandbLogger": {
+                    "activate": True,
+                    "config": OmegaConf.to_container(cfg),
+                    "settings": wandb.Settings(_disable_stats=True),
+                    "project": cfg.log.project,
+                    "entity": cfg.log.entity
+                } if ("project" in cfg.log and "entity" in cfg.log) else {"activate": False},
+            }
         )
         self.ckpt_save_dir = os.path.join(self.logger.log_dir, "ckpt")
         OmegaConf.save(cfg, os.path.join(self.logger.log_dir, "config.yaml"))
