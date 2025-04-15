@@ -17,6 +17,7 @@ def get_install_requires():
         "jax[cuda12]==0.5.3",
         "flax==0.10.5",
         "gymnasium==0.29.1",
+        'shimmy==1.3.0',
         "gym==0.23.1",
         "mujoco_py==2.1.2.14",
         'Cython<3',
