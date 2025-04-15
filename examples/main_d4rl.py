@@ -1,6 +1,7 @@
 import os
 import hydra
 import numpy as np
+import omegaconf
 from tqdm import trange
 from omegaconf import OmegaConf
 
@@ -115,6 +116,15 @@ class Trainer():
 def main(cfg: Config):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
+    try:
+        algo_name = cfg.algo.name
+    except omegaconf.errors.MissingMandatoryValue:
+        err_string = "Algorithm is not specified. Please specify the algorithm via `algo=<algo_name>` in command."
+        err_string += "\nAvailable algorithms are:\n  "
+        err_string += "\n  ".join(SUPPORTED_AGENTS.keys())
+        print(err_string)
+        exit(1)
 
     trainer = Trainer(cfg)
     trainer.train()

@@ -52,6 +52,7 @@ class Config:
     })
     defaults: List[Any] = field(default_factory=lambda: [
         "_self_",
+        {"algo": "base"},
         {"override hydra/hydra_logging": "disabled"},
         {"override hydra/job_logging": "disabled"},
     ])
