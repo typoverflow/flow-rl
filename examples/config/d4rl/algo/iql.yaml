@@ -1,20 +1,18 @@
 # @package _global_
 
+data:
+  norm_obs: true
+  norm_reward: iql_mujoco
+
 algo:
   name: iql
   discount: 0.99
   tau: 0.005
   expectile: 0.7
   beta: 3.0
-  actor_hidden_dims:
-  - 256
-  - 256
-  value_hidden_dims:
-  - 256
-  - 256
-  critic_hidden_dims:
-  - 256
-  - 256
+  actor_hidden_dims: [256, 256]
+  value_hidden_dims: [256, 256]
+  critic_hidden_dims: [256, 256]
   critic_ensemble_size: 2
   dropout: null
   layer_norm: false
