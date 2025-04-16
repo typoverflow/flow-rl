@@ -473,7 +473,7 @@ class WandbLogger(BaseLogger):
             self.run.define_metric(ek, step_metric="step")
         self.keys = self.keys.union(extra_keys)
         tag_scalar_dict["step"] = step
-        self.run.log(tag_scalar_dict, step=None)
+        self.run.log(tag_scalar_dict)
 
     def log_scalar(self, tag: str, value: float, step: Optional[int] = None):
         self.log_scalars(main_tag=None, tag_scalar_dict={tag: value}, step=step)
