@@ -6,31 +6,31 @@ from omegaconf import MISSING
 @dataclass
 class IQLConfig(BaseAlgoConfig):
     """Configuration class for the IQL (Implicit Q-Learning) algorithm."""
-    name: str = "iql"
+    name: str
 
-    discount: float = MISSING
+    discount: float
 
-    tau: float = MISSING # soft target update
-    expectile: float = MISSING
-    beta: float = MISSING # inverse temperature for awr
+    tau: float # soft target update
+    expectile: float
+    beta: float # inverse temperature for awr
 
-    actor_hidden_dims: List[int] = MISSING
-    value_hidden_dims: List[int] = MISSING
-    critic_hidden_dims: List[int] = MISSING
-    critic_ensemble_size: int = MISSING
-    dropout: Optional[float] = MISSING
-    layer_norm: bool = MISSING
+    actor_hidden_dims: List[int]
+    value_hidden_dims: List[int]
+    critic_hidden_dims: List[int]
+    critic_ensemble_size: int
+    dropout: Optional[float]
+    layer_norm: bool
 
-    deterministic_actor: bool = MISSING
-    conditional_logstd: bool = MISSING
-    policy_logstd_min: float = MISSING
+    deterministic_actor: bool
+    conditional_logstd: bool
+    policy_logstd_min: float
 
-    actor_lr: float = MISSING
-    value_lr: float = MISSING
-    critic_lr: float = MISSING
-    clip_grad_norm: Optional[float] = MISSING
-    lr_decay_steps: Optional[int] = MISSING
-    opt_decay_schedule: str = MISSING
+    actor_lr: float
+    value_lr: float
+    critic_lr: float
+    clip_grad_norm: Optional[float]
+    lr_decay_steps: Optional[int]
+    opt_decay_schedule: str
 
-    min_action: float = MISSING
-    max_action: float = MISSING
+    min_action: float
+    max_action: float

@@ -1,31 +1,31 @@
-defaults:
-  - /algo/iql_cfg_def@_here_
-  - _self_
+# @package _global_
 
-discount: 0.99
-tau: 0.005
-expectile: 0.7
-beta: 3.0
-actor_hidden_dims:
-- 256
-- 256
-value_hidden_dims:
-- 256
-- 256
-critic_hidden_dims:
-- 256
-- 256
-critic_ensemble_size: 2
-dropout: null
-layer_norm: false
-deterministic_actor: false
-conditional_logstd: false
-policy_logstd_min: -5.0
-actor_lr: 0.0003
-value_lr: 0.0003
-critic_lr: 0.0003
-clip_grad_norm: null
-lr_decay_steps: ${train_steps}
-opt_decay_schedule: cosine
-min_action: -1.0
-max_action: 1.0
+algo:
+  name: iql
+  discount: 0.99
+  tau: 0.005
+  expectile: 0.7
+  beta: 3.0
+  actor_hidden_dims:
+  - 256
+  - 256
+  value_hidden_dims:
+  - 256
+  - 256
+  critic_hidden_dims:
+  - 256
+  - 256
+  critic_ensemble_size: 2
+  dropout: null
+  layer_norm: false
+  deterministic_actor: false
+  conditional_logstd: false
+  policy_logstd_min: -5.0
+  actor_lr: 0.0003
+  value_lr: 0.0003
+  critic_lr: 0.0003
+  clip_grad_norm: null
+  lr_decay_steps: ${train_steps}
+  opt_decay_schedule: cosine
+  min_action: -1.0
+  max_action: 1.0

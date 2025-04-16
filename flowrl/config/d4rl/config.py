@@ -1,8 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
-
-from .algo.base import BaseAlgoConfig
-
+from typing import Any, Optional
 
 @dataclass
 class EvalConfig:
@@ -38,7 +35,7 @@ class Config:
     seed: int
     device: str
     task: str # the environment to train on
-    algo: BaseAlgoConfig
+    algo: Any
     pretrain_steps: int
     train_steps: int
     load: Optional[str]
