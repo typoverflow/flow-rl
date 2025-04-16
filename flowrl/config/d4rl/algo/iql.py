@@ -1,35 +1,36 @@
 from typing import List, Optional
 from .base import BaseAlgoConfig
 from dataclasses import dataclass, field
+from omegaconf import MISSING
 
 @dataclass
 class IQLConfig(BaseAlgoConfig):
     """Configuration class for the IQL (Implicit Q-Learning) algorithm."""
     name: str = "iql"
 
-    discount: float = 0.99
+    discount: float = MISSING
 
-    tau: float = 0.005 # soft target update
-    expectile: float = 0.7
-    beta: float = 3.0 # inverse temperature for awr
+    tau: float = MISSING # soft target update
+    expectile: float = MISSING
+    beta: float = MISSING # inverse temperature for awr
 
-    actor_hidden_dims: List[int] = field(default_factory=lambda: [256, 256])
-    value_hidden_dims: List[int] = field(default_factory=lambda: [256, 256])
-    critic_hidden_dims: List[int] = field(default_factory=lambda: [256, 256])
-    critic_ensemble_size: int = 2
-    dropout: Optional[float] = None
-    layer_norm: bool = False
+    actor_hidden_dims: List[int] = MISSING
+    value_hidden_dims: List[int] = MISSING
+    critic_hidden_dims: List[int] = MISSING
+    critic_ensemble_size: int = MISSING
+    dropout: Optional[float] = MISSING
+    layer_norm: bool = MISSING
 
-    deterministic_actor: bool = False
-    conditional_logstd: bool = False
-    policy_logstd_min: float = -5.0
+    deterministic_actor: bool = MISSING
+    conditional_logstd: bool = MISSING
+    policy_logstd_min: float = MISSING
 
-    actor_lr: float = 3e-4
-    value_lr: float = 3e-4
-    critic_lr: float = 3e-4
-    clip_grad_norm: Optional[float] = None
-    lr_decay_steps: Optional[int] = None
-    opt_decay_schedule: str = "cosine"
+    actor_lr: float = MISSING
+    value_lr: float = MISSING
+    critic_lr: float = MISSING
+    clip_grad_norm: Optional[float] = MISSING
+    lr_decay_steps: Optional[int] = MISSING
+    opt_decay_schedule: str = MISSING
 
-    min_action: float = -1.0
-    max_action: float = 1.0
+    min_action: float = MISSING
+    max_action: float = MISSING

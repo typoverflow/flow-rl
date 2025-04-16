@@ -1,63 +1,47 @@
-from dataclasses import dataclass, field
-from typing import Any, List, Optional
-
-from omegaconf import MISSING
-
+from dataclasses import dataclass
+from typing import Optional
 from .algo.base import BaseAlgoConfig
 
 
 @dataclass
 class EvalConfig:
-    interval: int = 50000
-    stats_interval: int = 2000
-    num_episodes: int = 10
-    num_samples: int = 1
-    temperature: Optional[float] = 0.0 # None is uniform, 0.0 is greedy
+    interval: int
+    stats_interval: int
+    num_episodes: int
+    num_samples: int
+    temperature: Optional[float] # None is uniform, 0.0 is greedy
 
 @dataclass
 class DataConfig:
-    dataset: str = "d4rl"
-    norm_reward: str = "iql_mujoco"
-    batch_size: int = 256 # mini-batch size, used in pretraining and offline RL
-    scan: bool = True # Scanning or random batch sampling of the dataset.
-    clip_eps: float = 0.0 # Clip the action to [-(1-clip_eps), 1-clip_eps]
+    dataset: str
+    norm_reward: str
+    batch_size: int # mini-batch size, used in pretraining and offline RL
+    scan: bool # Scanning or random batch sampling of the dataset.
+    clip_eps: float # Clip the action to [-(1-clip_eps), 1-clip_eps]
 
 @dataclass
 class LogConfig:
-    dir: str = "logs"
-    tag: str = "debug"  # the name of the experiment, use for logging
-    interval: int = 500
-    save_ckpt: bool = False
-    save_video: bool = False
+    dir: str
+    tag: str # the name of the experiment, use for logging
+    interval: int
+    save_ckpt: bool
+    save_video: bool
     # wandb
-    project: str = MISSING
-    entity: str = MISSING
+    project: str
+    entity: str
 
 @dataclass
 class Config:
     # base
-    seed: int = 0
-    device: str = "0"
-    task: str = "hopper-medium-replay-v2"  # the environment to train on
-    algo: BaseAlgoConfig = MISSING
-    pretrain_steps: int = int(1e6)
-    train_steps: int = int(1e6)
-    norm_obs: bool = False
-    mode: str = "train" # ["pretrain" or "train" or "debug"]
-    load: Optional[str] = None
+    seed: int
+    device: str
+    task: str # the environment to train on
+    algo: BaseAlgoConfig
+    pretrain_steps: int
+    train_steps: int
+    norm_obs: bool
+    load: Optional[str]
 
-    log: LogConfig = field(default_factory=LogConfig)
-    data: DataConfig = field(default_factory=DataConfig)
-    eval: EvalConfig = field(default_factory=EvalConfig)
-
-    # Hydra config
-    hydra: Any = field(default_factory=lambda: {
-        "output_subdir": None,
-        "run": {"dir": "."},
-    })
-    defaults: List[Any] = field(default_factory=lambda: [
-        "_self_",
-        {"algo": "base"},
-        {"override hydra/hydra_logging": "disabled"},
-        {"override hydra/job_logging": "disabled"},
-    ])
+    log: LogConfig
+    data: DataConfig
+    eval: EvalConfig

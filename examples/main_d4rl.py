@@ -1,4 +1,5 @@
 import os
+from typing import Type
 
 import hydra
 import numpy as np
@@ -15,8 +16,7 @@ from flowrl.env.offline.d4rl import make_env
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 
-SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
-    "dummy": DummyAgent,
+SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "iql": IQLAgent,
 }
 
@@ -66,20 +66,18 @@ class Trainer():
 
     def train(self):
         try:
-            # pretraining
-            if self.cfg.mode == "pretrain":
-                for i in trange(self.cfg.pretrain_steps, desc="pretraining"):
-                    if i % self.cfg.eval.interval == 0:
-                        self.eval_and_save(i, use_behavior=True, prefix="pretrain_eval")
-                    batch = self.dataset.sample(batch_size=self.cfg.data.batch_size)
-                    update_info = self.agent.pretrain_step(batch, step=i)
-                    if i % self.cfg.log.interval == 0:
-                        self.logger.log_scalars("pretrain", update_info, step=i)
-                self.eval_and_save(i+1, use_behavior=True)
-                return
+            if self.cfg.load is not None:
+                self.agent.load(self.cfg.load)
             else:
-                if self.cfg.load is not None:
-                    self.agent.load(self.cfg.load)
+                if self.cfg.pretrain_steps > 0:
+                    for i in trange(self.cfg.pretrain_steps, desc="pretraining"):
+                        if i % self.cfg.eval.interval == 0:
+                            self.eval_and_save(i, use_behavior=True, prefix="pretrain_eval")
+                        batch = self.dataset.sample(batch_size=self.cfg.data.batch_size)
+                        update_info = self.agent.pretrain_step(batch, step=i)
+                        if i % self.cfg.log.interval == 0:
+                            self.logger.log_scalars("pretrain", update_info, step=i)
+                    self.eval_and_save(i+1, use_behavior=True)
 
             # actual training
             self.agent.prepare_training()

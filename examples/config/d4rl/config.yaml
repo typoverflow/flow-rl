@@ -1,0 +1,39 @@
+defaults:
+  - /config_cfg_def@_here_
+  - _self_
+  - algo: base # raise error if algo is not specified
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+seed: 0
+device: '0'
+task: ???
+pretrain_steps: 0
+train_steps: 1000000
+norm_obs: false
+load: null
+log:
+  dir: logs
+  tag: debug
+  interval: 500
+  save_ckpt: false
+  save_video: false
+  project: ???
+  entity: ???
+data:
+  dataset: d4rl
+  norm_reward: iql_mujoco
+  batch_size: 256
+  scan: true
+  clip_eps: 0.0
+eval:
+  interval: 10000
+  stats_interval: 2000
+  num_episodes: 10
+  num_samples: 1
+  temperature: 0.0
