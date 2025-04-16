@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
+
 from .algo.base import BaseAlgoConfig
 
 
@@ -14,6 +15,7 @@ class EvalConfig:
 @dataclass
 class DataConfig:
     dataset: str
+    norm_obs: bool
     norm_reward: str
     batch_size: int # mini-batch size, used in pretraining and offline RL
     scan: bool # Scanning or random batch sampling of the dataset.
@@ -39,7 +41,6 @@ class Config:
     algo: BaseAlgoConfig
     pretrain_steps: int
     train_steps: int
-    norm_obs: bool
     load: Optional[str]
 
     log: LogConfig

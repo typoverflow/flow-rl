@@ -4,11 +4,11 @@ from typing import Type
 import hydra
 import numpy as np
 import omegaconf
-import wandb
 from gymnasium.wrappers.transform_observation import TransformObservation
 from omegaconf import OmegaConf
 from tqdm import trange
 
+import wandb
 from flowrl.agent import *
 from flowrl.config.d4rl import Config
 from flowrl.dataset.d4rl import D4RLDataset
@@ -50,7 +50,7 @@ class Trainer():
             task=cfg.task,
             clip_eps=cfg.data.clip_eps,
             scan=cfg.data.scan,
-            norm_obs=cfg.norm_obs,
+            norm_obs=cfg.data.norm_obs,
             norm_reward=cfg.data.norm_reward,
         )
         self.obs_mean, self.obs_std = self.dataset.get_obs_stats()
@@ -94,7 +94,7 @@ class Trainer():
                 if i % self.cfg.log.interval == 0:
                     self.logger.log_scalars("", update_info, step=i)
         except (KeyboardInterrupt, RuntimeError) as e:
-            print("Stopped by exception: ", e)
+            print("Stopped by exception: ", str(e))
 
     def eval_and_save(self, step: int, use_behavior: bool, prefix: str = "eval"):
         returns, lengths, info = [], [], {}

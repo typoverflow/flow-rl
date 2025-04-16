@@ -15,7 +15,6 @@ device: '0'
 task: ???
 pretrain_steps: 0
 train_steps: 1000000
-norm_obs: false
 load: null
 log:
   dir: logs
@@ -27,7 +26,8 @@ log:
   entity: ???
 data:
   dataset: d4rl
-  norm_reward: iql_mujoco
+  norm_obs: false
+  norm_reward: none
   batch_size: 256
   scan: true
   clip_eps: 0.0

@@ -25,7 +25,7 @@ actor_lr: 0.0003
 value_lr: 0.0003
 critic_lr: 0.0003
 clip_grad_norm: null
-lr_decay_steps: null
+lr_decay_steps: ${train_steps}
 opt_decay_schedule: cosine
 min_action: -1.0
 max_action: 1.0
