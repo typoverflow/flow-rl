@@ -1,4 +1,6 @@
+import os
 from typing import Dict, List, Tuple
+
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as orbax
@@ -28,6 +30,7 @@ class BaseAgent():
         """
         self.obs_dim = obs_dim
         self.act_dim = act_dim
+        self.cfg = cfg
         self.rng = jax.random.PRNGKey(seed)
 
     def prepare_training(self) -> None:
@@ -60,7 +63,7 @@ class BaseAgent():
             Metric: The information dictionary containing training statistics.
         """
         raise NotImplementedError("train_step not implemented for this agent")
-    
+
     def pretrain_step(self, batch: Batch, step: int) -> Metric:
         """
         Perform a pretraining step on the agent.
@@ -72,14 +75,12 @@ class BaseAgent():
             Metric: The information dictionary containing pretraining statistics.
         """
         raise NotImplementedError("pretrain_step not implemented for this agent")
-    
+
     def sample_actions(
             self,
             obs: jnp.ndarray,
-            use_behavior: bool = False,
-            temperature: float = 0.0,
+            deterministic: bool = True,
             num_samples: int = 1,
-            return_history: bool = False,
         ) -> Tuple[jnp.ndarray, Metric]:
         """
         Sample actions from the agent's policy.
@@ -95,10 +96,10 @@ class BaseAgent():
         Returns:
             actions (jnp.ndarray): The sampled actions. Shape should be (batch_size, num_samples, action_dim).
             info (Metric): Additional information about the sampling process.
-                                    
+
         """
         raise NotImplementedError("sample_actions not implemented for this agent")
-    
+
     def save(self, path: str) -> None:
         """
         Save the agent's state to a file.
@@ -108,8 +109,8 @@ class BaseAgent():
         ckpt: Dict[str, TrainState] = {name: getattr(self, name).state for name in self.model_names}
         checkpointer = orbax.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(ckpt)
-        checkpointer.save(path, ckpt, save_args=save_args)
-        
+        checkpointer.save(os.path.join(os.getcwd(), path), ckpt, save_args=save_args)
+
     def load(self, path: str) -> None:
         """
         Load the agent's state from a file.
@@ -117,7 +118,7 @@ class BaseAgent():
             path (str): The path to load the agent's state from.
         """
         checkpointer = orbax.PyTreeCheckpointer()
-        ckpt = checkpointer.restore(path)
+        ckpt = checkpointer.restore(os.path.join(os.getcwd(), path))
         for name in self.model_names:
             model: Model = getattr(self, name)
             setattr(self, name, model.replace(state=ckpt[name]))

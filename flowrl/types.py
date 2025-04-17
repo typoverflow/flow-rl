@@ -1,5 +1,5 @@
 import collections
-from typing import Any, Callable, Dict, NewType, Optional, Sequence, Union
+from typing import Any, Callable, Dict, NewType, Optional, Sequence, Tuple, Union
 
 import flax
 import jax
@@ -15,4 +15,4 @@ Batch = collections.namedtuple(
     ['obs', 'action', 'reward', 'terminal', 'next_obs']
 )
 
-__all__ = ["Batch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union"]
+__all__ = ["Batch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple"]

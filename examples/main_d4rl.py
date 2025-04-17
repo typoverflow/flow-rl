@@ -18,6 +18,7 @@ from flowrl.utils.logger import CompositeLogger
 
 SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "iql": IQLAgent,
+    "bdpo": BDPOAgent
 }
 
 
@@ -70,20 +71,22 @@ class Trainer():
                 self.agent.load(self.cfg.load)
             else:
                 if self.cfg.pretrain_steps > 0:
-                    for i in trange(self.cfg.pretrain_steps, desc="pretraining"):
+                    for i in trange(self.cfg.pretrain_steps+1, desc="pretraining"):
                         if i % self.cfg.eval.interval == 0:
-                            self.eval_and_save(i, use_behavior=True, prefix="pretrain_eval")
+                            self.eval_and_save(i, prefix="pretrain_eval")
                         batch = self.dataset.sample(batch_size=self.cfg.data.batch_size)
                         update_info = self.agent.pretrain_step(batch, step=i)
                         if i % self.cfg.log.interval == 0:
                             self.logger.log_scalars("pretrain", update_info, step=i)
-                    self.eval_and_save(i+1, use_behavior=True)
+            if self.cfg.pretrain_only:
+                print("Pretrain completed! Aborting. ")
+                exit(0)
 
             # actual training
             self.agent.prepare_training()
             for i in trange(self.cfg.train_steps+1, desc="training"):
                 if i % self.cfg.eval.interval == 0:
-                    self.eval_and_save(i, use_behavior=False)
+                    self.eval_and_save(i)
                 if i % self.cfg.eval.stats_interval == 0:
                     batch = self.dataset.sample(batch_size=self.cfg.data.batch_size)
                     stats = self.agent.compute_statistics(batch)
@@ -96,15 +99,14 @@ class Trainer():
         except (KeyboardInterrupt, RuntimeError) as e:
             print("Stopped by exception: ", str(e))
 
-    def eval_and_save(self, step: int, use_behavior: bool, prefix: str = "eval"):
+    def eval_and_save(self, step: int, prefix: str = "eval"):
         returns, lengths, info = [], [], {}
         for _ in range(self.cfg.eval.num_episodes):
             (observation, _), done = self.env.reset(), False
             while not done:
                 action, _ = self.agent.sample_actions(
-                    observation.reshape(1, self.agent.obs_dim),
-                    use_behavior=use_behavior,
-                    temperature=self.cfg.eval.temperature,
+                    observation.reshape(1, -1),
+                    deterministic=True,
                     num_samples=self.cfg.eval.num_samples,
                 )
                 action = action[0]
@@ -125,7 +127,7 @@ class Trainer():
         }
         self.logger.log_scalars(prefix, eval_metrics, step=step)
         if self.cfg.log.save_ckpt:
-            self.agent.save(os.path.join(self.ckpt_save_dir, f"{step}.ckpt"))
+            self.agent.save(os.path.join(self.ckpt_save_dir, f"{step}"))
 
 
 @hydra.main(config_path="./config/d4rl", config_name="config", version_base=None)

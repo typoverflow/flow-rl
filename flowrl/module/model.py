@@ -5,7 +5,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax.struct import PyTreeNode, dataclass
+from flax.struct import PyTreeNode, dataclass, field
 from flax.training.train_state import TrainState
 
 from flowrl.types import Metric, PRNGKey
@@ -22,6 +22,7 @@ def empty_optimizer() -> optax.GradientTransformation:
 @dataclass
 class Model(PyTreeNode, ABC):
     state: TrainState
+    dropout_rng: PRNGKey = field(pytree_node=True)
     """
 
     Model is initialized with Model.create() method
@@ -36,7 +37,8 @@ class Model(PyTreeNode, ABC):
         optimizer: Optional[optax.GradientTransformation] = None,
         clip_grad_norm: float = None
     ) -> 'Model':
-        params = network.init(rng, *inputs)  # params = {"params": ...}
+        param_rng, dropout_rng = jax.random.split(rng)
+        params = network.init(param_rng, *inputs)  # params = {"params": ...}
 
         if optimizer is not None:
             if clip_grad_norm:
@@ -54,7 +56,12 @@ class Model(PyTreeNode, ABC):
         )
         return cls(
             state=state,
+            dropout_rng=dropout_rng,
         )
+
+    @property
+    def params(self):
+        return self.state.params
 
     def __call__(self, *args, **kwargs):
         # the network defined by the jax nn.Model should be used by apply function with {'params': P} and other ..
@@ -70,8 +77,10 @@ class Model(PyTreeNode, ABC):
 
     def apply_gradient(self, loss_fn) -> Tuple['Model', Metric]:
         grad_fn = jax.grad(loss_fn, has_aux=True)  # here auxiliary data is just the info dict
-        grads, info = grad_fn(self.state.params)
+        dropout_rng, next_dropout_rng = jax.random.split(self.dropout_rng)
+        grads, info = grad_fn(self.state.params, dropout_rng)
         state = self.state.apply_gradients(grads=grads)
         return self.replace(
             state=state,
+            dropout_rng=next_dropout_rng
         ), info
