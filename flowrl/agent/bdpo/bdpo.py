@@ -124,7 +124,7 @@ def jit_update_critic(
         rng,
         batch.next_obs,
         jnp.zeros((A, )),
-        training=True,
+        training=False,
         T=T,
         num_samples=num_q_samples,
         solver=solver,
@@ -153,7 +153,7 @@ def jit_update_critic(
         rng,
         batch.obs,
         batch.action,
-        training=True,
+        training=False,
         T=T,
         num_samples=num_q_samples,
         solver=solver,
@@ -257,6 +257,7 @@ def jit_update_actor(
             solver=solver,
             sample_xt=True,
             t=None,
+            params=actor_params
         )
         rep_obs = batch.obs.repeat(num_q_samples, axis=0).reshape(B, num_q_samples, -1)
         target_1 = vt_target(

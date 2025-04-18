@@ -224,6 +224,7 @@ class DDPM(Model):
         T: int,
         num_samples: int,
         solver: str,
+        params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
         t_proto = jnp.ones((*obs.shape[:-1], num_samples, 1), dtype=jnp.int32)
 
@@ -234,7 +235,13 @@ class DDPM(Model):
         def fn(input, t):
             rng_, xt = input
             input_t = t_proto * t
-            eps_theta = self(obs_repeat, xt, input_t, training=training)
+
+            if training: # BUG: dropout_rng is not passed
+                eps_theta = self.apply(
+                    {"params": params}, obs_repeat, xt, input_t, training=training
+                )
+            else:
+                eps_theta = self(obs_repeat, xt, input_t, training=training)
 
             if solver == "ddpm":
                 x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (xt - jnp.sqrt(1 - self.alpha_hats[t]) * eps_theta)
@@ -273,6 +280,7 @@ class DDPM(Model):
         solver: str,
         sample_xt: bool,
         t: Optional[jnp.ndarray]=None,
+        params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         B = obs.shape[0]
         rng, sample_rng, noise_rng = jax.random.split(rng, 3)
@@ -285,7 +293,13 @@ class DDPM(Model):
         t_1 = t - 1
         repeated_t = t.repeat(num_samples, axis=0).reshape(B, num_samples, -1)
         repeated_t_1 = t_1.repeat(num_samples, axis=0).reshape(B, num_samples, -1)
-        eps_theta = self(obs, xt, t, training=training)
+
+        if training: # BUG: dropout_rng is not passed
+            eps_theta = self.apply(
+                {"params": params}, obs, xt, t, training=training
+            )
+        else:
+            eps_theta = self(obs, xt, t, training=training)
 
         if solver == "ddpm":
             x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (xt - jnp.sqrt(1 - self.alpha_hats[t]) * eps_theta)
