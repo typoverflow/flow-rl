@@ -109,6 +109,7 @@ class CriticT(nn.Module):
         x = jnp.concatenate([item for item in [obs, action, t_ff] if item is not None], axis=-1)
         x = MLP(
             hidden_dims=self.hidden_dims,
+            output_dim=1,
             activation=self.activation,
             layer_norm=self.layer_norm,
             dropout=self.dropout,
@@ -274,7 +275,7 @@ class DDPM(Model):
         t: Optional[jnp.ndarray]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         B = obs.shape[0]
-        rng, sample_rng, noise_rng = jax.random.split(rng, 4)
+        rng, sample_rng, noise_rng = jax.random.split(rng, 3)
         if sample_xt:
             x0 = action
             _, xt, t, eps_sample = self.add_noise(sample_rng, x0)
@@ -283,7 +284,7 @@ class DDPM(Model):
             xt = action
         t_1 = t - 1
         repeated_t = t.repeat(num_samples, axis=0).reshape(B, num_samples, -1)
-        repeated_t_1 = t_1.repeat(num_samples, axis=0).repeat(B, num_samples, -1)
+        repeated_t_1 = t_1.repeat(num_samples, axis=0).reshape(B, num_samples, -1)
         eps_theta = self(obs, xt, t, training=training)
 
         if solver == "ddpm":

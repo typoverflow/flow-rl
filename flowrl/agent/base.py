@@ -108,8 +108,9 @@ class BaseAgent():
         """
         ckpt: Dict[str, TrainState] = {name: getattr(self, name).state for name in self.model_names}
         checkpointer = orbax.PyTreeCheckpointer()
-        save_args = orbax_utils.save_args_from_target(ckpt)
-        checkpointer.save(os.path.join(os.getcwd(), path), ckpt, save_args=save_args)
+        # save_args = orbax_utils.save_args_from_target(ckpt)
+        # checkpointer.save(os.path.join(os.getcwd(), path), ckpt, save_args=save_args)
+        checkpointer.save(os.path.join(os.getcwd(), path), ckpt)
 
     def load(self, path: str) -> None:
         """
@@ -121,4 +122,5 @@ class BaseAgent():
         ckpt = checkpointer.restore(os.path.join(os.getcwd(), path))
         for name in self.model_names:
             model: Model = getattr(self, name)
-            setattr(self, name, model.replace(state=ckpt[name]))
+            new_state = model.state.replace(**ckpt[name])
+            setattr(self, name, model.replace(state=new_state))

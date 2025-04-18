@@ -143,8 +143,8 @@ def jit_update_critic(
         q0_xt,
         q0_t
     )
-    q0_penalty = get_penalty(q0_actor_eps, q0_behavior_eps, T, q0_t, alphas, alpha_hats, betas)
-    q0_penalty = q0_penalty.sum(axis=0).sum(axis=-1).mean(axis=-1)
+    q0_penalty = get_penalty(q0_actor_eps, q0_behavior_eps, q0_t, T, alphas, alpha_hats, betas)
+    q0_penalty = q0_penalty.sum(axis=0).mean(axis=-2).sum(axis=-1, keepdims=True)
 
     q0_target_value = q0_target_value - eta * q0_penalty
 
@@ -171,17 +171,17 @@ def jit_update_critic(
         rep_xt_1
     )
     rng, vt_target_value2 = get_target(rng, vt_target_value2, False, q_target, rho)
-    vt_target_value = jnp.squeeze(t != 1) * vt_target_value1 + jnp.squeeze(t == 1) * vt_target_value2
+    vt_target_value = (t != 1) * vt_target_value1 + (t == 1) * vt_target_value2
 
     vt_actor_eps = history
     vt_behavior_eps = behavior_target(batch.obs, xt, t)
-    vt_penalty = get_penalty(vt_actor_eps, vt_behavior_eps, T, t, alphas, alpha_hats, betas)
+    vt_penalty = get_penalty(vt_actor_eps, vt_behavior_eps, t, T, alphas, alpha_hats, betas)
 
-    vt_target_value = vt_target_value - eta * vt_penalty.sum(axis=-1)
+    vt_target_value = vt_target_value - eta * vt_penalty.sum(axis=-1, keepdims=True)
 
-    def q0_loss_fn(q0_params: Param, **kwargs) -> Tuple[jnp.ndarray, Metric]:
+    def q0_loss_fn(q0_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
         pred = q0.apply(
-            q0_params,
+            {"params": q0_params},
             batch.obs,
             batch.action
         )
@@ -192,9 +192,9 @@ def jit_update_critic(
             "misc/q0_penalty": q0_penalty.mean(),
             "misc/reward": batch.reward.mean(),
         }
-    def vt_loss_fn(vt_params: Param, **kwargs) -> Tuple[jnp.ndarray, Metric]:
+    def vt_loss_fn(vt_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
         pred = vt.apply(
-            vt_params,
+            {"params": vt_params},
             batch.obs,
             xt,
             t
@@ -238,15 +238,15 @@ def jit_update_actor(
     ema: float,
     do_ema_update: bool,
 ) -> Tuple[PRNGKey, Model, Model, Metric]:
-    B = batch.observations.shape[0]
-    A = batch.actions.shape[-1]
+    B = batch.obs.shape[0]
+    A = batch.action.shape[-1]
     alphas = actor.alphas
     alpha_hats = actor.alpha_hats
     betas = actor.betas
 
     rng, sample_rng = jax.random.split(rng)
 
-    def actor_loss_fn(actor_params: Param, **kwargs) -> Tuple[jnp.ndarray, Metric]:
+    def actor_loss_fn(actor_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
         sample_rng_, rep_xt_1, xt, rep_t_1, t, history = actor.onestep_sample(
             sample_rng,
             batch.obs,
@@ -264,18 +264,18 @@ def jit_update_actor(
             rep_xt_1,
             rep_t_1
         )
-        target_1, sample_rng_ = get_target(target_1, sample_rng_, False, q_target, rho=rho)
+        sample_rng_, target_1 = get_target(sample_rng_, target_1, False, q_target, rho=rho)
         target_2 = q0_target(
             rep_obs,
             rep_xt_1
         )
-        target_2, sample_rng_ = get_target(target_2, sample_rng_, maxQ, q_target, rho=rho)
-        target = jnp.squeeze(t != 1) * target_1 + jnp.squeeze(t == 1) * target_2
+        sample_rng_, target_2 = get_target(sample_rng_, target_2, False, q_target, rho=rho)
+        target = (t != 1) * target_1 + (t == 1) * target_2
 
         actor_eps = history
         behavior_eps = behavior_target(batch.obs, xt, t)
-        penalty = get_penalty(actor_eps, behavior_eps, T, t, alphas, alpha_hats, betas)
-        target = target - eta * penalty.sum(axis=-1)
+        penalty = get_penalty(actor_eps, behavior_eps, t, T, alphas, alpha_hats, betas)
+        target = target - eta * penalty.sum(axis=-1, keepdims=True)
         actor_loss = - target.mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss
