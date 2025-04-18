@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
+
 @dataclass
 class EvalConfig:
     interval: int
     stats_interval: int
     num_episodes: int
     num_samples: int
-    temperature: Optional[float] # None is uniform, 0.0 is greedy
 
 @dataclass
 class DataConfig:
@@ -36,6 +36,7 @@ class Config:
     device: str
     task: str # the environment to train on
     algo: Any
+    pretrain_only: bool
     pretrain_steps: int
     train_steps: int
     load: Optional[str]

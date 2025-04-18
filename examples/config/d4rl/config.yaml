@@ -13,6 +13,7 @@ hydra:
 seed: 0
 device: '0'
 task: ???
+pretrain_only: false
 pretrain_steps: 0
 train_steps: 1000000
 load: null
@@ -36,4 +37,3 @@ eval:
   stats_interval: 2000
   num_episodes: 10
   num_samples: 1
-  temperature: 0.0

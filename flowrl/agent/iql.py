@@ -6,16 +6,15 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from flowrl.agent.base import BaseAgent
 from flowrl.config.d4rl.algo.iql import IQLConfig
-from flowrl.functional.ema import ema_udpate
+from flowrl.functional.ema import ema_update
 from flowrl.functional.loss import expectile_regression
 from flowrl.module.actor import SquashedDeterministicActor, TanhMeanGaussianActor
 from flowrl.module.critic import Critic, EnsembleCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
-
-from .base import BaseAgent
 
 
 @partial(jax.jit, static_argnames=("deterministic_actor", "max_action", "min_action"))
@@ -39,14 +38,12 @@ def jit_sample_action(
     return action
 
 def update_v(
-    rng: PRNGKey,
     q: jnp.ndarray,
     value: Model,
     batch: Batch,
     expectile: float,
-) -> Tuple[PRNGKey, Model, Metric]:
-    rng, dropout_rng = jax.random.split(rng)
-    def value_loss_fn(value_params: Param) -> Tuple[jnp.ndarray, Metric]:
+) -> Tuple[Model, Metric]:
+    def value_loss_fn(value_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         v = value.apply(
             {"params": value_params},
             batch.obs,
@@ -59,18 +56,16 @@ def update_v(
             "misc/v_mean": v.mean(),
         }
     new_value, metrics = value.apply_gradient(value_loss_fn)
-    return rng, new_value, metrics
+    return new_value, metrics
 
 def update_q(
-    rng: PRNGKey,
     critic: Model,
     next_v: jnp.array,
     batch: Batch,
     discount: float
-) -> Tuple[PRNGKey, Model, Metric]:
-    rng, dropout_rng = jax.random.split(rng)
+) -> Tuple[Model, Metric]:
     target_q = batch.reward + discount * (1-batch.terminal) * next_v
-    def critic_loss_fn(critic_params: Param) -> Tuple[jnp.ndarray, Metric]:
+    def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         qs = critic.apply(
             {"params": critic_params},
             batch.obs,
@@ -84,21 +79,19 @@ def update_q(
             "misc/q_mean": qs.mean()
         }
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
-    return rng, new_critic, metrics
+    return new_critic, metrics
 
 def awr_update_actor(
-    rng: PRNGKey,
     actor: Model,
     q: jnp.array,
     v: jnp.array,
     batch: Batch,
     beta: float,
     deterministic_actor: bool,
-) -> Tuple[PRNGKey, Model, Metric]:
-    rng, dropout_rng = jax.random.split(rng)
+) -> Tuple[Model, Metric]:
     exp_a = jnp.exp((q - v) * beta)
     exp_a = jnp.minimum(exp_a, 100.0)  # truncate the weights...
-    def actor_loss_fn(actor_params: Param) -> Tuple[jnp.ndarray, Metric]:
+    def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         pred = actor.apply(
             {"params": actor_params},
             batch.obs,
@@ -118,11 +111,10 @@ def awr_update_actor(
             "misc/weight_mean": exp_a.mean()
         }
     new_actor, metrics = actor.apply_gradient(actor_loss_fn)
-    return rng, new_actor, metrics
+    return new_actor, metrics
 
 @partial(jax.jit, static_argnames=("expectile", "beta", "discount", "tau", "deterministic_actor"))
 def jit_update_iql(
-    rng: PRNGKey,
     actor: Model,
     critic: Model,
     critic_target: Model,
@@ -133,21 +125,21 @@ def jit_update_iql(
     discount: float,
     tau: float,
     deterministic_actor: bool,
-)-> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
+)-> Tuple[Model, Model, Model, Model, Metric]:
     q_target = critic_target(batch.obs, batch.action, training=False)
     q_target = q_target.min(axis=0)
     v = value(batch.obs, training=False)
     next_v = value(batch.next_obs, training=False)
-    rng, new_value, value_metric = update_v(rng, q_target, value, batch, expectile)
-    rng, new_critic, critic_metric = update_q(
-        rng, critic, next_v, batch, discount
+    new_value, value_metric = update_v(q_target, value, batch, expectile)
+    new_critic, critic_metric = update_q(
+        critic, next_v, batch, discount
     )
-    rng, new_actor, actor_metric = awr_update_actor(
-        rng, actor, q_target, v, batch, beta, deterministic_actor
+    new_actor, actor_metric = awr_update_actor(
+        actor, q_target, v, batch, beta, deterministic_actor
     )
 
-    new_target_critic = ema_udpate(new_critic, critic_target, tau)
-    return rng, new_actor, new_critic, new_target_critic, new_value, {
+    new_target_critic = ema_update(new_critic, critic_target, tau)
+    return new_actor, new_critic, new_target_critic, new_value, {
         **actor_metric,
         **critic_metric,
         **value_metric,
@@ -158,7 +150,7 @@ class IQLAgent(BaseAgent):
     Implicit Q-Learning (IQL) agent.
     """
     name = "IQLAgent"
-    model_names = []
+    model_names = ["actor", "critic", "critic_target"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: IQLConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
@@ -234,8 +226,7 @@ class IQLAgent(BaseAgent):
         )
 
     def train_step(self, batch, step: int):
-        self.rng, self.actor, self.critic, self.critic_target, self.value, metric = jit_update_iql(
-            self.rng,
+        self.actor, self.critic, self.critic_target, self.value, metric = jit_update_iql(
             self.actor,
             self.critic,
             self.critic_target,
@@ -249,10 +240,8 @@ class IQLAgent(BaseAgent):
         )
         return metric
 
-    def sample_actions(self, obs, use_behavior = False, temperature = 0, num_samples = 1, return_history = False):
-        assert not use_behavior, "IQL have no behavior policy"
+    def sample_actions(self, obs, deterministic=True, num_samples = 1):
         assert num_samples==1, "IQL only supports num_samples=1"
-        assert not return_history, "IQL does not support return_history"
         action = jit_sample_action(
             self.actor,
             obs,
@@ -260,4 +249,4 @@ class IQLAgent(BaseAgent):
             max_action=self.cfg.max_action,
             min_action=self.cfg.min_action,
         )
-        return action, None
+        return action, {}

@@ -1,9 +1,10 @@
 import jax
 import jax.numpy as jnp
+
 from flowrl.module.model import Model
 
 
-def ema_udpate(
+def ema_update(
     src: Model,
     tgt: Model,
     ema_rate: float,
