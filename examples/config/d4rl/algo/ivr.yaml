@@ -1,0 +1,28 @@
+# @package _global_
+
+data:
+  norm_obs: false
+  norm_reward: iql_mujoco
+
+algo:
+  name: ivr
+  discount: 0.99
+  ema: 0.005
+  actor_hidden_dims: [256, 256]
+  value_hidden_dims: [256, 256]
+  critic_hidden_dims: [256, 256]
+  critic_ensemble_size: 2
+  layer_norm: true
+  actor_dropout: null
+  value_dropout: null
+  conditional_logstd: false
+  policy_logstd_min: -5.0
+  actor_lr: 0.0003
+  value_lr: 0.0003
+  critic_lr: 0.0003
+  lr_decay_steps: ${train_steps}
+  opt_decay_schedule: cosine
+  min_action: -1.0
+  max_action: 1.0
+  alpha: 1.0
+  method: eql

@@ -150,7 +150,7 @@ class IQLAgent(BaseAgent):
     Implicit Q-Learning (IQL) agent.
     """
     name = "IQLAgent"
-    model_names = ["actor", "critic", "critic_target"]
+    model_names = ["actor", "critic", "critic_target", "value"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: IQLConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
@@ -225,7 +225,7 @@ class IQLAgent(BaseAgent):
             clip_grad_norm=cfg.clip_grad_norm,
         )
 
-    def train_step(self, batch, step: int):
+    def train_step(self, batch: Batch, step: int) -> Metric:
         self.actor, self.critic, self.critic_target, self.value, metric = jit_update_iql(
             self.actor,
             self.critic,
@@ -241,7 +241,7 @@ class IQLAgent(BaseAgent):
         return metric
 
     def sample_actions(self, obs, deterministic=True, num_samples = 1):
-        assert num_samples==1, "IQL only supports num_samples=1"
+        assert num_samples == 1, "IQL only supports num_samples=1"
         action = jit_sample_action(
             self.actor,
             obs,

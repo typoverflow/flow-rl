@@ -4,11 +4,11 @@ from typing import Type
 import hydra
 import numpy as np
 import omegaconf
+import wandb
 from gymnasium.wrappers.transform_observation import TransformObservation
 from omegaconf import OmegaConf
 from tqdm import trange
 
-import wandb
 from flowrl.agent import *
 from flowrl.config.d4rl import Config
 from flowrl.dataset.d4rl import D4RLDataset
@@ -18,7 +18,8 @@ from flowrl.utils.logger import CompositeLogger
 
 SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "iql": IQLAgent,
-    "bdpo": BDPOAgent
+    "bdpo": BDPOAgent,
+    "ivr": IVRAgent,
 }
 
 
