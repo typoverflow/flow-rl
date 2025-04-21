@@ -106,7 +106,7 @@ def update_onestep_actor(
             rngs={"dropout": dropout_rng},
         )
         distill_loss = ((pred - bc_action) ** 2).mean()
-        pred = jnp.clip(pred, min_action, max_action)  # TODO: do we need to clip here?
+        pred = jnp.clip(pred, min_action, max_action)
         qs = critic(batch.obs, pred)
         q = jnp.mean(qs, axis=0) # always use mean aggregation here, follow the official implementation
         if normalize_q_loss:

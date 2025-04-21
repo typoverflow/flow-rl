@@ -144,7 +144,7 @@ class ContinuousNormalizingFlow(Model):
 
             return (rng_, x_next), (xt, vel)
 
-        output, history = jax.lax.scan(fn, (rng, x0), self.step2t(jnp.arange(self.steps)), unroll=True)  # TODO: do we need T+1 here?
+        output, history = jax.lax.scan(fn, (rng, x0), self.step2t(jnp.arange(self.steps)), unroll=True)
         rng , action = output
         return rng, action, history
 
