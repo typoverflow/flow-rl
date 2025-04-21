@@ -156,6 +156,7 @@ class EnsembleCriticT(nn.Module):
 class DDPM(Model):
     state: TrainState
     dropout_rng: PRNGKey = field(pytree_node=True)
+    x_dim: int = field(pytree_node=False, default=None)
     steps: int = field(pytree_node=False, default=None)
     clip_sampler: bool = field(pytree_node=False, default=None)
     x_min: float = field(pytree_node=False, default=None)
@@ -170,6 +171,7 @@ class DDPM(Model):
         network: nn.Module,
         rng: PRNGKey,
         inputs: Sequence[jnp.ndarray],
+        x_dim: int,
         steps: int,
         noise_schedule: str,
         noise_schedule_params: Optional[Dict]=None,
@@ -197,6 +199,7 @@ class DDPM(Model):
         alpha_hats = jnp.cumprod(alphas)
 
         return ret.replace(
+            x_dim=x_dim,
             steps=steps,
             clip_sampler=clip_sampler,
             x_min=x_min,
@@ -207,41 +210,42 @@ class DDPM(Model):
         )
 
     def add_noise(self, rng, x0):
-        rng, t_key, noise_key = jax.random.split(rng, 3)
-        t = jax.random.randint(t_key, (*x0.shape[:-1], 1), 1, self.steps+1)
-        eps = jax.random.normal(noise_key, x0.shape)
+        rng, t_rng, noise_rng = jax.random.split(rng, 3)
+        t = jax.random.randint(t_rng, (*x0.shape[:-1], 1), 1, self.steps+1)
+        eps = jax.random.normal(noise_rng, x0.shape)
 
         xt = jnp.sqrt(self.alpha_hats[t]) * x0 + jnp.sqrt(1-self.alpha_hats[t]) * eps
         return rng, xt, t, eps
 
-    @partial(jax.jit, static_argnames=("training", "T", "num_samples", "solver"))
+    @partial(jax.jit, static_argnames=("training", "num_samples", "solver"))
     def sample(
         self,
         rng: PRNGKey,
         obs: jnp.ndarray,
-        action: jnp.ndarray,
         training: bool,
-        T: int,
-        num_samples: int,
-        solver: str,
+        num_samples: Optional[int],
+        solver: str="ddpm",
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
-        t_proto = jnp.ones((*obs.shape[:-1], num_samples, 1), dtype=jnp.int32)
 
-        rng, xT_rng = jax.random.split(rng)
-        xT = jax.random.normal(xT_rng, (*obs.shape[:-1], num_samples, action.shape[-1]))
-        obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
+        rng, xT_rng, dropout_rng = jax.random.split(rng, 3)
+        if num_samples is not None:
+            obs_use = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
+        else:
+            obs_use = obs
+        xT = jax.random.normal(xT_rng, (*obs_use.shape[:-1], self.x_dim))
+        t_proto = jnp.ones((*obs.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input, t):
             rng_, xt = input
             input_t = t_proto * t
 
-            if training: # BUG: dropout_rng is not passed
+            if training:
                 eps_theta = self.apply(
-                    {"params": params}, obs_repeat, xt, input_t, training=training
+                    {"params": params}, obs_use, xt, input_t, training=training, rngs={"dropout": dropout_rng}
                 )
             else:
-                eps_theta = self(obs_repeat, xt, input_t, training=training)
+                eps_theta = self(obs_use, xt, input_t, training=training)
 
             if solver == "ddpm":
                 x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (xt - jnp.sqrt(1 - self.alpha_hats[t]) * eps_theta)
@@ -264,24 +268,24 @@ class DDPM(Model):
 
             return (rng_, xt_1), (xt, eps_theta)
 
-        output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(T, 0, -1), unroll=True)
+        output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(self.steps, 0, -1), unroll=True)
         rng, action = output
         return rng, action, history
 
-    @partial(jax.jit, static_argnames=("training", "T", "num_samples", "solver", "sample_xt"))
+    @partial(jax.jit, static_argnames=("training", "num_samples", "solver", "sample_xt"))
     def onestep_sample(
         self,
         rng: PRNGKey,
         obs: jnp.ndarray,
         action: jnp.ndarray,
         training: bool,
-        T: int,
         num_samples: int,
-        solver: str,
-        sample_xt: bool,
+        solver: str="ddpm",
+        sample_xt: bool=True,
         t: Optional[jnp.ndarray]=None,
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        assert num_samples is not None
         B = obs.shape[0]
         rng, sample_rng, noise_rng = jax.random.split(rng, 3)
         if sample_xt:
@@ -326,15 +330,12 @@ class DDPM(Model):
 
 # ======= Update Function ========
 
-@partial(jax.jit, static_argnames=("ema", "do_ema_every"))
+@jax.jit
 def jit_update_ddpm(
     rng: PRNGKey,
     model: DDPM,
-    model_target: DDPM,
     batch: Batch,
-    ema: float,
-    do_ema_every: bool
-) -> Tuple[PRNGKey, DDPM, DDPM, Metric]:
+) -> Tuple[PRNGKey, DDPM, Metric]:
     x0 = batch.action
     rng, xt, t, eps = model.add_noise(rng, x0)
 
@@ -353,8 +354,4 @@ def jit_update_ddpm(
         }
 
     new_model, metrics = model.apply_gradient(loss_fn)
-    if do_ema_every:
-        new_model_target = ema_update(new_model, model_target, ema)
-    else:
-        new_model_target = model_target
-    return rng, new_model, new_model_target, metrics
+    return rng, new_model, metrics

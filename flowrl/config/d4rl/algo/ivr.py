@@ -8,7 +8,6 @@ from .base import BaseAlgoConfig
 
 @dataclass
 class IVRConfig(BaseAlgoConfig):
-    """Configuration class for the IQL (Implicit Q-Learning) algorithm."""
     name: str
 
     discount: float

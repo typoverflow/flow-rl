@@ -1,43 +1,69 @@
 from functools import partial
 from typing import Tuple
 
-import distrax
-import jax
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.d4rl.algo.fql import FQLConfig
+from flowrl.flow.cnf import (
+    ContinuousNormalizingFlow,
+    FlowBackbone,
+    jit_update_flow_matching,
+)
 from flowrl.functional.ema import ema_update
-from flowrl.flow.flow import OneStepTransform, VelocityField, FlowMatching, jit_update_flow_matching
 from flowrl.module.critic import Critic, EnsembleCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
-from flowrl.types import Batch, Metric, Param, PRNGKey
+from flowrl.types import *
+
 
 @partial(jax.jit, static_argnames=("max_action", "min_action", "act_dim"))
 def jit_sample_action(
-    key: PRNGKey,
-    onestep_actor: Model,
+    rng: PRNGKey,
+    actor_onestep: Model,
     obs: jnp.ndarray,
     act_dim: int,
     max_action: float,
     min_action: float,
 ):
     B, _ = obs.shape
-    x0 = jax.random.normal(key, (B, act_dim))
-    action = onestep_actor(obs, x0)
+    x0 = jax.random.normal(rng, (B, act_dim))
+    action = actor_onestep(jnp.concat([obs, x0], axis=-1))
     action = jnp.clip(action, min_action, max_action)
     return action
 
 def update_critic(
+    rng: PRNGKey,
     critic: Model,
-    next_q: jnp.ndarray,
+    critic_target: Model,
+    actor_onestep: Model,
     batch: Batch,
+    q_agg: str,
     discount: float,
+    max_action: float,
+    min_action: float,
 ) -> Tuple[Model, Metric]:
+    rng, sample_rng = jax.random.split(rng)
+    next_action = jit_sample_action(
+        sample_rng,
+        actor_onestep,
+        batch.next_obs,
+        batch.action.shape[-1],
+        max_action,
+        min_action,
+    )
+    next_q = critic_target(batch.next_obs, next_action)
+    if q_agg == "mean":
+        next_q = jnp.mean(next_q, axis=0)
+    elif q_agg == "min":
+        next_q = jnp.min(next_q, axis=0)
+    else:
+        raise ValueError(f"Unknown q_agg: {q_agg}")
     target_q = batch.reward + discount * (1-batch.terminal) * next_q
+
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         qs = critic.apply(
             {"params": critic_params},
@@ -55,37 +81,33 @@ def update_critic(
     return new_critic, metrics
 
 def update_onestep_actor(
-    key: PRNGKey,
-    onestep_actor: Model,
-    actor_bc_flow: FlowMatching,
+    rng: PRNGKey,
+    actor_onestep: Model,
+    actor_bc: ContinuousNormalizingFlow,
     critic: Model,
-    obs: jnp.ndarray,
+    batch: Batch,
     alpha: float,
     normalize_q_loss: bool,
-    act_dim: int,
     max_action: float,
     min_action: float,
 ) -> Tuple[Model, Metric]:
-    B, _ = obs.shape
-    noise = jax.random.normal(key, (B, act_dim))
-    flow_actions, _ = actor_bc_flow.sample(
-        key,
-        obs,
+    _, bc_action, bc_history = actor_bc.sample(
+        rng,
+        batch.obs,
         training=False,
-        sample_noise=False,
-        noise=noise,
     )
+    bc_x0 = bc_history[0][0] # take the noise
+
     def onestep_loss_fn(onestep_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        pred = onestep_actor.apply(
+        pred = actor_onestep.apply(
             {"params": onestep_params},
-            obs,
-            noise,
+            jnp.concat([batch.obs, bc_x0], axis=-1),
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        distill_loss = ((pred - flow_actions) ** 2).mean()
-        actions = jnp.clip(pred, min_action, max_action)
-        qs = critic(obs, actions)
+        distill_loss = ((pred - bc_action) ** 2).mean()
+        pred = jnp.clip(pred, min_action, max_action)  # TODO: do we need to clip here?
+        qs = critic(batch.obs, pred)
         q = jnp.mean(qs, axis=0) # always use mean aggregation here, follow the official implementation
         if normalize_q_loss:
             lam = jax.lax.stop_gradient(1 / jnp.abs(q).mean())
@@ -99,13 +121,13 @@ def update_onestep_actor(
             "loss/q_loss": q_loss,
             "misc/q_mean": q.mean(),
         }
-    new_onestep_actor, metrics = onestep_actor.apply_gradient(onestep_loss_fn)
-    return new_onestep_actor, metrics
+    new_actor_onestep, metrics = actor_onestep.apply_gradient(onestep_loss_fn)
+    return new_actor_onestep, metrics
 
 @partial(jax.jit, static_argnames=("alpha", "normalize_q_loss", "discount", "tau", "q_agg", "max_action", "min_action"))
 def jit_update_fql(
     rng: PRNGKey,
-    actor_bc_flow: FlowMatching,
+    actor_bc: ContinuousNormalizingFlow,
     actor_onestep: Model,
     critic: Model,
     critic_target: Model,
@@ -118,54 +140,39 @@ def jit_update_fql(
     max_action: float,
     min_action: float,
 )-> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
-    """
-    Update the FQL agent.
-    """
-    rng, next_act_key, bc_key, onestep_key = jax.random.split(rng, 4)
-    # update critic
-    next_actions = jit_sample_action(
-        next_act_key,
-        actor_onestep,
-        batch.next_obs,
-        batch.action.shape[-1],
-        max_action,
-        min_action
-    )
-    next_qs = critic_target(batch.next_obs, next_actions)
-    if q_agg == "mean":
-        next_q = jnp.mean(next_qs, axis=0)
-    elif q_agg == "min":
-        next_q = jnp.min(next_qs, axis=0)
-    else:
-        raise ValueError(f"Unknown q_agg: {q_agg}")
+    rng, critic_rng, bc_rng, onestep_rng = jax.random.split(rng, 4)
     new_critic, critic_metrics = update_critic(
+        critic_rng,
         critic,
-        next_q,
+        critic_target,
+        actor_onestep,
         batch,
-        discount
+        q_agg,
+        discount,
+        max_action,
+        min_action,
     )
     # update bc flow
-    new_bc, bc_metrics = jit_update_flow_matching(
-        bc_key,
-        actor_bc_flow,
+    _, new_actor_bc, bc_metrics = jit_update_flow_matching(
+        bc_rng,
+        actor_bc,
         batch,
     )
     # update onestep actor
-    new_onestep_actor, onestep_metrics = update_onestep_actor(
-        onestep_key,
+    new_actor_onestep, onestep_metrics = update_onestep_actor(
+        onestep_rng,
         actor_onestep,
-        actor_bc_flow,
+        actor_bc,
         critic,
-        batch.obs,
+        batch,
         alpha,
         normalize_q_loss,
-        batch.action.shape[-1],
         max_action,
         min_action,
     )
     # update target critic
     new_critic_target = ema_update(new_critic, critic_target, tau)
-    return rng, new_bc, new_onestep_actor, new_critic, new_critic_target, {
+    return rng, new_actor_bc, new_actor_onestep, new_critic, new_critic_target, {
         **bc_metrics,
         **onestep_metrics,
         **critic_metrics,
@@ -174,18 +181,19 @@ def jit_update_fql(
 
 class FQLAgent(BaseAgent):
     """
-    FQL (Flow Q-Learning, https://arxiv.org/abs/2502.02538) agent.
+    Flow Q-Learning (FQL) agent.
     """
     name = "FQLAgent"
-    model_names = ["critic", "target_critic", "actor_bc_flow", "actor_onestep"]
+    model_names = ["critic", "target_critic", "actor_bc", "actor_onestep"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: FQLConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
         self.rng, bc_key, critic_key, onestep_key = jax.random.split(self.rng, 4)
 
-        flow_def = VelocityField(
-            backbone=MLP(
+        flow_def = FlowBackbone(
+            vel_predictor=partial(
+                MLP,
                 hidden_dims=cfg.actor_hidden_dims,
                 layer_norm=cfg.actor_layer_norm,
                 output_dim=act_dim,
@@ -193,27 +201,25 @@ class FQLAgent(BaseAgent):
             ),
         )
 
-        self.actor_bc_flow = FlowMatching.create(
+        self.actor_bc = ContinuousNormalizingFlow.create(
             flow_def,
             bc_key,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
-            steps=cfg.flow_steps,
             x_dim=act_dim,
+            steps=cfg.flow_steps,
             clip_sampler=False,
             optimizer=optax.adam(learning_rate=cfg.lr),
         )
 
         self.actor_onestep = Model.create(
-            OneStepTransform(
-                backbone=MLP(
-                    hidden_dims=cfg.actor_hidden_dims,
-                    layer_norm=cfg.actor_layer_norm,
-                    output_dim=act_dim,
-                    activation=nn.gelu,
-                ),
+            MLP(
+                hidden_dims=cfg.actor_hidden_dims,
+                layer_norm=cfg.actor_layer_norm,
+                output_dim=act_dim,
+                activation=nn.gelu
             ),
             onestep_key,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=jnp.concat([jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))], axis=-1),
             optimizer=optax.adam(learning_rate=cfg.lr),
         )
 
@@ -236,9 +242,9 @@ class FQLAgent(BaseAgent):
         )
 
     def train_step(self, batch, step: int):
-        self.rng, self.actor_bc_flow, self.actor_onestep, self.critic, self.critic_target, metrics = jit_update_fql(
+        self.rng, self.actor_bc, self.actor_onestep, self.critic, self.critic_target, metrics = jit_update_fql(
             self.rng,
-            self.actor_bc_flow,
+            self.actor_bc,
             self.actor_onestep,
             self.critic,
             self.critic_target,
@@ -255,9 +261,9 @@ class FQLAgent(BaseAgent):
 
     def sample_actions(self, obs, deterministic=True, num_samples = 1):
         assert num_samples==1, "FQL only supports num_samples=1"
-        self.rng, key = jax.random.split(self.rng)
+        self.rng, sample_key = jax.random.split(self.rng)
         action = jit_sample_action(
-            key,
+            sample_key,
             self.actor_onestep,
             obs,
             self.act_dim,

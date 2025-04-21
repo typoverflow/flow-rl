@@ -1,11 +1,13 @@
-from typing import List, Optional
-from .base import BaseAlgoConfig
 from dataclasses import dataclass, field
+from typing import List, Optional
+
 from omegaconf import MISSING
+
+from .base import BaseAlgoConfig
+
 
 @dataclass
 class IQLConfig(BaseAlgoConfig):
-    """Configuration class for the IQL (Implicit Q-Learning) algorithm."""
     name: str
 
     discount: float

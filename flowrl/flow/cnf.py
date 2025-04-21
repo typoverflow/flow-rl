@@ -11,45 +11,31 @@ from flowrl.functional.ema import ema_update
 from flowrl.module.model import Model
 from flowrl.types import *
 
-# ======= Velocity Field Network ========
+# ======= Flow Network ========
 
-class VelocityField(nn.Module):
-    backbone: nn.Module
+class FlowBackbone(nn.Module):
+    vel_predictor: nn.Module
 
     @nn.compact
     def __call__(
         self,
         s: jnp.ndarray,  # s = [obs, cond] if it's conditional
         a: jnp.ndarray,
-        time: jnp.ndarray,
+        time: Optional[jnp.ndarray],
         training: bool = False
     ):
         inputs = jnp.concatenate([s, a, time], axis=-1)
-        x = self.backbone(inputs, training=training)
+        x = self.vel_predictor()(inputs, training=training)
         return x
 
-class OneStepTransform(nn.Module):
-    backbone: nn.Module
-
-    @nn.compact
-    def __call__(
-        self,
-        s: jnp.ndarray,
-        a: jnp.ndarray,
-        training: bool = False
-    ):
-        inputs = jnp.concatenate([s, a], axis=-1)
-        x = self.backbone(inputs, training=training)
-        return x
-
-# ======= Flow Matching ========
+# ======= CNF ========
 
 @dataclass
-class FlowMatching(Model):
+class ContinuousNormalizingFlow(Model):
     state: TrainState
     dropout_rng: PRNGKey = field(pytree_node=True)
-    steps: int = field(pytree_node=False, default=None)
     x_dim: int = field(pytree_node=False, default=None)
+    steps: int = field(pytree_node=False, default=None)
     clip_sampler: bool = field(pytree_node=False, default=None)
     x_min: float = field(pytree_node=False, default=None)
     x_max: float = field(pytree_node=False, default=None)
@@ -57,43 +43,42 @@ class FlowMatching(Model):
     @classmethod
     def create(
         cls,
-        network: VelocityField,
+        network: FlowBackbone,
         rng: PRNGKey,
         inputs: Sequence[jnp.ndarray],
-        steps: int,
         x_dim: int,
+        steps: int,
         clip_sampler: bool=False,
         x_min: Optional[float]=None,
         x_max: Optional[float]=None,
         optimizer: Optional[optax.GradientTransformation]=None,
         clip_grad_norm: float=None
-    ) -> 'FlowMatching':
+    ) -> 'ContinuousNormalizingFlow':
         ret = super().create(network, rng, inputs, optimizer, clip_grad_norm)
 
         return ret.replace(
-            steps=steps,
             x_dim=x_dim,
+            steps=steps,
             clip_sampler=clip_sampler,
             x_min=x_min,
             x_max=x_max,
         )
-    
+
     def step2t(self, step: jnp.ndarray) -> jnp.ndarray:
         """Convert discrete step in [0, self.steps] to continuous time in [0, 1]."""
         t = step / self.steps
         return t
 
-
-    def add_noise(self, key, x1):
+    def add_noise(self, rng, x1):
         B, _ = x1.shape
-        t_key, noise_key = jax.random.split(key)
-        t = jax.random.uniform(t_key, (B, 1))
-        x0 = jax.random.normal(noise_key, x1.shape)
+        rng, t_rng, noise_rng = jax.random.split(rng, 3)
+        t = jax.random.uniform(t_rng, (*x1.shape[:-1], 1))
+        x0 = jax.random.normal(noise_rng, x1.shape)
         xt = (1 - t) * x0 + t * x1
         vel = x1 - x0
-        return xt, t, vel
-    
-    def _onestep_sample(
+        return rng, xt, t, vel
+
+    def _ode_step(
         self,
         dropout_rng: PRNGKey,
         t: jnp.ndarray,
@@ -113,7 +98,7 @@ class FlowMatching(Model):
         if self.clip_sampler:
             action = jnp.clip(action, self.x_min, self.x_max)
         return action, vel
-    
+
     @partial(jax.jit, static_argnames=("training", "sample_xt"))
     def onestep_sample(
         self,
@@ -125,50 +110,33 @@ class FlowMatching(Model):
         t: Optional[jnp.ndarray]=None,
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        rng, sample_rng, dropout_rng = jax.random.split(rng, 3)
-        if sample_xt:
-            x0 = action
-            xt, t, _ = self.add_noise(sample_rng, x0)
-        else:
-            t = t
-            xt = action
-        x_next, vel = self._onestep_sample(
-            dropout_rng,
-            t,
-            obs,
-            xt,
-            training=training,
-            params=params,
-        )
-        return rng, x_next, xt, step+1, step, vel
-        
+        raise NotImplementedError()
 
-    @partial(jax.jit, static_argnames=("training", "sample_noise"))
+    @partial(jax.jit, static_argnames=("training", "num_samples"))
     def sample(
         self,
-        key: PRNGKey,
+        rng: PRNGKey,
         obs: jnp.ndarray,
         training: bool,
-        sample_noise: bool = True,
-        noise: Optional[jnp.ndarray] = None,
+        num_samples: Optional[int]=None,
         params: Optional[Param]=None,
-    ) -> Tuple[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
-        B, _ = obs.shape
-        t_proto = jnp.ones((B, 1), dtype=jnp.int32)
-        x0_rng, dropout_rng = jax.random.split(key)
-        if sample_noise:
-            x0 = jax.random.normal(x0_rng, (B, self.x_dim))
+    ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+        rng, x0_rng = jax.random.split(rng)
+        if num_samples is not None:
+            obs_use = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
         else:
-            x0 = noise
+            obs_use = obs
+        x0 = jax.random.normal(x0_rng, (*obs_use.shape[:-1], self.x_dim))
+        t_proto = jnp.ones((*obs.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input, t):
             rng_, xt = input
             rng_, dropout_rng_ = jax.random.split(rng_, 2)
-            
-            x_next, vel = self._onestep_sample(
+
+            x_next, vel = self._ode_step(
                 dropout_rng_,
                 t*t_proto,
-                obs,
+                obs_use,
                 xt,
                 training=training,
                 params=params,
@@ -176,20 +144,20 @@ class FlowMatching(Model):
 
             return (rng_, x_next), (xt, vel)
 
-        output, history = jax.lax.scan(fn, (dropout_rng, x0), self.step2t(jnp.arange(self.steps)), unroll=True)
-        _, action = output
-        return action, history
+        output, history = jax.lax.scan(fn, (rng, x0), self.step2t(jnp.arange(self.steps)), unroll=True)  # TODO: do we need T+1 here?
+        rng , action = output
+        return rng, action, history
 
 # ======= Update Function ========
 
 @jax.jit
 def jit_update_flow_matching(
-    key: PRNGKey,
-    model: FlowMatching,
+    rng: PRNGKey,
+    model: ContinuousNormalizingFlow,
     batch: Batch,
-) -> Tuple[PRNGKey, FlowMatching, Metric]:
+) -> Tuple[PRNGKey, ContinuousNormalizingFlow, Metric]:
     x0 = batch.action
-    xt, t, vel = model.add_noise(key, x0)
+    rng, xt, t, vel = model.add_noise(rng, x0)
 
     def loss_fn(params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         vel_pred = model.apply(
@@ -206,4 +174,4 @@ def jit_update_flow_matching(
         }
 
     new_model, metrics = model.apply_gradient(loss_fn)
-    return new_model, metrics
+    return rng, new_model, metrics
