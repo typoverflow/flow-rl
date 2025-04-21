@@ -67,7 +67,6 @@ def jit_sample_and_select(
     model: DDPM,
     q0: Model,
     obs: jnp.ndarray,
-    action: jnp.ndarray,
     training: bool,
     T: int,
     num_samples: int,
@@ -75,7 +74,7 @@ def jit_sample_and_select(
     temperature: float,
 ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
     B = obs.shape[0]
-    rng, actions, _ = model.sample(rng, obs, action, training, T, num_samples, solver)
+    rng, actions, _ = model.sample(rng, obs, training, num_samples, solver)
     if temperature is None:
         return rng, actions[:, 0]
     else:
@@ -91,6 +90,22 @@ def jit_sample_and_select(
             idx = jax.random.categorical(select_rng, logits=qs/(1e-6+temperature), axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), idx]
         return rng, actions
+
+@partial(jax.jit, static_argnames=("ema", "do_ema_update"))
+def jit_update_behavior(
+    rng: PRNGKey,
+    behavior: DDPM,
+    behavior_target: DDPM,
+    batch: Batch,
+    ema: float,
+    do_ema_update: bool,
+) -> Tuple[PRNGKey, Model, Model, Metric]:
+    rng, new_behavior, metrics = jit_update_ddpm(rng, behavior, batch)
+    if do_ema_update:
+        new_behavior_target = ema_update(new_behavior, behavior_target, ema)
+    else:
+        new_behavior_target = behavior_target
+    return rng, new_behavior, new_behavior_target, metrics
 
 @partial(jax.jit, static_argnames=("T", "discount", "eta", "rho", "num_q_samples", "q_target", "maxQ", "solver", "ema", "do_ema_update"))
 def jit_update_critic(
@@ -123,9 +138,7 @@ def jit_update_critic(
     rng, next_action, history = actor_target.sample(
         rng,
         batch.next_obs,
-        jnp.zeros((A, )),
         training=False,
-        T=T,
         num_samples=num_q_samples,
         solver=solver,
     )
@@ -154,7 +167,6 @@ def jit_update_critic(
         batch.obs,
         batch.action,
         training=False,
-        T=T,
         num_samples=num_q_samples,
         solver=solver,
         sample_xt=True,
@@ -252,7 +264,6 @@ def jit_update_actor(
             batch.obs,
             batch.action,
             training=True,
-            T=T,
             num_samples=num_q_samples,
             solver=solver,
             sample_xt=True,
@@ -338,6 +349,7 @@ class BDPOAgent(BaseAgent):
                 network=network_def,
                 rng=rng,
                 inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.zeros((1, 1))),
+                x_dim=self.act_dim,
                 steps=cfg.steps,
                 noise_schedule=cfg.noise_schedule,
                 noise_schedule_params=None,
@@ -350,6 +362,7 @@ class BDPOAgent(BaseAgent):
             ddpm_target = DDPM.create(
                 network=network_def,
                 rng=rng,
+                x_dim=self.act_dim,
                 inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.zeros((1, 1))),
                 steps=cfg.steps,
                 noise_schedule=cfg.noise_schedule,
@@ -465,7 +478,7 @@ class BDPOAgent(BaseAgent):
         return metrics
 
     def pretrain_step(self, batch: Batch, step: int) -> Metric:
-        self.rng, self.behavior, self.behavior_target, metrics = jit_update_ddpm(
+        self.rng, self.behavior, self.behavior_target, metrics = jit_update_behavior(
             self.rng,
             self.behavior,
             self.behavior_target,
@@ -491,7 +504,6 @@ class BDPOAgent(BaseAgent):
             use_model,
             self.q0,
             obs,
-            jnp.zeros((self.act_dim, )), # this is only for inferring the action shape
             training=False,
             T=self.cfg.diffusion.steps,
             num_samples=num_samples,
