@@ -86,12 +86,10 @@ class BaseAgent():
         Sample actions from the agent's policy.
 
         Args:
-            observations (jnp.ndarray): The observations to sample actions from. Shape should be
+            obs (jnp.ndarray): The observations to sample actions from. Shape should be
                                         (batch_size, obs_dim).
-            use_behavior (bool): Whether to use the behavior policy for sampling.
-            temperature (float): The temperature for sampling.
+            deterministic (bool): Whether to sample actions deterministically or stochastically.
             num_samples (int): The number of actions to sample.
-            return_history (bool): Whether to return the history of sampling.
 
         Returns:
             actions (jnp.ndarray): The sampled actions. Shape should be (batch_size, num_samples, action_dim).
