@@ -21,7 +21,7 @@ class FlowBackbone(nn.Module):
         self,
         s: jnp.ndarray,  # s = [obs, cond] if it's conditional
         a: jnp.ndarray,
-        time: Optional[jnp.ndarray],
+        time: jnp.ndarray,
         training: bool = False
     ):
         inputs = jnp.concatenate([s, a, time], axis=-1)
@@ -70,7 +70,6 @@ class ContinuousNormalizingFlow(Model):
         return t
 
     def add_noise(self, rng, x1):
-        B, _ = x1.shape
         rng, t_rng, noise_rng = jax.random.split(rng, 3)
         t = jax.random.uniform(t_rng, (*x1.shape[:-1], 1))
         x0 = jax.random.normal(noise_rng, x1.shape)

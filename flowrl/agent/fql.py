@@ -97,6 +97,7 @@ def update_onestep_actor(
         training=False,
     )
     bc_x0 = bc_history[0][0] # take the noise
+    bc_action = jnp.clip(bc_action, min_action, max_action)
 
     def onestep_loss_fn(onestep_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         pred = actor_onestep.apply(
