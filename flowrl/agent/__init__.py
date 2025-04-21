@@ -4,10 +4,12 @@ from .base import BaseAgent
 from .bdpo.bdpo import BDPOAgent
 from .iql import IQLAgent
 from .ivr import IVRAgent
+from .fql import FQLAgent
 
 __all__ = [
     "BaseAgent",
     "IQLAgent",
     "BDPOAgent",
-    "IVRAgent"
+    "IVRAgent",
+    "FQLAgent",
 ]

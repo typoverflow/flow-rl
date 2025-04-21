@@ -1,0 +1,28 @@
+# @package _global_
+
+train_steps: 500_000
+
+data:
+  norm_obs: false
+  norm_reward: iql_antmaze
+  clip_eps: 1e-5
+
+algo:
+  name: fql
+
+  discount: 0.99
+  tau: 0.005
+  alpha: 10 # weight of distill loss
+  lr: 0.0003
+
+  actor_hidden_dims: [512, 512, 512, 512]
+  actor_layer_norm: false
+  flow_steps: 10
+  
+  critic_hidden_dims: [512, 512, 512, 512]
+  critic_layer_norm: true
+  normalize_q_loss: false
+  q_agg: mean
+
+  max_action: 1.0
+  min_action: -1.0
