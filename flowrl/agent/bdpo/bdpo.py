@@ -1,4 +1,5 @@
 from functools import partial
+from typing import List
 
 import flax.linen as nn
 import jax
@@ -307,8 +308,7 @@ class BDPOAgent(BaseAgent):
     Behavior-Regularized Diffusion Policy Optimization
     """
     name = "BDPOAgent"
-    # model_names = ["behavior", "behavior_target", "actor", "actor_target", "q0", "q0_target", "vt", "vt_target"]
-    model_names = ["behavior_target"]  # this is a hack so that BDPO will only save and load the behavior_target model
+    model_names = ["behavior", "behavior_target", "actor", "actor_target", "q0", "q0_target", "vt", "vt_target"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: BDPOConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
@@ -422,6 +422,13 @@ class BDPOAgent(BaseAgent):
         self._is_pretraining = True # will switch to False after prepared for training
         self._n_pretraining_steps = 0
         self._n_training_steps = 0
+    
+    @property
+    def saved_model_names(self) -> List[str]:
+        if self._is_pretraining:
+            return ["behavior_target"]
+        else:
+            return self.model_names
 
     def prepare_training(self):
         self.actor = ema_update(self.behavior_target, self.actor, 1.0)

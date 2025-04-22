@@ -97,6 +97,17 @@ class BaseAgent():
 
         """
         raise NotImplementedError("sample_actions not implemented for this agent")
+    
+    @property
+    def saved_model_names(self) -> List[str]:
+        """
+        Get the names of the models to be saved or loaded. Default is all models.
+        Agent can override this method to specify which models to save or load,
+        conditional on the agent's configuration, training stage, etc.
+        Returns:
+            List[str]: The names of the models to be saved.
+        """
+        return self.model_names
 
     def save(self, path: str) -> None:
         """
@@ -104,7 +115,7 @@ class BaseAgent():
         Args:
             path (str): The path to save the agent's state.
         """
-        ckpt: Dict[str, TrainState] = {name: getattr(self, name).state for name in self.model_names}
+        ckpt: Dict[str, TrainState] = {name: getattr(self, name).state for name in self.saved_model_names}
         checkpointer = orbax.PyTreeCheckpointer()
         # save_args = orbax_utils.save_args_from_target(ckpt)
         # checkpointer.save(os.path.join(os.getcwd(), path), ckpt, save_args=save_args)
@@ -118,7 +129,7 @@ class BaseAgent():
         """
         checkpointer = orbax.PyTreeCheckpointer()
         ckpt = checkpointer.restore(os.path.join(os.getcwd(), path))
-        for name in self.model_names:
+        for name in self.saved_model_names:
             model: Model = getattr(self, name)
             new_state = model.state.replace(**ckpt[name])
             setattr(self, name, model.replace(state=new_state))
