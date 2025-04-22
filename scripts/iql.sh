@@ -10,7 +10,7 @@ TASKS=(
     "halfcheetah-medium-expert-v2"
 )
 SEEDS=(0 1 2 3 4)
-PARALLEL=${PARALLEL:-4}
+PARALLEL=${PARALLEL:-5}
 
 SHARED_ARGS=(
     "algo=iql"
@@ -28,7 +28,7 @@ TASK_ARGS=(
     ["hopper-medium-replay-v2"]=""
     ["walker2d-medium-replay-v2"]=""
     ["halfcheetah-medium-expert-v2"]=""
-    ["hopper-medium-expert-v2"]="algo.expectile=0.5 algo.beta=6.0 log.tag=default-exp0.5-beta6.0"
+    ["hopper-medium-expert-v2"]="algo.expectile=0.5 algo.beta=6.0"
     ["walker2d-medium-expert-v2"]=""
 )
 

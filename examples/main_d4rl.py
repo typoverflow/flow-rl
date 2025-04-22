@@ -4,17 +4,18 @@ from typing import Type
 import hydra
 import numpy as np
 import omegaconf
-import wandb
 from gymnasium.wrappers.transform_observation import TransformObservation
 from omegaconf import OmegaConf
 from tqdm import trange
 
+import wandb
 from flowrl.agent import *
 from flowrl.config.d4rl import Config
 from flowrl.dataset.d4rl import D4RLDataset
 from flowrl.env.offline.d4rl import make_env
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
+from flowrl.utils.misc import set_seed_everywhere
 
 SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "iql": IQLAgent,
@@ -28,6 +29,7 @@ class Trainer():
     def __init__(self, cfg: Config):
         self.cfg = cfg
 
+        set_seed_everywhere(cfg.seed)
         self.logger = CompositeLogger(
             log_dir="/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.task]),
             name="_".join(["seed"+str(cfg.seed), cfg.log.tag]),
@@ -57,7 +59,7 @@ class Trainer():
             norm_reward=cfg.data.norm_reward,
         )
         self.obs_mean, self.obs_std = self.dataset.get_obs_stats()
-        self.env = make_env(cfg.task)
+        self.env = make_env(cfg.task, cfg.seed)
         self.env = TransformObservation(self.env, lambda obs: (obs-self.obs_mean)/self.obs_std)
 
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
