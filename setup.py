@@ -27,6 +27,7 @@ def get_install_requires():
         "distrax",
         "tensorboardX==2.6.2.2",
         "scikit-learn==1.6.1",
+        "wandb",
     ]
 
 def get_extras_require():
