@@ -1,3 +1,5 @@
+export XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0'
+
 TASKS=(
     # mujoco
     "hopper-medium-v2"
@@ -60,7 +62,7 @@ TASK_ARGS=(
     # mujoco
     ["halfcheetah-medium-v2"]="${MUJOCO_ARGS[@]}"
     ["hopper-medium-v2"]="${MUJOCO_ARGS[@]}"
-    ["walker2d-medium-v2"]=""
+    ["walker2d-medium-v2"]="${MUJOCO_ARGS[@]}"
     ["halfcheetah-medium-replay-v2"]="${MUJOCO_ARGS[@]}"
     ["hopper-medium-replay-v2"]="${MUJOCO_ARGS[@]}"
     ["walker2d-medium-replay-v2"]="${MUJOCO_ARGS[@]}"

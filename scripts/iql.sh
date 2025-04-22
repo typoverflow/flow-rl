@@ -1,3 +1,5 @@
+export XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0'
+
 TASKS=(
     "hopper-medium-v2"
     "hopper-medium-replay-v2"
@@ -10,7 +12,7 @@ TASKS=(
     "halfcheetah-medium-expert-v2"
 )
 SEEDS=(0 1 2 3 4)
-PARALLEL=${PARALLEL:-5}
+PARALLEL=${PARALLEL:-4}
 
 SHARED_ARGS=(
     "algo=iql"

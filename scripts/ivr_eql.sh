@@ -1,3 +1,5 @@
+export XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0'
+
 TASKS=(
     # mujoco
     "hopper-medium-v2"
@@ -21,7 +23,7 @@ TASKS=(
 	"kitchen-partial-v0"
 	"kitchen-mixed-v0"
 )
-SEEDS=(0 1 2 3 4)
+SEEDS=(0 1 2 3)
 PARALLEL=${PARALLEL:-4}
 
 SHARED_ARGS=(
@@ -60,7 +62,7 @@ TASK_ARGS=(
     # mujoco
     ["halfcheetah-medium-v2"]="${MUJOCO_ARGS[@]}"
     ["hopper-medium-v2"]="${MUJOCO_ARGS[@]}"
-    ["walker2d-medium-v2"]=""
+    ["walker2d-medium-v2"]="${MUJOCO_ARGS[@]}"
     ["halfcheetah-medium-replay-v2"]="${MUJOCO_ARGS[@]}"
     ["hopper-medium-replay-v2"]="${MUJOCO_ARGS[@]}"
     ["walker2d-medium-replay-v2"]="${MUJOCO_ARGS[@]}"

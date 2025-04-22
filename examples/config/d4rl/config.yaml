@@ -31,7 +31,7 @@ data:
   norm_reward: none
   batch_size: 256
   scan: true
-  clip_eps: 0.0
+  clip_eps: 1e-5
 eval:
   interval: 10000
   stats_interval: 2000

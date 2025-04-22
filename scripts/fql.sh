@@ -1,3 +1,5 @@
+export XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0'
+
 TASKS=( # NOTE: FQL's paper did not report results on mujoco datasets, so we skip them
     # antmaze
 	"antmaze-umaze-v2"  # NOTE: fql uses -v2 antmaze datasets

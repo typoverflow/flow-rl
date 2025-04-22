@@ -3,7 +3,6 @@
 data:
   norm_obs: false
   norm_reward: iql_mujoco
-  clip_eps: 1e-5
 
 eval:
   num_samples: 10
