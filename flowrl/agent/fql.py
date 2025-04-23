@@ -160,7 +160,8 @@ def jit_update_fql(
         bc_rng,
         actor_bc,
         jax.random.normal(noise_rng, (batch.obs.shape[0], actor_bc.x_dim)),
-        batch,
+        batch.action,
+        batch.obs,
     )
     # update onestep actor
     new_actor_onestep, onestep_metrics = update_onestep_actor(
