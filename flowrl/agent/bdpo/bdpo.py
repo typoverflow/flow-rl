@@ -16,7 +16,6 @@ from flowrl.flow.ddpm import (
     DDPM,
     DDPMBackbone,
     EnsembleCriticT,
-    FourierEmbedding,
     jit_update_ddpm,
 )
 from flowrl.functional.activation import mish
@@ -24,6 +23,7 @@ from flowrl.functional.ema import ema_update
 from flowrl.module.critic import EnsembleCritic
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
+from flowrl.module.time_embedding import FourierEmbedding
 from flowrl.types import *
 
 EPS = 1e-6
