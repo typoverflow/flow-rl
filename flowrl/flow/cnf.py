@@ -7,7 +7,6 @@ import optax
 from flax.struct import dataclass, field
 from flax.training.train_state import TrainState
 
-from flowrl.functional.ema import ema_update
 from flowrl.module.model import Model
 from flowrl.types import *
 
@@ -15,6 +14,8 @@ from flowrl.types import *
 
 class FlowBackbone(nn.Module):
     vel_predictor: nn.Module
+    time_embedding: nn.Module = None
+    cond_embedding: nn.Module = None
 
     @nn.compact
     def __call__(
@@ -24,6 +25,12 @@ class FlowBackbone(nn.Module):
         time: jnp.ndarray,
         training: bool = False
     ):
+        if self.cond_embedding is not None:
+            # last dim gives the class token
+            embed_feature = self.cond_embedding()(s[:, -1], training=training)  # gives the shape of (B,) array
+            s = jnp.concatenate([s[:, :-1], embed_feature], axis=-1)
+        if self.time_embedding is not None:
+            time = self.time_embedding()(time)
         inputs = jnp.concatenate([s, a, time], axis=-1)
         x = self.vel_predictor()(inputs, training=training)
         return x
