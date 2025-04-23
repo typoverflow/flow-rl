@@ -91,18 +91,20 @@ def update_onestep_actor(
     max_action: float,
     min_action: float,
 ) -> Tuple[Model, Metric]:
-    _, bc_action, bc_history = actor_bc.sample(
-        rng,
+    noise_rng, bc_rng = jax.random.split(rng)
+    noise = jax.random.normal(noise_rng, (batch.obs.shape[0], actor_bc.x_dim))
+    _, bc_action, _ = actor_bc.sample(
+        bc_rng,
+        noise,
         batch.obs,
         training=False,
     )
-    bc_x0 = bc_history[0][0] # take the noise
     bc_action = jnp.clip(bc_action, min_action, max_action)
 
     def onestep_loss_fn(onestep_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         pred = actor_onestep.apply(
             {"params": onestep_params},
-            jnp.concat([batch.obs, bc_x0], axis=-1),
+            jnp.concat([batch.obs, noise], axis=-1),
             training=True,
             rngs={"dropout": dropout_rng},
         )
@@ -141,7 +143,7 @@ def jit_update_fql(
     max_action: float,
     min_action: float,
 )-> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
-    rng, critic_rng, bc_rng, onestep_rng = jax.random.split(rng, 4)
+    rng, noise_rng, critic_rng, bc_rng, onestep_rng = jax.random.split(rng, 5)
     new_critic, critic_metrics = update_critic(
         critic_rng,
         critic,
@@ -157,6 +159,7 @@ def jit_update_fql(
     _, new_actor_bc, bc_metrics = jit_update_flow_matching(
         bc_rng,
         actor_bc,
+        jax.random.normal(noise_rng, (batch.obs.shape[0], actor_bc.x_dim)),
         batch,
     )
     # update onestep actor

@@ -76,10 +76,9 @@ class ContinuousNormalizingFlow(Model):
         t = step / self.steps
         return t
 
-    def add_noise(self, rng, x1):
-        rng, t_rng, noise_rng = jax.random.split(rng, 3)
+    def linear_interpolation(self, rng, x0, x1):
+        rng, t_rng = jax.random.split(rng, 2)
         t = jax.random.uniform(t_rng, (*x1.shape[:-1], 1))
-        x0 = jax.random.normal(noise_rng, x1.shape)
         xt = (1 - t) * x0 + t * x1
         vel = x1 - x0
         return rng, xt, t, vel
@@ -122,17 +121,16 @@ class ContinuousNormalizingFlow(Model):
     def sample(
         self,
         rng: PRNGKey,
+        x0: jnp.ndarray,
         obs: jnp.ndarray,
         training: bool,
         num_samples: Optional[int]=None,
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
-        rng, x0_rng = jax.random.split(rng)
         if num_samples is not None:
             obs_use = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
         else:
             obs_use = obs
-        x0 = jax.random.normal(x0_rng, (*obs_use.shape[:-1], self.x_dim))
         t_proto = jnp.ones((*obs.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input, t):
@@ -151,7 +149,7 @@ class ContinuousNormalizingFlow(Model):
             return (rng_, x_next), (xt, vel)
 
         output, history = jax.lax.scan(fn, (rng, x0), self.step2t(jnp.arange(self.steps)), unroll=True)
-        rng , action = output
+        rng, action = output
         return rng, action, history
 
 # ======= Update Function ========
@@ -160,10 +158,11 @@ class ContinuousNormalizingFlow(Model):
 def jit_update_flow_matching(
     rng: PRNGKey,
     model: ContinuousNormalizingFlow,
+    x0: jnp.ndarray,
     batch: Batch,
 ) -> Tuple[PRNGKey, ContinuousNormalizingFlow, Metric]:
-    x0 = batch.action
-    rng, xt, t, vel = model.add_noise(rng, x0)
+    x1 = batch.action
+    rng, xt, t, vel = model.linear_interpolation(rng, x0, x1)
 
     def loss_fn(params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         vel_pred = model.apply(
