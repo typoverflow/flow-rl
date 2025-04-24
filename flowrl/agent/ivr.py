@@ -174,9 +174,8 @@ class IVRAgent(BaseAgent):
             logstd_min=cfg.policy_logstd_min
         )
         if cfg.opt_decay_schedule == "cosine" and cfg.lr_decay_steps is not None:
-            schedule_fn = optax.cosine_decay_schedule(-cfg.actor_lr, cfg.lr_decay_steps)
-            act_opt = optax.chain(optax.scale_by_adam(),
-                                  optax.scale_by_schedule(schedule_fn))
+            lr = optax.cosine_decay_schedule(cfg.actor_lr, cfg.lr_decay_steps)
+            act_opt = optax.adam(learning_rate=lr)
         else:
             act_opt = optax.adam(learning_rate=cfg.actor_lr)
         self.actor = Model.create(

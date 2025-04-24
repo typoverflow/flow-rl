@@ -20,14 +20,14 @@ class EpisodeMonitor(gym.ActionWrapper):
         self.start_time = time.time()
 
     def step(self, action: np.ndarray) -> TimeStep:
-        observation, reward, terminated, truncated, info = self.env.step(action)
+        observation, reward, done, info = self.env.step(action)
 
         self.reward_sum += reward
         self.episode_length += 1
         self.total_timesteps += 1
         info['total'] = {'timesteps': self.total_timesteps}
 
-        if terminated or truncated:
+        if done:
             info['episode'] = {}
             info['episode']['return'] = self.reward_sum
             info['episode']['length'] = self.episode_length
@@ -37,7 +37,7 @@ class EpisodeMonitor(gym.ActionWrapper):
                 info['episode']['return'] = self.env.get_normalized_score(
                     info['episode']['return']) * 100.0
 
-        return observation, reward, terminated, truncated, info
+        return observation, reward, done, info
 
     def reset(self, **kwargs) -> np.ndarray:
         self._reset_stats()

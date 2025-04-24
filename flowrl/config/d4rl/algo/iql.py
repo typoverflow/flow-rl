@@ -12,7 +12,7 @@ class IQLConfig(BaseAlgoConfig):
 
     discount: float
 
-    tau: float # soft target update
+    ema: float # soft target update
     expectile: float
     beta: float # inverse temperature for awr
 

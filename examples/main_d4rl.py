@@ -4,7 +4,7 @@ from typing import Type
 import hydra
 import numpy as np
 import omegaconf
-from gymnasium.wrappers.transform_observation import TransformObservation
+from gym.wrappers.transform_observation import TransformObservation
 from omegaconf import OmegaConf
 from tqdm import trange
 
@@ -106,7 +106,7 @@ class Trainer():
     def eval_and_save(self, step: int, prefix: str = "eval"):
         returns, lengths, info = [], [], {}
         for _ in range(self.cfg.eval.num_episodes):
-            (observation, _), done = self.env.reset(), False
+            observation, done = self.env.reset(), False
             while not done:
                 action, _ = self.agent.sample_actions(
                     observation.reshape(1, -1),
@@ -114,8 +114,7 @@ class Trainer():
                     num_samples=self.cfg.eval.num_samples,
                 )
                 action = action[0]
-                observation, _, terminated, truncated, info = self.env.step(action)
-                done = terminated or truncated
+                observation, _, done, info = self.env.step(action)
 
             # episodic statistics from wrappers/EpisodeMonitor
             returns.append(info['episode']['return'])

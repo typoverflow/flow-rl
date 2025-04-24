@@ -37,12 +37,15 @@ def jit_sample_action(
         action = jnp.clip(action, min_action, max_action)
     return action
 
+@partial(jax.jit, static_argnames=("expectile"))
 def update_v(
-    q: jnp.ndarray,
     value: Model,
+    critic_target: Model,
     batch: Batch,
     expectile: float,
 ) -> Tuple[Model, Metric]:
+    qs = critic_target(batch.obs, batch.action)
+    qs = qs.min(axis=0)
     def value_loss_fn(value_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         v = value.apply(
             {"params": value_params},
@@ -50,7 +53,7 @@ def update_v(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        value_loss = expectile_regression(v, q, expectile).mean()
+        value_loss = expectile_regression(v, qs, expectile).mean()
         return value_loss, {
             "loss/value_loss": value_loss,
             "misc/v_mean": v.mean(),
@@ -58,13 +61,14 @@ def update_v(
     new_value, metrics = value.apply_gradient(value_loss_fn)
     return new_value, metrics
 
+@partial(jax.jit, static_argnames=("discount"))
 def update_q(
     critic: Model,
-    next_v: jnp.array,
+    value: Model,
     batch: Batch,
     discount: float
 ) -> Tuple[Model, Metric]:
-    target_q = batch.reward + discount * (1-batch.terminal) * next_v
+    target_q = batch.reward + discount * (1-batch.terminal) * value(batch.next_obs)
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         qs = critic.apply(
             {"params": critic_params},
@@ -73,7 +77,7 @@ def update_q(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        critic_loss = ((qs - target_q[jnp.newaxis, ...])**2).mean()
+        critic_loss = ((qs - target_q[jnp.newaxis, ...])**2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q_mean": qs.mean()
@@ -81,15 +85,20 @@ def update_q(
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
     return new_critic, metrics
 
-def awr_update_actor(
+@partial(jax.jit, static_argnames=("beta", "deterministic_actor"))
+def update_actor(
     actor: Model,
-    q: jnp.array,
-    v: jnp.array,
+    critic_target: Model,
+    value: Model,
     batch: Batch,
     beta: float,
     deterministic_actor: bool,
 ) -> Tuple[Model, Metric]:
-    exp_a = jnp.exp((q - v) * beta)
+    v = value(batch.obs)
+    qs = critic_target(batch.obs, batch.action)
+    qs = qs.min(axis=0)
+    adv = qs - v
+    exp_a = jnp.exp(adv * beta)
     exp_a = jnp.minimum(exp_a, 100.0)  # truncate the weights...
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         pred = actor.apply(
@@ -104,7 +113,6 @@ def awr_update_actor(
             dist: distrax.Normal = pred
             actor_loss = - dist.log_prob(batch.action).sum(axis=-1, keepdims=True)
         actor_loss = (exp_a * actor_loss).mean()
-        adv = q - v
         return actor_loss, {
             "loss/actor_loss": actor_loss,
             "misc/adv_mean": adv.mean(),
@@ -113,8 +121,8 @@ def awr_update_actor(
     new_actor, metrics = actor.apply_gradient(actor_loss_fn)
     return new_actor, metrics
 
-@partial(jax.jit, static_argnames=("expectile", "beta", "discount", "tau", "deterministic_actor"))
-def jit_update_iql(
+@partial(jax.jit, static_argnames=("expectile", "beta", "discount", "ema", "deterministic_actor"))
+def update_iql(
     actor: Model,
     critic: Model,
     critic_target: Model,
@@ -123,27 +131,19 @@ def jit_update_iql(
     expectile: float,
     beta: float,
     discount: float,
-    tau: float,
+    ema: float,
     deterministic_actor: bool,
 )-> Tuple[Model, Model, Model, Model, Metric]:
-    q_target = critic_target(batch.obs, batch.action, training=False)
-    q_target = q_target.min(axis=0)
-    v = value(batch.obs, training=False)
-    next_v = value(batch.next_obs, training=False)
-    new_value, value_metric = update_v(q_target, value, batch, expectile)
-    new_critic, critic_metric = update_q(
-        critic, next_v, batch, discount
-    )
-    new_actor, actor_metric = awr_update_actor(
-        actor, q_target, v, batch, beta, deterministic_actor
-    )
-
-    new_target_critic = ema_update(new_critic, critic_target, tau)
-    return new_actor, new_critic, new_target_critic, new_value, {
-        **actor_metric,
-        **critic_metric,
-        **value_metric,
+    new_value, value_metrics = update_v(value, critic_target, batch, expectile)
+    new_actor, actor_metrics = update_actor(actor, critic_target, new_value, batch, beta, deterministic_actor)
+    new_critic, critic_metrics = update_q(critic, new_value, batch, discount)
+    new_critic_target = ema_update(new_critic, critic_target, ema)
+    return new_actor, new_critic, new_critic_target, new_value, {
+        **value_metrics,
+        **actor_metrics,
+        **critic_metrics,
     }
+
 
 class IQLAgent(BaseAgent):
     """
@@ -161,7 +161,7 @@ class IQLAgent(BaseAgent):
             actor_def = SquashedDeterministicActor(
                 backbone=MLP(
                     hidden_dims=cfg.actor_hidden_dims,
-                    layer_norm=cfg.layer_norm,
+                    layer_norm=False,
                     dropout=cfg.dropout
                 ),
                 obs_dim=self.obs_dim,
@@ -171,7 +171,7 @@ class IQLAgent(BaseAgent):
             actor_def = TanhMeanGaussianActor(
                 backbone=MLP(
                     hidden_dims=cfg.actor_hidden_dims,
-                    layer_norm=cfg.layer_norm,
+                    layer_norm=False,
                     dropout=cfg.dropout
                 ),
                 obs_dim=self.obs_dim,
@@ -180,9 +180,8 @@ class IQLAgent(BaseAgent):
                 logstd_min=cfg.policy_logstd_min
             )
         if cfg.opt_decay_schedule == "cosine" and cfg.lr_decay_steps is not None:
-            schedule_fn = optax.cosine_decay_schedule(-cfg.actor_lr, cfg.lr_decay_steps)
-            act_opt = optax.chain(optax.scale_by_adam(),
-                                  optax.scale_by_schedule(schedule_fn))
+            lr = optax.cosine_decay_schedule(cfg.actor_lr, cfg.lr_decay_steps)
+            act_opt = optax.adam(learning_rate=lr)
         else:
             act_opt = optax.adam(learning_rate=cfg.actor_lr)
         self.actor = Model.create(
@@ -195,7 +194,7 @@ class IQLAgent(BaseAgent):
 
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,
-            layer_norm=cfg.layer_norm,
+            layer_norm=False,
             dropout=cfg.dropout,
             ensemble_size=cfg.critic_ensemble_size
         )
@@ -226,7 +225,7 @@ class IQLAgent(BaseAgent):
         )
 
     def train_step(self, batch: Batch, step: int) -> Metric:
-        self.actor, self.critic, self.critic_target, self.value, metric = jit_update_iql(
+        self.actor, self.critic, self.critic_target, self.value, metric = update_iql(
             self.actor,
             self.critic,
             self.critic_target,
@@ -235,7 +234,7 @@ class IQLAgent(BaseAgent):
             self.cfg.expectile,
             self.cfg.beta,
             self.cfg.discount,
-            self.cfg.tau,
+            self.cfg.ema,
             self.cfg.deterministic_actor,
         )
         return metric

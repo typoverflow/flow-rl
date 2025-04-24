@@ -23,7 +23,7 @@ TASKS=(
 	"kitchen-partial-v0"
 	"kitchen-mixed-v0"
 )
-SEEDS=(0 1 2 3)
+SEEDS=(0 1 2 3 4)
 PARALLEL=${PARALLEL:-4}
 
 SHARED_ARGS=(

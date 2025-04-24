@@ -3,11 +3,13 @@
 data:
   norm_obs: true
   norm_reward: iql_mujoco
+  scan: false
+
 
 algo:
   name: iql
   discount: 0.99
-  tau: 0.005
+  ema: 0.005
   expectile: 0.7
   beta: 3.0
   actor_hidden_dims: [256, 256]
