@@ -22,22 +22,24 @@ class FlowBackbone(nn.Module):
     @nn.compact
     def __call__(
         self,
-        c: jnp.ndarray,
         x: jnp.ndarray,
         time: jnp.ndarray,
+        condition: Optional[jnp.ndarray] = None,
         training: bool = False
     ):
-        if self.cond_embedding is not None:
-            c = self.cond_embedding()(c, training=training)
         if self.time_embedding is not None:
             time = self.time_embedding()(time)
             time = MLP(
                 hidden_dims=[time.shape[-1], time.shape[-1]],
                 activation=mish,
             )(time)
-        inputs = jnp.concatenate([c, x, time], axis=-1)
-        x = self.vel_predictor()(inputs, training=training)
-        return x
+        if self.cond_embedding is not None:
+            condition = self.cond_embedding()(condition, training=training)
+        if condition is not None:
+            inputs = jnp.concatenate([x, time, condition], axis=-1)
+        else:
+            inputs = jnp.concatenate([x, time], axis=-1)
+        return self.vel_predictor()(inputs, training=training)
 
 # ======= CNF ========
 
@@ -91,7 +93,7 @@ class ContinuousNormalizingFlow(Model):
         self,
         dropout_rng: PRNGKey,
         t: jnp.ndarray,
-        cond: jnp.ndarray,
+        condition: jnp.ndarray,
         xt: jnp.ndarray,
         training: bool,
         params: Optional[Param]=None,
@@ -99,30 +101,25 @@ class ContinuousNormalizingFlow(Model):
         """Move flow forward one step with Euler method"""
         if training:
             vel = self.apply(
-                {"params": params}, cond, xt, t, training=training, rngs={"dropout": dropout_rng}
+                {"params": params}, xt, t, condition=condition, training=training, rngs={"dropout": dropout_rng}
             )
         else:
-            vel = self(cond, xt, t, training=training)
+            vel = self(xt, t, condition=condition, training=training)
         x_next = xt + vel / self.steps
         if self.clip_sampler:
             x_next = jnp.clip(x_next, self.x_min, self.x_max)
         return x_next, vel
 
-    @partial(jax.jit, static_argnames=("training", "num_samples"))
+    @partial(jax.jit, static_argnames=("training"))
     def sample(
         self,
         rng: PRNGKey,
         x0: jnp.ndarray,
-        cond: jnp.ndarray,
-        training: bool,
-        num_samples: Optional[int]=None,
+        condition: Optional[jnp.ndarray]=None,
+        training: bool=False,
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
-        if num_samples is not None:
-            cond_use = cond[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
-        else:
-            cond_use = cond
-        t_proto = jnp.ones((*cond.shape[:-1], 1), dtype=jnp.int32)
+        t_proto = jnp.ones((*x0.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input, t):
             rng_, xt = input
@@ -131,7 +128,7 @@ class ContinuousNormalizingFlow(Model):
             x_next, vel = self._ode_step(
                 dropout_rng_,
                 t*t_proto,
-                cond_use,
+                condition,
                 xt,
                 training=training,
                 params=params,
@@ -151,16 +148,16 @@ def jit_update_flow_matching(
     model: ContinuousNormalizingFlow,
     x0: jnp.ndarray,
     x1: jnp.ndarray,
-    cond: jnp.ndarray,
+    condition: Optional[jnp.ndarray]=None,
 ) -> Tuple[PRNGKey, ContinuousNormalizingFlow, Metric]:
     rng, xt, t, vel = model.linear_interpolation(rng, x0, x1)
 
     def loss_fn(params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         vel_pred = model.apply(
             {"params": params},
-            cond,
             xt,
             t,
+            condition=condition,
             training=True,
             rngs={"dropout": dropout_rng},
         )

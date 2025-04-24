@@ -43,29 +43,30 @@ def vp_beta_schedule(T: int=1000):
 
 class DDPMBackbone(nn.Module):
     noise_predictor: nn.Module
-    time_embedding: nn.Module
+    time_embedding: nn.Module = None
     cond_embedding: nn.Module = None
 
     @nn.compact
     def __call__(
         self,
-        s: jnp.ndarray,  # s = [obs, cond] if it's conditional
-        a: jnp.ndarray,
+        x: jnp.ndarray,
         time: jnp.ndarray,
+        condition: Optional[jnp.ndarray] = None,
         training: bool = False
     ):
-        t_ff = self.time_embedding()(time)
-        t_ff = MLP(
-            hidden_dims=[t_ff.shape[-1], t_ff.shape[-1]],
-            activation=mish,
-        )(t_ff)
+        if self.time_embedding is not None:
+            time = self.time_embedding()(time)
+            time = MLP(
+                hidden_dims=[time.shape[-1], time.shape[-1]],
+                activation=mish,
+            )(time)
         if self.cond_embedding is not None:
-            # last dim gives the class token
-            embed_feature = self.cond_embedding()(s[:, -1])  # gives the shape of (B,) array
-            s = jnp.concatenate([s[:, :-1], embed_feature], axis=-1)
-
-        input = jnp.concatenate([s, a, t_ff], axis=-1)
-        return self.noise_predictor()(input, training=training)
+            condition = self.cond_embedding()(condition, training=training)
+        if condition is not None:
+            inputs = jnp.concatenate([x, time, condition], axis=-1)
+        else:
+            inputs = jnp.concatenate([x, time], axis=-1)
+        return self.noise_predictor()(inputs, training=training)
 
 # ======= DDPM ========
 
@@ -134,35 +135,30 @@ class DDPM(Model):
         xt = jnp.sqrt(self.alpha_hats[t]) * x0 + jnp.sqrt(1-self.alpha_hats[t]) * eps
         return rng, xt, t, eps
 
-    @partial(jax.jit, static_argnames=("training", "num_samples", "solver"))
+    @partial(jax.jit, static_argnames=("training", "solver"))
     def sample(
         self,
         rng: PRNGKey,
-        obs: jnp.ndarray,
-        training: bool,
-        num_samples: Optional[int],
+        xT: jnp.ndarray,
+        condition: Optional[jnp.ndarray]=None,
+        training: bool=False,
         solver: str="ddpm",
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
 
-        rng, xT_rng, dropout_rng = jax.random.split(rng, 3)
-        if num_samples is not None:
-            obs_use = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
-        else:
-            obs_use = obs
-        xT = jax.random.normal(xT_rng, (*obs_use.shape[:-1], self.x_dim))
-        t_proto = jnp.ones((*obs.shape[:-1], 1), dtype=jnp.int32)
+        t_proto = jnp.ones((*xT.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input, t):
             rng_, xt = input
+            rng_, dropout_rng_ = jax.random.split(rng_)
             input_t = t_proto * t
 
             if training:
                 eps_theta = self.apply(
-                    {"params": params}, obs_use, xt, input_t, training=training, rngs={"dropout": dropout_rng}
+                    {"params": params}, xt, input_t, condition=condition, training=training, rngs={"dropout": dropout_rng_}
                 )
             else:
-                eps_theta = self(obs_use, xt, input_t, training=training)
+                eps_theta = self(xt, input_t, condition=condition, training=training)
 
             if solver == "ddpm":
                 x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (xt - jnp.sqrt(1 - self.alpha_hats[t]) * eps_theta)
@@ -193,34 +189,33 @@ class DDPM(Model):
     def onestep_sample(
         self,
         rng: PRNGKey,
-        obs: jnp.ndarray,
-        action: jnp.ndarray,
-        training: bool,
-        num_samples: int,
+        xt_or_x0: jnp.ndarray,
+        condition: Optional[jnp.ndarray]=None,
+        training: bool=False,
+        num_samples: Optional[int]=None,
         solver: str="ddpm",
         sample_xt: bool=True,
         t: Optional[jnp.ndarray]=None,
         params: Optional[Param]=None,
     ) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        assert num_samples is not None
-        B = obs.shape[0]
-        rng, sample_rng, noise_rng = jax.random.split(rng, 3)
+        B = xt_or_x0.shape[0]
+        rng, sample_rng, noise_rng, dropout_rng = jax.random.split(rng, 4)
         if sample_xt:
-            x0 = action
+            x0 = xt_or_x0
             _, xt, t, eps_sample = self.add_noise(sample_rng, x0)
         else:
             t = t
-            xt = action
+            xt = xt_or_x0
         t_1 = t - 1
         repeated_t = t.repeat(num_samples, axis=0).reshape(B, num_samples, -1)
         repeated_t_1 = t_1.repeat(num_samples, axis=0).reshape(B, num_samples, -1)
 
-        if training: # BUG: dropout_rng is not passed
+        if training:
             eps_theta = self.apply(
-                {"params": params}, obs, xt, t, training=training
+                {"params": params}, xt, t, condition=condition, training=training, rngs={"dropout": dropout_rng}
             )
         else:
-            eps_theta = self(obs, xt, t, training=training)
+            eps_theta = self(xt, t, condition=condition, training=training)
 
         if solver == "ddpm":
             x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (xt - jnp.sqrt(1 - self.alpha_hats[t]) * eps_theta)
@@ -251,17 +246,17 @@ class DDPM(Model):
 def jit_update_ddpm(
     rng: PRNGKey,
     model: DDPM,
-    batch: Batch,
+    x0: jnp.ndarray,
+    condition: Optional[jnp.ndarray]=None,
 ) -> Tuple[PRNGKey, DDPM, Metric]:
-    x0 = batch.action
     rng, xt, t, eps = model.add_noise(rng, x0)
 
     def loss_fn(params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         eps_pred = model.apply(
             {"params": params},
-            batch.obs,
             xt,
             t,
+            condition=condition,
             training=True,
             rngs={"dropout": dropout_rng},
         )

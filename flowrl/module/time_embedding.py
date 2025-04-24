@@ -1,5 +1,6 @@
-import jax.numpy as jnp
 import flax.linen as nn
+import jax.numpy as jnp
+
 
 class PositionalEmbedding(nn.Module):
     output_dim: int
@@ -12,7 +13,8 @@ class PositionalEmbedding(nn.Module):
         f = jnp.exp(jnp.arange(half_dim) * -f)
         f = x * f
         return jnp.concatenate([jnp.cos(f), jnp.sin(f)], axis=-1)
-    
+
+
 class LearnablePositionalEmbedding(nn.Module):
     output_dim: int
 
@@ -23,17 +25,6 @@ class LearnablePositionalEmbedding(nn.Module):
         f = 2 * jnp.pi * x @ w.T
         return jnp.concatenate([jnp.cos(f), jnp.sin(f)], axis=-1)
 
-class SinusoidalEmbedding(nn.Module):
-    output_dim: int
-    max_positions: int = 10000
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray):
-        half_dim = self.output_dim // 2
-        f = jnp.log(self.max_positions) / (half_dim - 1)
-        f = jnp.exp(jnp.arange(half_dim) * -f)
-        f = x * f
-        return jnp.concatenate([jnp.sin(f), jnp.cos(f)], axis=-1)
 
 class FourierEmbedding(nn.Module):
     output_dim: int
@@ -50,6 +41,5 @@ class FourierEmbedding(nn.Module):
 SUPPORTED_TIMESTEP_EMBEDDING = {
     'positional': PositionalEmbedding,
     'learnable_positional': LearnablePositionalEmbedding,
-    'sinusoidal': SinusoidalEmbedding,
     'fourier': FourierEmbedding,
 }

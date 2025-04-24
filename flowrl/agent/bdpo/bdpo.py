@@ -12,17 +12,13 @@ from flowrl.config.d4rl.algo.bdpo import (
     BDPODiffusionConfig,
     BDPODiffusionTrainConfig,
 )
-from flowrl.flow.ddpm import (
-    DDPM,
-    DDPMBackbone,
-    jit_update_ddpm,
-)
+from flowrl.flow.ddpm import DDPM, DDPMBackbone, jit_update_ddpm
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
 from flowrl.module.critic import EnsembleCritic, EnsembleCriticT
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
-from flowrl.module.time_embedding import FourierEmbedding
+from flowrl.module.time_embedding import PositionalEmbedding
 from flowrl.types import *
 
 EPS = 1e-6
@@ -74,12 +70,17 @@ def jit_sample_and_select(
     temperature: float,
 ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
     B = obs.shape[0]
-    rng, actions, _ = model.sample(rng, obs, training, num_samples, solver)
+    rng, xT_rng = jax.random.split(rng)
+
+    # sample
+    obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
+    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], model.x_dim))
+    rng, actions, _ = model.sample(rng, xT, obs_repeat, training, solver)
     if temperature is None:
         return rng, actions[:, 0]
     else:
         qs = q0(
-            obs.repeat(num_samples, axis=0).reshape(B, num_samples, -1),
+            obs_repeat,
             actions,
         )
         qs = qs.mean(axis=0).reshape(B, num_samples)
@@ -100,7 +101,7 @@ def jit_update_behavior(
     ema: float,
     do_ema_update: bool,
 ) -> Tuple[PRNGKey, Model, Model, Metric]:
-    rng, new_behavior, metrics = jit_update_ddpm(rng, behavior, batch)
+    rng, new_behavior, metrics = jit_update_ddpm(rng, behavior, batch.action, batch.obs)
     if do_ema_update:
         new_behavior_target = ema_update(new_behavior, behavior_target, ema)
     else:
@@ -134,16 +135,20 @@ def jit_update_critic(
     alpha_hats = actor_target.alpha_hats
     betas = actor_target.betas
 
+    rng, xT_rng = jax.random.split(rng)
+
     # q0 target
+    next_obs_repeat = batch.next_obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
+    xT = jax.random.normal(xT_rng, (*next_obs_repeat.shape[:-1], A))
     rng, next_action, history = actor_target.sample(
         rng,
-        batch.next_obs,
+        xT,
+        next_obs_repeat,
         training=False,
-        num_samples=num_q_samples,
         solver=solver,
     )
     q0_target_value = q0_target(
-        batch.next_obs.repeat(num_q_samples, axis=0).reshape(B, num_q_samples, -1),
+        next_obs_repeat,
         next_action
     )
     rng, q0_target_value = get_target(rng, q0_target_value, maxQ, q_target, rho)
@@ -152,9 +157,9 @@ def jit_update_critic(
     q0_xt, q0_actor_eps = history
     q0_t = jnp.arange(T, 0, -1).repeat(B*num_q_samples, axis=0).reshape(T, B, num_q_samples, 1)
     q0_behavior_eps = behavior_target(
-        jnp.tile(batch.next_obs.repeat(num_q_samples, axis=0), (T, 1)).reshape(T, B, num_q_samples, -1),
         q0_xt,
-        q0_t
+        q0_t,
+        next_obs_repeat[jnp.newaxis, ...].repeat(T, axis=0),
     )
     q0_penalty = get_penalty(q0_actor_eps, q0_behavior_eps, q0_t, T, alphas, alpha_hats, betas)
     q0_penalty = q0_penalty.sum(axis=0).mean(axis=-2).sum(axis=-1, keepdims=True)
@@ -162,10 +167,11 @@ def jit_update_critic(
     q0_target_value = q0_target_value - eta * q0_penalty
 
     # vt target
+    obs_repeat = batch.obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
     rng, rep_xt_1, xt, rep_t_1, t, history = actor_target.onestep_sample(
         rng,
-        batch.obs,
         batch.action,
+        batch.obs,
         training=False,
         num_samples=num_q_samples,
         solver=solver,
@@ -173,20 +179,20 @@ def jit_update_critic(
         t=None,
     )
     vt_target_value1 = vt_target(
-        batch.obs.repeat(num_q_samples, axis=0).reshape(B, num_q_samples, -1),
+        obs_repeat,
         rep_xt_1,
         rep_t_1
     ) # (E, B, N, 1)
     rng, vt_target_value1 = get_target(rng, vt_target_value1, False, q_target, rho)
     vt_target_value2 = q0_target(
-        batch.obs.repeat(num_q_samples, axis=0).reshape(B, num_q_samples, -1),
+        obs_repeat,
         rep_xt_1
     )
     rng, vt_target_value2 = get_target(rng, vt_target_value2, False, q_target, rho)
     vt_target_value = (t != 1) * vt_target_value1 + (t == 1) * vt_target_value2
 
     vt_actor_eps = history
-    vt_behavior_eps = behavior_target(batch.obs, xt, t)
+    vt_behavior_eps = behavior_target(xt, t, batch.obs)
     vt_penalty = get_penalty(vt_actor_eps, vt_behavior_eps, t, T, alphas, alpha_hats, betas)
 
     vt_target_value = vt_target_value - eta * vt_penalty.sum(axis=-1, keepdims=True)
@@ -261,8 +267,8 @@ def jit_update_actor(
     def actor_loss_fn(actor_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
         sample_rng_, rep_xt_1, xt, rep_t_1, t, history = actor.onestep_sample(
             sample_rng,
-            batch.obs,
             batch.action,
+            batch.obs,
             training=True,
             num_samples=num_q_samples,
             solver=solver,
@@ -270,22 +276,22 @@ def jit_update_actor(
             t=None,
             params=actor_params
         )
-        rep_obs = batch.obs.repeat(num_q_samples, axis=0).reshape(B, num_q_samples, -1)
+        obs_repeat = batch.obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
         target_1 = vt_target(
-            rep_obs,
+            obs_repeat,
             rep_xt_1,
             rep_t_1
         )
         sample_rng_, target_1 = get_target(sample_rng_, target_1, False, q_target, rho=rho)
         target_2 = q0_target(
-            rep_obs,
+            obs_repeat,
             rep_xt_1
         )
         sample_rng_, target_2 = get_target(sample_rng_, target_2, False, q_target, rho=rho)
         target = (t != 1) * target_1 + (t == 1) * target_2
 
         actor_eps = history
-        behavior_eps = behavior_target(batch.obs, xt, t)
+        behavior_eps = behavior_target(xt, t, batch.obs)
         penalty = get_penalty(actor_eps, behavior_eps, t, T, alphas, alpha_hats, betas)
         target = target - eta * penalty.sum(axis=-1, keepdims=True)
         actor_loss = - target.mean()
@@ -315,7 +321,7 @@ class BDPOAgent(BaseAgent):
         self.rng, behavior_rng, actor_rng, q0_rng, vt_rng = jax.random.split(self.rng, 5)
 
         # define behavior and actor
-        time_embedding = partial(FourierEmbedding, output_dim=cfg.diffusion.time_dim)
+        time_embedding = partial(PositionalEmbedding, output_dim=cfg.diffusion.time_dim)
         if cfg.diffusion.resnet:
             noise_predictor = partial(
                 ResidualMLP,
@@ -347,7 +353,7 @@ class BDPOAgent(BaseAgent):
             ddpm = DDPM.create(
                 network=network_def,
                 rng=rng,
-                inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.zeros((1, 1))),
+                inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
                 x_dim=self.act_dim,
                 steps=cfg.steps,
                 noise_schedule=cfg.noise_schedule,
@@ -362,7 +368,7 @@ class BDPOAgent(BaseAgent):
                 network=network_def,
                 rng=rng,
                 x_dim=self.act_dim,
-                inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.zeros((1, 1))),
+                inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
                 steps=cfg.steps,
                 noise_schedule=cfg.noise_schedule,
                 noise_schedule_params=None,
@@ -421,7 +427,7 @@ class BDPOAgent(BaseAgent):
         self._is_pretraining = True # will switch to False after prepared for training
         self._n_pretraining_steps = 0
         self._n_training_steps = 0
-    
+
     @property
     def saved_model_names(self) -> List[str]:
         if self._is_pretraining:
