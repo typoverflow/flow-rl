@@ -93,12 +93,7 @@ def update_onestep_actor(
 ) -> Tuple[Model, Metric]:
     noise_rng, bc_rng = jax.random.split(rng)
     noise = jax.random.normal(noise_rng, (batch.obs.shape[0], actor_bc.x_dim))
-    _, bc_action, _ = actor_bc.sample(
-        bc_rng,
-        noise,
-        batch.obs,
-        training=False,
-    )
+    _, bc_action, _ = actor_bc.sample(bc_rng, noise, batch.obs)
     bc_action = jnp.clip(bc_action, min_action, max_action)
 
     def onestep_loss_fn(onestep_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
@@ -209,7 +204,7 @@ class FQLAgent(BaseAgent):
         self.actor_bc = ContinuousNormalizingFlow.create(
             flow_def,
             bc_key,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
+            inputs=(jnp.ones((1, self.act_dim)), jnp.ones((1, 1)), jnp.ones((1, self.obs_dim))),
             x_dim=act_dim,
             steps=cfg.flow_steps,
             clip_sampler=False,

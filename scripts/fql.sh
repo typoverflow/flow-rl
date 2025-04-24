@@ -20,12 +20,6 @@ SHARED_ARGS=(
     "log.tag=default"
 )
 
-MUJOCO_ARGS=(
-    "algo.actor_dropout=0"
-    "algo.value_dropout=0"
-    "algo.alpha=1.0"
-)
-
 declare -A TASK_ARGS
 TASK_ARGS=(
     # antmaze
