@@ -2,9 +2,9 @@ from typing import Dict, Type
 
 from .base import BaseAgent
 from .bdpo.bdpo import BDPOAgent
+from .fql.fql import FQLAgent
 from .iql import IQLAgent
 from .ivr import IVRAgent
-from .fql import FQLAgent
 
 __all__ = [
     "BaseAgent",

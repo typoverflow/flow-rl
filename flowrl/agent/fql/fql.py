@@ -14,10 +14,10 @@ from flowrl.flow.cnf import (
     jit_update_flow_matching,
 )
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import Critic, EnsembleCritic
-from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import *
+
+from .network import MLP, EnsembleCritic
 
 
 @partial(jax.jit, static_argnames=("max_action", "min_action", "act_dim"))
