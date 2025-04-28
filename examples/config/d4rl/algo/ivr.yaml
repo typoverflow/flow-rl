@@ -3,6 +3,7 @@
 data:
   norm_obs: false
   norm_reward: iql_mujoco
+  scan: false
 
 algo:
   name: ivr

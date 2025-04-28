@@ -35,6 +35,7 @@ SHARED_ARGS=(
 )
 
 MUJOCO_ARGS=(
+    "data.norm_obs=true"
     "algo.actor_dropout=0"
     "algo.value_dropout=0"
     "algo.alpha=2.0"
