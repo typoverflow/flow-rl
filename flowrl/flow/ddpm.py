@@ -82,6 +82,7 @@ class DDPM(Model):
     betas: jnp.ndarray = field(pytree_node=True, default=None)
     alphas: jnp.ndarray = field(pytree_node=True, default=None)
     alpha_hats: jnp.ndarray = field(pytree_node=True, default=None)
+    postvars: jnp.ndarray = field(pytree_node=True, default=None)
 
     @classmethod
     def create(
@@ -93,6 +94,7 @@ class DDPM(Model):
         steps: int,
         noise_schedule: str,
         noise_schedule_params: Optional[Dict]=None,
+        approx_postvar: bool=False,
         clip_sampler: bool=False,
         x_min: Optional[float]=None,
         x_max: Optional[float]=None,
@@ -115,6 +117,11 @@ class DDPM(Model):
         betas = jnp.concatenate([jnp.zeros((1, )), betas])
         alphas = 1 - betas
         alpha_hats = jnp.cumprod(alphas)
+        if approx_postvar:
+            postvars = betas
+        else:
+            postvars = betas[1:] * (1-alpha_hats[:-1]) / (1-alpha_hats[1:])
+            postvars = jnp.concatenate([jnp.zeros((1, )), postvars])
 
         return ret.replace(
             x_dim=x_dim,
@@ -124,7 +131,8 @@ class DDPM(Model):
             x_max=x_max,
             betas=betas,
             alphas=alphas,
-            alpha_hats=alpha_hats
+            alpha_hats=alpha_hats,
+            postvars=postvars,
         )
 
     def add_noise(self, rng, x0):
@@ -167,7 +175,7 @@ class DDPM(Model):
                 xt_1 = 1 / (1 - self.alpha_hats[t]) * (jnp.sqrt(self.alpha_hats[t - 1]) * (1 - self.alphas[t]) * x0_hat +
                         jnp.sqrt(self.alphas[t]) * (1 - self.alpha_hats[t - 1]) * xt)
                 rng_, key_ = jax.random.split(rng_)
-                std_t = jnp.sqrt(1-self.alphas[t])
+                std_t = jnp.sqrt(self.postvars[t])
                 xt_1 += (t>1) * std_t * jax.random.normal(key_, xt.shape)
             elif solver == "ddim":
                 alpha_1 = 1 / jnp.sqrt(self.alphas[t])
