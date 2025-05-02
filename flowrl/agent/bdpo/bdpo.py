@@ -57,14 +57,13 @@ def get_penalty(
 ) -> jnp.ndarray:
     return 0.5 * betas[t] * ((actor_eps - behavior_eps)**2) / (1 - betas[t]) / (1 - alpha_hats[t])
 
-@partial(jax.jit, static_argnames=("training", "T", "num_samples", "solver", "temperature"))
+@partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temperature"))
 def jit_sample_and_select(
     rng: PRNGKey,
     model: DDPM,
     q0: Model,
     obs: jnp.ndarray,
     training: bool,
-    T: int,
     num_samples: int,
     solver: str,
     temperature: float,
@@ -514,10 +513,9 @@ class BDPOAgent(BaseAgent):
         self.rng, action = jit_sample_and_select(
             self.rng,
             use_model,
-            self.q0,
+            self.q0_target,
             obs,
             training=False,
-            T=self.cfg.diffusion.steps,
             num_samples=num_samples,
             solver=self.cfg.diffusion.solver,
             temperature=self.cfg.temperature
