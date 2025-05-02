@@ -2,7 +2,11 @@ from hydra.core.config_store import ConfigStore
 
 from .algo.base import BaseAlgoConfig
 from .algo.bdpo import BDPOConfig
+from .algo.dac import DACConfig
+from .algo.dql import DQLConfig
+from .algo.fql import FQLConfig
 from .algo.iql import IQLConfig
+from .algo.ivr import IVRConfig
 from .config import Config, DataConfig, EvalConfig, LogConfig
 
 _DEF_SUFFIX = "_cfg_def"
@@ -16,6 +20,10 @@ cs.store(group="algo", name="base", node=BaseAlgoConfig)
 _CONFIGS = {
     "iql": IQLConfig,
     "bdpo": BDPOConfig,
+    "ivr": IVRConfig,
+    "dac": DACConfig,
+    "dql": DQLConfig,
+    "fql": FQLConfig,
 }
 
 for name, cfg in _CONFIGS.items():

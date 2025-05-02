@@ -1,0 +1,38 @@
+# @package _global_
+
+data:
+  norm_obs: false
+  norm_reward: none
+
+eval:
+  num_samples: 50
+  interval: 50000
+
+train_steps: 2_000_000
+
+algo:
+  name: dql
+  temperature: 1.0
+  start_actor_ema: 1000
+  eta: 1.0
+  grad_norm: 1.0
+  lr: 0.0003
+  lr_decay_steps: ${train_steps}
+  diffusion:
+    noise_schedule: linear
+    time_dim: 64
+    hidden_dims: [256, 256, 256]
+    solver: ddpm
+    steps: 5
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+    ema: 0.005
+    ema_every: 5
+  critic:
+    discount: 0.99
+    maxQ: false
+    ensemble_size: 2
+    hidden_dims: [256, 256, 256]
+    ema: 0.005
+    ema_every: 1

@@ -1,46 +1,22 @@
 from functools import partial
 
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.d4rl.algo.dac import DACConfig
+from flowrl.config.d4rl.algo.dql import DQLConfig
 from flowrl.flow.ddpm import DDPM, DDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
 from flowrl.module.critic import EnsembleCritic
-from flowrl.module.mlp import MLP, ResidualMLP
+from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
 from flowrl.types import *
 
-EPS = 1e-6
 
-@partial(jax.jit, static_argnames=("maxQ", "q_target", "rho"))
-def get_target(rng: PRNGKey, vs: jnp.ndarray, maxQ: bool, q_target: str, rho: float) -> Tuple[PRNGKey, jnp.ndarray]:
-    # vs is of shape (E, B, N, 1)
-    if maxQ:
-        vs = vs.max(axis=-2)
-    else:
-        vs = vs.mean(axis=-2)
-    if q_target == "min":
-        vs = vs.min(axis=0)
-    elif q_target == "convex":
-        vs = rho * vs.min(axis=0) + (1-rho) * vs.max(axis=0)
-    elif q_target == "lcb":
-        vs = vs.mean(axis=0) - rho * vs.std(axis=0)
-    elif q_target == "rand_convex":
-        rng, alpha_key = jax.random.split(rng)
-        alphas = jax.random.uniform(alpha_key, vs.shape)
-        alphas /= (alphas.sum(axis=0, keepdims=True) + EPS)
-        vs = (vs * alphas).sum(axis=0)
-    else:
-        raise NotImplementedError(f"Unrecognized Q-target type: {q_target}. ")
-    return rng, vs
-
-@partial(jax.jit, static_argnames=("discount", "rho", "num_samples", "q_target", "maxQ", "solver", "ema", "do_ema_update"))
+@partial(jax.jit, static_argnames=("discount", "maxQ", "solver", "ema"))
 def jit_update_critic(
     rng: PRNGKey,
     critic: Model,
@@ -48,17 +24,14 @@ def jit_update_critic(
     actor_target: DDPM,
     batch: Batch,
     discount: float,
-    rho: float,
-    num_samples: int,
-    q_target: str,
     maxQ: bool,
     solver: str,
     ema: float,
-    do_ema_update: bool
 ) -> Tuple[PRNGKey, Model, Model, Metric]:
     B = batch.obs.shape[0]
     A = batch.action.shape[-1]
 
+    num_samples = 50 if maxQ else 1
     rng, xT_rng = jax.random.split(rng)
     next_obs_repeat = batch.next_obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
     xT = jax.random.normal(xT_rng, (*next_obs_repeat.shape[:-1], A))
@@ -70,7 +43,12 @@ def jit_update_critic(
         solver=solver
     )
     next_q = critic_target(next_obs_repeat, next_action)
-    rng, next_q = get_target(rng, next_q, maxQ, q_target, rho)
+    if maxQ:
+        next_q = next_q.max(axis=-2)
+    else:
+        next_q = next_q.mean(axis=-2)
+
+    next_q = next_q.min(axis=0)
     next_q = batch.reward + discount * (1-batch.terminal) * next_q
 
     def critic_loss_fn(critic_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
@@ -85,74 +63,76 @@ def jit_update_critic(
             "misc/q_mean": pred.mean(),
             "misc/reward": batch.reward.mean()
         }
-
     new_critic, critic_metrics = critic.apply_gradient(critic_loss_fn)
-    if do_ema_update:
-        new_critic_target = ema_update(new_critic, critic_target, ema)
-    else:
-        new_critic_target = critic_target
-    return rng, new_critic, new_critic_target, critic_metrics
+    new_target_critic = ema_update(new_critic, critic_target, ema)
 
-@partial(jax.jit, static_argnames=("eta_min", "eta_max", "eta_lr", "eta_threshold", "ema", "do_ema_update"))
+    return rng, new_critic, new_target_critic, critic_metrics
+
+@partial(jax.jit, static_argnames=("eta", "solver", "ema", "do_ema_update"))
 def jit_update_actor(
     rng: PRNGKey,
     actor: DDPM,
     actor_target: DDPM,
-    critic_target: Model,
-    eta: jnp.ndarray,
+    critic: Model,
     batch: Batch,
-    eta_min: float,
-    eta_max: float,
-    eta_lr: float,
-    eta_threshold: float,
+    eta: float,
+    solver: str,
     ema: float,
-    do_ema_update: bool
-) -> Tuple[PRNGKey, Model, Model, jnp.ndarray, Metric]:
+    do_ema_update: bool,
+) -> Tuple[PRNGKey, Model, Model, Metric]:
     B = batch.obs.shape[0]
+    A = batch.action.shape[-1]
+    rng, xT_rng, choice_rng = jax.random.split(rng, 3)
 
+    # for bc loss
     rng, xt, t, eps = actor.add_noise(rng, batch.action)
-    q = critic_target(batch.obs, batch.action)
-    q_norm = jnp.abs(q).mean()
-    q_grad_fn = jax.vmap(jax.grad(lambda a, s: critic_target(s, a).mean()))
-    q_grad = q_grad_fn(xt, batch.obs) / (q_norm + EPS)
+
+    # for q loss
+    xT = jax.random.normal(xT_rng, (*batch.obs.shape[:-1], A))
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
+        rng1, rng2 = jax.random.split(dropout_rng)
         eps_pred = actor.apply(
             {"params": actor_params},
             xt,
             t,
             condition=batch.obs,
             training=True,
-            rngs={"dropout": dropout_rng},
+            rngs={"dropout": rng1},
         )
         bc_loss = ((eps_pred - eps) ** 2).mean()
-        guidance_loss = (jnp.sqrt(1-actor.alpha_hats[t]) * q_grad * eps_pred).mean()
-        actor_loss = eta * bc_loss + guidance_loss
+
+        _, new_action, _ = actor.sample(
+            rng2,
+            xT,
+            batch.obs,
+            training=True,
+            solver=solver,
+            params=actor_params,
+        )
+        new_q = critic(batch.obs, new_action)
+        choice = jax.random.uniform(choice_rng)
+        q_loss1 = - new_q[0].mean() / jax.lax.stop_gradient(jnp.abs(new_q[1]).mean() + 1e-6)
+        q_loss2 = - new_q[1].mean() / jax.lax.stop_gradient(jnp.abs(new_q[0]).mean() + 1e-6)
+        q_loss = (choice > 0.5) * q_loss1 + (choice <= 0.5) * q_loss2
+        # q_loss = - new_q.mean() / jax.lax.stop_gradient(jnp.abs(new_q).mean() + 1e-6)
+        actor_loss = bc_loss + q_loss * eta
         return actor_loss, {
-            "loss/actor_loss": actor_loss,
             "loss/bc_loss": bc_loss,
-            "loss/guidance_loss": guidance_loss,
             "misc/eta": eta,
-            "misc/q_grad_abs": jnp.abs(q_grad).mean(),
         }
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
     if do_ema_update:
         new_actor_target = ema_update(new_actor, actor_target, ema)
     else:
         new_actor_target = actor_target
-
-    if eta_lr > 0:
-        bc_loss = actor_metrics["loss/bc_loss"]
-        eta += eta_lr * (bc_loss - eta_threshold).clip(-1, 1)
-        eta = jnp.clip(eta, eta_min, eta_max)
-
-    return rng, new_actor, new_actor_target, eta, actor_metrics
+    return rng, new_actor, new_actor_target, actor_metrics
 
 @partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temperature"))
 def jit_sample_and_select(
     rng: PRNGKey,
     model: DDPM,
-    q0: Model,
+    critic: Model,
     obs: jnp.ndarray,
     training: bool,
     num_samples: int,
@@ -169,11 +149,11 @@ def jit_sample_and_select(
     if temperature is None:
         return rng, actions[:, 0]
     else:
-        qs = q0(
+        qs = critic(
             obs_repeat,
             actions,
         )
-        qs = qs.mean(axis=0).reshape(B, num_samples)
+        qs = qs.min(axis=0).reshape(B, num_samples)
         if temperature <= 0.0:
             idx = qs.argmax(axis=-1)
         else:
@@ -183,46 +163,36 @@ def jit_sample_and_select(
         return rng, actions
 
 
-class DACAgent(BaseAgent):
+class DQLAgent(BaseAgent):
     """
-    Diffusion Actor Critic
+    Diffusion Q-Learning
     """
-    name = "DACAgent"
+    name = "DQLAgent"
     model_names = ["actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: DACConfig, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: DQLConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
+        if cfg.lr_decay_steps is not None:
+            actor_lr = optax.cosine_decay_schedule(cfg.lr, cfg.lr_decay_steps)
+            critic_lr = optax.cosine_decay_schedule(cfg.lr, cfg.lr_decay_steps)
+        else:
+            actor_lr = cfg.lr
+            critic_lr = cfg.lr
         # define the actor
         time_embedding = partial(PositionalEmbedding, output_dim=cfg.diffusion.time_dim)
-        if cfg.diffusion.resnet:
-            noise_predictor = partial(
-                ResidualMLP,
-                hidden_dims=cfg.diffusion.resnet_hidden_dims,
-                output_dim=act_dim,
-                activation=mish,
-                layer_norm=True,
-                dropout=cfg.diffusion.dropout
-            )
-        else:
-            noise_predictor = partial(
-                MLP,
-                hidden_dims=cfg.diffusion.mlp_hidden_dims,
-                output_dim=act_dim,
-                activation=mish,
-                layer_norm=cfg.diffusion.layer_norm,
-                dropout=cfg.diffusion.dropout
-            )
+        noise_predictor = partial(
+            MLP,
+            hidden_dims=cfg.diffusion.hidden_dims,
+            output_dim=act_dim,
+            activation=mish,
+        )
         backbone_def = DDPMBackbone(
             noise_predictor=noise_predictor,
-            time_embedding=time_embedding
+            time_embedding=time_embedding,
         )
-        if cfg.diffusion.lr_decay_steps is not None:
-            actor_lr = optax.cosine_decay_schedule(cfg.diffusion.lr, cfg.diffusion.lr_decay_steps)
-        else:
-            actor_lr = cfg.diffusion.lr
         self.actor = DDPM.create(
             network=backbone_def,
             rng=actor_rng,
@@ -231,12 +201,12 @@ class DACAgent(BaseAgent):
             steps=cfg.diffusion.steps,
             noise_schedule=cfg.diffusion.noise_schedule,
             noise_schedule_params=None,
-            approx_postvar=True,
+            approx_postvar=False,
             clip_sampler=cfg.diffusion.clip_sampler,
             x_min=cfg.diffusion.x_min,
             x_max=cfg.diffusion.x_max,
             optimizer=optax.adam(learning_rate=actor_lr),
-            clip_grad_norm=cfg.diffusion.clip_grad_norm,
+            clip_grad_norm=cfg.grad_norm,
         )
         self.actor_target = DDPM.create(
             network=backbone_def,
@@ -246,7 +216,7 @@ class DACAgent(BaseAgent):
             steps=cfg.diffusion.steps,
             noise_schedule=cfg.diffusion.noise_schedule,
             noise_schedule_params=None,
-            approx_postvar=True,
+            approx_postvar=False,
             clip_sampler=cfg.diffusion.clip_sampler,
             x_min=cfg.diffusion.x_min,
             x_max=cfg.diffusion.x_max,
@@ -257,26 +227,19 @@ class DACAgent(BaseAgent):
             hidden_dims=cfg.critic.hidden_dims,
             activation=mish,
             ensemble_size=cfg.critic.ensemble_size,
-            layer_norm=cfg.critic.layer_norm,
         )
-        if cfg.critic.lr_decay_steps is not None:
-            critic_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
-        else:
-            critic_lr = cfg.critic.lr
         self.critic = Model.create(
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
             optimizer=optax.adam(learning_rate=critic_lr),
-            clip_grad_norm=cfg.critic.clip_grad_norm,
+            clip_grad_norm=cfg.grad_norm,
         )
         self.critic_target = Model.create(
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
         )
-
-        self.eta = jnp.array(cfg.eta)
 
         self._n_training_steps = 0
 
@@ -289,31 +252,27 @@ class DACAgent(BaseAgent):
             self.actor_target,
             batch,
             self.cfg.critic.discount,
-            self.cfg.critic.rho,
-            self.cfg.critic.num_samples,
-            self.cfg.critic.q_target,
             self.cfg.critic.maxQ,
             self.cfg.diffusion.solver,
             self.cfg.critic.ema,
-            self._n_training_steps % self.cfg.critic.ema_every == 0,
         )
-        self.rng, self.actor, self.actor_target, self.eta, actor_metrics = jit_update_actor(
+        metrics.update(critic_metrics)
+
+        self.rng, self.actor, self.actor_target, actor_metrics = jit_update_actor(
             self.rng,
             self.actor,
             self.actor_target,
-            self.critic_target,
-            self.eta,
+            self.critic,
             batch,
-            self.cfg.eta_min,
-            self.cfg.eta_max,
-            self.cfg.eta_lr,
-            self.cfg.eta_threshold,
+            self.cfg.eta,
+            self.cfg.diffusion.solver,
             self.cfg.diffusion.ema,
             self._n_training_steps >= self.cfg.start_actor_ema and \
             self._n_training_steps % self.cfg.diffusion.ema_every == 0,
         )
-        metrics.update(critic_metrics)
         metrics.update(actor_metrics)
+
+        self._n_training_steps += 1
         return metrics
 
     def sample_actions(
@@ -330,6 +289,6 @@ class DACAgent(BaseAgent):
             training=False,
             num_samples=num_samples,
             solver=self.cfg.diffusion.solver,
-            temperature=self.cfg.temperature,
+            temperature=self.cfg.temperature
         )
         return action, {}
