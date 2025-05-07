@@ -59,6 +59,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end: bool=False, discard_l
             observations: An N x dim_obs array of observations.
             actions: An N x dim_action array of actions.
             next_observations: An N x dim_obs array of next observations.
+            next_actions: An N x dim_action array of next actions.
             rewards: An N-dim float array of rewards.
             terminals: An N-dim boolean array of "done" or episode termination flags.
     """
@@ -69,6 +70,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end: bool=False, discard_l
     obs_ = []
     next_obs_ = []
     action_ = []
+    next_action_ = []
     reward_ = []
     done_ = []
     end_ = []
@@ -84,6 +86,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end: bool=False, discard_l
         obs = dataset['observations'][i].astype(np.float32)
         new_obs = dataset['observations'][i+1].astype(np.float32)  # Thus, the next_obs for the last timestep is totally false
         action = dataset['actions'][i].astype(np.float32)
+        new_action = dataset['actions'][i+1].astype(np.float32)  # Thus, the next_action for the last timestep is totally false
         reward = dataset['rewards'][i].astype(np.float32)
         done_bool = bool(dataset['terminals'][i])
         end = False
@@ -109,6 +112,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end: bool=False, discard_l
         obs_.append(obs)
         next_obs_.append(new_obs)
         action_.append(action)
+        next_action_.append(new_action)
         reward_.append(reward)
         done_.append(done_bool)
         end_.append(end)
@@ -118,6 +122,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end: bool=False, discard_l
         'observations': np.array(obs_),
         'actions': np.array(action_),
         'next_observations': np.array(next_obs_),
+        'next_actions': np.array(next_action_),
         'rewards': np.array(reward_),
         'terminals': np.array(done_),
         "ends": np.array(end_)
@@ -144,9 +149,11 @@ class D4RLDataset():
             "reward": raw_dataset["rewards"][..., None],
             "terminal": raw_dataset["terminals"][..., None],
             "next_obs": raw_dataset["next_observations"],
+            "next_action": raw_dataset["next_actions"],
         }
         if clip_eps > 0:
             dataset["action"] = np.clip(dataset["action"], -(1-clip_eps), 1-clip_eps)
+            dataset["next_action"] = np.clip(dataset["next_action"], -(1-clip_eps), 1-clip_eps)
         end = raw_dataset["ends"]
 
         if self.scan:
@@ -188,4 +195,5 @@ class D4RLDataset():
             reward=self.dataset["reward"][indices],
             terminal=self.dataset["terminal"][indices],
             next_obs=self.dataset["next_obs"][indices],
+            next_action=self.dataset["next_action"][indices],
         )

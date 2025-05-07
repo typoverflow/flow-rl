@@ -12,7 +12,7 @@ Shape = NewType("Shape", Sequence[int])
 Metric = NewType("Metric", Dict[str, Any])
 Batch = collections.namedtuple(
     'Batch',
-    ['obs', 'action', 'reward', 'terminal', 'next_obs']
+    ['obs', 'action', 'reward', 'terminal', 'next_obs', 'next_action'],
 )
 
 __all__ = ["Batch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple"]
