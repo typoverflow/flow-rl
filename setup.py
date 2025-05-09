@@ -20,6 +20,8 @@ def get_install_requires():
         'shimmy==1.3.0',
         "gym==0.23.1",
         "mujoco_py==2.1.2.14",
+        "dm_control<=1.0.20", # https://github.com/Farama-Foundation/D4RL/issues/236
+        "mujoco<=3.1.6", # https://github.com/Farama-Foundation/D4RL/issues/236
         'Cython<3',
         'six==1.17.0',
         "tqdm",
