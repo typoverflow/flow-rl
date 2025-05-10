@@ -26,6 +26,7 @@ SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "fql": FQLAgent,
     "dac": DACAgent,
     "dql": DQLAgent,
+    "dtql": DTQLAgent,
 }
 
 
