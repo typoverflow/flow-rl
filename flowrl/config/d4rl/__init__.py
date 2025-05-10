@@ -4,6 +4,7 @@ from .algo.base import BaseAlgoConfig
 from .algo.bdpo import BDPOConfig
 from .algo.dac import DACConfig
 from .algo.dql import DQLConfig
+from .algo.dtql import DTQLConfig
 from .algo.fql import FQLConfig
 from .algo.iql import IQLConfig
 from .algo.ivr import IVRConfig
@@ -24,6 +25,7 @@ _CONFIGS = {
     "dac": DACConfig,
     "dql": DQLConfig,
     "fql": FQLConfig,
+    "dtql": DTQLConfig,
 }
 
 for name, cfg in _CONFIGS.items():

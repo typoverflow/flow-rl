@@ -1,0 +1,30 @@
+# @package _global_
+
+data:
+  norm_obs: false
+  norm_reward: ??? # none for non antmaze envs, iql_antmaze for antmaze envs
+  scan: false
+
+eval:
+  num_samples: 1024
+  interval: 50000
+
+pretrain_steps: 50_000
+
+algo:
+  name: dtql
+
+  discount: 0.99
+  gamma: ??? # 1.0 for antmaze, 0.0 for others
+  ema: 0.005 # soft target update
+  expectile: ??? # different for different envs
+  alpha: ??? # weight of distillation loss, different for different envs
+  sigma_max: 80
+  sigma_min: 0.002
+  sigma_data: 0.5
+
+  lr: ??? # different for different envs
+  lr_decay: ??? # different for different envs
+  lr_decay_steps: ${train_steps}
+  max_action: 1.0
+  min_action: -1.0

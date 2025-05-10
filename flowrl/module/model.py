@@ -84,3 +84,12 @@ class Model(PyTreeNode, ABC):
             state=state,
             dropout_rng=next_dropout_rng
         ), info
+
+    def reset_optim(self, optimizer: optax.GradientTransformation) -> 'Model':
+        """Reset the optimizer to a new one."""
+        new_state = TrainState.create(
+            apply_fn=self.state.apply_fn,
+            params=self.state.params,
+            tx=optimizer
+        )
+        return self.replace(state=new_state)
