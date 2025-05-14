@@ -4,11 +4,11 @@ from typing import Type
 import hydra
 import numpy as np
 import omegaconf
-import wandb
 from gym.wrappers.transform_observation import TransformObservation
 from omegaconf import OmegaConf
 from tqdm import trange
 
+import wandb
 from flowrl.agent import *
 from flowrl.config.d4rl import Config
 from flowrl.dataset.d4rl import D4RLDataset
@@ -34,7 +34,7 @@ class Trainer():
         set_seed_everywhere(cfg.seed)
         self.logger = CompositeLogger(
             log_dir="/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.task]),
-            name="_".join(["seed"+str(cfg.seed), cfg.log.tag]),
+            name="seed"+str(cfg.seed),
             logger_config={
                 "TensorboardLogger": {"activate": True},
                 "WandbLogger": {
