@@ -25,7 +25,7 @@ def get_install_requires():
         'Cython<3',
         'six==1.17.0',
         "tqdm",
-        "hydra-core"
+        "hydra-core", 
         "distrax",
         "tensorboardX==2.6.2.2",
         "scikit-learn==1.6.1",
