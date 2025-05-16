@@ -1,6 +1,8 @@
 import os
+from functools import partial
 from typing import Type
 
+import gym
 import hydra
 import numpy as np
 import omegaconf
@@ -61,8 +63,14 @@ class Trainer():
             norm_reward=cfg.data.norm_reward,
         )
         self.obs_mean, self.obs_std = self.dataset.get_obs_stats()
-        self.env = make_env(cfg.task, cfg.seed)
-        self.env = TransformObservation(self.env, lambda obs: (obs-self.obs_mean)/self.obs_std)
+        def make_env_fn(task, seed):
+            env = make_env(task, seed)
+            env = TransformObservation(env, lambda obs: (obs-self.obs_mean)/self.obs_std)
+            return env
+        self.env = make_env_fn(cfg.task, cfg.seed)
+        self.eval_envs = gym.vector.SyncVectorEnv([
+            partial(make_env_fn, cfg.task, cfg.seed+i) for i in range(cfg.eval.num_episodes)
+        ])
 
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.env.observation_space.shape[0],
@@ -106,21 +114,32 @@ class Trainer():
             print("Stopped by exception: ", str(e))
 
     def eval_and_save(self, step: int, prefix: str = "eval"):
-        returns, lengths, info = [], [], {}
-        for _ in range(self.cfg.eval.num_episodes):
-            observation, done = self.env.reset(), False
-            while not done:
-                action, _ = self.agent.sample_actions(
-                    observation.reshape(1, -1),
-                    deterministic=True,
-                    num_samples=self.cfg.eval.num_samples,
-                )
-                action = action[0]
-                observation, _, done, info = self.env.step(action)
+        # Initialize arrays to store results
+        returns = np.zeros(self.cfg.eval.num_episodes)
+        lengths = np.zeros(self.cfg.eval.num_episodes)
 
-            # episodic statistics from wrappers/EpisodeMonitor
-            returns.append(info['episode']['return'])
-            lengths.append(info['episode']['length'])
+        # Reset all environments
+        observations = self.eval_envs.reset()
+        dones = np.zeros(self.cfg.eval.num_episodes, dtype=bool)
+
+        # Run episodes in parallel
+        while not np.all(dones):
+            # Get actions for all environments
+            actions, _ = self.agent.sample_actions(
+                observations,
+                deterministic=True,
+                num_samples=self.cfg.eval.num_samples,
+            )
+
+            # Step all environments
+            observations, _, new_dones, infos = self.eval_envs.step(actions)
+
+            # Update done flags and collect episode returns/lengths
+            for i, (done, info) in enumerate(zip(new_dones, infos)):
+                if done and not dones[i]:  # Only process newly done episodes
+                    returns[i] = info['episode']['return']
+                    lengths[i] = info['episode']['length']
+                    dones[i] = True
 
         eval_metrics = {
             'mean': np.mean(returns),

@@ -328,7 +328,8 @@ class BDPOAgent(BaseAgent):
                 output_dim=act_dim,
                 activation=mish,
                 layer_norm=True,
-                dropout=cfg.diffusion.dropout
+                dropout=cfg.diffusion.dropout,
+                multiplier=1,
             )
         else:
             noise_predictor = partial(
@@ -485,8 +486,16 @@ class BDPOAgent(BaseAgent):
                 self.cfg.diffusion.actor.ema,
                 self._n_training_steps % self.cfg.diffusion.actor.ema_every == 0
             )
+            self.rng, self.behavior, self.behavior_target, behavior_metrics = jit_update_behavior(
+                self.rng,
+                self.behavior,
+                self.behavior_target,
+                batch,
+                self.cfg.diffusion.behavior.ema,
+                self._n_pretraining_steps % self.cfg.diffusion.behavior.ema_every == 0
+            )
             metrics.update(actor_metrics)
-
+            metrics.update(behavior_metrics)
         self._n_training_steps += 1
         return metrics
 
@@ -510,8 +519,12 @@ class BDPOAgent(BaseAgent):
     ) -> Tuple[jnp.ndarray, Metric]:
         if self._is_pretraining:
             use_model = self.behavior_target
+            temperature = None
+            num_samples = 1
         else:
             use_model = self.actor
+            temperature = self.cfg.temperature
+            num_samples = num_samples
         self.rng, action = jit_sample_and_select(
             self.rng,
             use_model,
@@ -520,6 +533,6 @@ class BDPOAgent(BaseAgent):
             training=False,
             num_samples=num_samples,
             solver=self.cfg.diffusion.solver,
-            temperature=self.cfg.temperature
+            temperature=temperature,
         )
         return action, {}
