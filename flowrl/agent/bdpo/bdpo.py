@@ -522,7 +522,7 @@ class BDPOAgent(BaseAgent):
             temperature = None
             num_samples = 1
         else:
-            use_model = self.actor
+            use_model = self.actor_target
             temperature = self.cfg.temperature
             num_samples = num_samples
         self.rng, action = jit_sample_and_select(
