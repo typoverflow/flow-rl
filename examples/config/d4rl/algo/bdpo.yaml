@@ -24,7 +24,7 @@ algo:
       ema_every: 5
     behavior:
       lr: 0.0003
-      lr_decay_steps: ${pretrain_steps}
+      lr_decay_steps: null
       clip_grad_norm: 1.0
       ema: 0.005
       ema_every: 1
@@ -33,7 +33,7 @@ algo:
     dropout: 0.0
     layer_norm: false
     time_dim: 64
-    mlp_hidden_dims: [512, 512, 512, 512]
+    mlp_hidden_dims: [256, 256, 256, 256]
     resnet_hidden_dims: [256, 256, 256]
     solver: ddpm
     steps: 5
