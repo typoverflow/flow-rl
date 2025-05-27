@@ -31,7 +31,7 @@ def jit_update_critic(
     B = batch.obs.shape[0]
     A = batch.action.shape[-1]
 
-    num_samples = 50 if maxQ else 1
+    num_samples = 10 if maxQ else 1
     rng, xT_rng = jax.random.split(rng)
     next_obs_repeat = batch.next_obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
     xT = jax.random.normal(xT_rng, (*next_obs_repeat.shape[:-1], A))
@@ -115,7 +115,6 @@ def jit_update_actor(
         q_loss1 = - new_q[0].mean() / jax.lax.stop_gradient(jnp.abs(new_q[1]).mean() + 1e-6)
         q_loss2 = - new_q[1].mean() / jax.lax.stop_gradient(jnp.abs(new_q[0]).mean() + 1e-6)
         q_loss = (choice > 0.5) * q_loss1 + (choice <= 0.5) * q_loss2
-        # q_loss = - new_q.mean() / jax.lax.stop_gradient(jnp.abs(new_q).mean() + 1e-6)
         actor_loss = bc_loss + q_loss * eta
         return actor_loss, {
             "loss/bc_loss": bc_loss,

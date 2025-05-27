@@ -24,6 +24,7 @@ Offline RL:
 |IQL|`flowrl/agent/iql.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl?nw=urvdu9rz7b&panelDisplayName=eval%2Fmean&panelSectionName=eval) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=urvdu9rz7b)|
 |IVR|`flowrl/agent/ivr.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=oslzekjlr1q) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=oslzekjlr1q)|
 |FQL|`flowrl/agent/fql/fql.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl?nw=u9y84ki7rdi&panelDisplayName=eval%2Fmean&panelSectionName=eval) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=u9y84ki7rdi)|
+|DAC|`flowrl/agent/dac.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=uqr7jg46c5) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=uqr7jg46c5)|
 |BDPO|`flowrl/agent/bdpo/bdpo.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=2q8v54gusia) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=2q8v54gusia)|
 
 ## 📝 Citing Flow RL

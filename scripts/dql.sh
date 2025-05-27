@@ -1,4 +1,10 @@
 export XLA_FLAGS='--xla_gpu_deterministic_ops=true --xla_gpu_autotune_level=0'
+# Specify which GPUs to use
+GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
+SEEDS=(0 1)
+NUM_EACH_GPU=3
+
+PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
     # mujoco
@@ -23,8 +29,7 @@ TASKS=(
 	"kitchen-partial-v0"
 	"kitchen-mixed-v0"
 )
-SEEDS=(0 1 2 3 4)
-PARALLEL=${PARALLEL:-4}
+
 
 SHARED_ARGS=(
     "algo=dql"
@@ -80,9 +85,12 @@ run_task() {
     task=$1
     seed=$2
     slot=$3
-    device=$((slot % 1))
-    echo "Running $env $level $seed on GPU $device"
-    command="python examples/main_d4rl.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
+    # Calculate device index based on available GPUs
+    num_gpus=${#GPUS[@]}
+    device_idx=$((slot % num_gpus))
+    device=${GPUS[$device_idx]}
+    echo "Running $task $seed on GPU $device"
+    command="python3 examples/main_d4rl.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else

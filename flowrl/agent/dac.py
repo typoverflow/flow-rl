@@ -314,6 +314,7 @@ class DACAgent(BaseAgent):
         )
         metrics.update(critic_metrics)
         metrics.update(actor_metrics)
+        self._n_training_steps += 1
         return metrics
 
     def sample_actions(
