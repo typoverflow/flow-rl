@@ -284,7 +284,7 @@ class DTQLAgent(BaseAgent):
             expectile=self.cfg.expectile,
             metric_prefix="",
             ema=self.cfg.ema,
-            do_ema_update=step % 5 == 0, # DTQL's official implementation hard codes the ema update to be every 5 steps
+            do_ema_update=True
         )
         self.rng, self.distill_actor, distill_metrics = jit_update_distill_actor(
             self.rng,
