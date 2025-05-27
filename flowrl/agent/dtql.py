@@ -134,7 +134,14 @@ def jit_update_distill_actor(
             new_action,
             batch.obs,
         )[1]
-        log_prob = dist.log_prob(batch.action)
+
+        # ===== Incorrect log_prob implementation =====
+        # DTQL implements an incorrect version of TanhMultivariateNormalDiag with a incorrect log_prob implementation.
+        # To reproduce DTQL accurately, we have to follow their implementation.
+        # If you are building a new agent, please use the `dist.log_prob` method instead.
+        log_prob = dist.distribution.log_prob(jnp.arctanh(batch.action))
+        # =============================================
+
         gamma_loss = -log_prob.mean()
         q_loss = -q_net(batch.obs, new_action).min(axis=0).mean()
         loss = alpha * distill_loss + gamma * gamma_loss + q_loss
