@@ -127,13 +127,14 @@ def jit_update_distill_actor(
     rng, loss_key = jax.random.split(rng)
     def loss_fn(params: Param, dropout_rng: PRNGKey):
         dist: TanhMultivariateNormalDiag = distill_actor.apply({"params": params}, batch.obs, training=True, rngs={"dropout": dropout_rng})
-        new_action, log_prob = dist.sample_and_log_prob(seed=jax.random.PRNGKey(0))
+        new_action = dist.sample(seed=jax.random.PRNGKey(0))
         distill_loss = compute_edm_loss(
             loss_key,
             bc_actor,
             new_action,
             batch.obs,
         )[1]
+        log_prob = dist.log_prob(batch.action)
         gamma_loss = -log_prob.mean()
         q_loss = -q_net(batch.obs, new_action).min(axis=0).mean()
         loss = alpha * distill_loss + gamma * gamma_loss + q_loss
@@ -142,7 +143,7 @@ def jit_update_distill_actor(
             "loss/distill_gamma_loss": gamma_loss,
             "loss/distill_q_loss": q_loss,
             "loss/distill_total_loss": loss,
-            "misc/log_prob": -log_prob.mean(),
+            "misc/log_prob": log_prob.mean(),
         }
     new_distill_actor, metrics = distill_actor.apply_gradient(loss_fn)
     return rng, new_distill_actor, metrics
