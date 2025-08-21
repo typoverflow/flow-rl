@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.d4rl.algo.ivr import IVRConfig
+from flowrl.config.offline.d4rl.algo.ivr import IVRConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import TanhMeanGaussianActor
 from flowrl.module.critic import Critic, EnsembleCritic

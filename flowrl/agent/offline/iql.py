@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.d4rl.algo.iql import IQLConfig
+from flowrl.config.offline.d4rl.algo.iql import IQLConfig
 from flowrl.functional.ema import ema_update
 from flowrl.functional.loss import expectile_regression
 from flowrl.module.actor import SquashedDeterministicActor, TanhMeanGaussianActor

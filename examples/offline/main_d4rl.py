@@ -6,13 +6,13 @@ import gym
 import hydra
 import numpy as np
 import omegaconf
+import wandb
 from gym.wrappers.transform_observation import TransformObservation
 from omegaconf import OmegaConf
 from tqdm import trange
 
-import wandb
-from flowrl.agent import *
-from flowrl.config.d4rl import Config
+from flowrl.agent.offline import *
+from flowrl.config.offline.d4rl import Config
 from flowrl.dataset.d4rl import D4RLDataset
 from flowrl.env.offline.d4rl import make_env
 from flowrl.types import *

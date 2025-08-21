@@ -79,7 +79,7 @@ run_task() {
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
     echo "Running $task $seed on GPU $device"
-    command="python3 examples/main_d4rl.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
+    command="python3 examples/offline/main_d4rl.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else
@@ -94,4 +94,3 @@ if [ -n "$DRY_RUN" ]; then
 else
     env_parallel --bar --results logs/parallel/$name -P${PARALLEL} run_task {1} {2} {%} ::: ${TASKS[@]} ::: ${SEEDS[@]}
 fi
-

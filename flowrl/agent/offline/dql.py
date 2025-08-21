@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.d4rl.algo.dql import DQLConfig
+from flowrl.config.offline.d4rl.algo.dql import DQLConfig
 from flowrl.flow.ddpm import DDPM, DDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
