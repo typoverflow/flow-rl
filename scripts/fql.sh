@@ -37,7 +37,7 @@ run_task() {
     slot=$3
     device=$((slot % 1))
     echo "Running $env $level $seed on GPU $device"
-    command="python examples/main_d4rl.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
+    command="python examples/offline/main_d4rl.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else

@@ -7,7 +7,7 @@ import orbax.checkpoint as orbax
 from flax.training import orbax_utils
 from flax.training.train_state import TrainState
 
-from flowrl.config.d4rl.algo.base import BaseAlgoConfig
+from flowrl.config.offline.d4rl.algo.base import BaseAlgoConfig
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric
 
@@ -97,7 +97,7 @@ class BaseAgent():
 
         """
         raise NotImplementedError("sample_actions not implemented for this agent")
-    
+
     @property
     def saved_model_names(self) -> List[str]:
         """

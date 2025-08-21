@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.d4rl.algo.bdpo import (
+from flowrl.config.offline.d4rl.algo.bdpo import (
     BDPOConfig,
     BDPODiffusionConfig,
     BDPODiffusionTrainConfig,
