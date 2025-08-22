@@ -89,6 +89,7 @@ class SquashedGaussianActor(GaussianActor):
         distribution = TanhMultivariateNormalDiag(mean, jnp.exp(logstd))
         return distribution
 
+
 class TanhMeanGaussianActor(GaussianActor):
     backbone: nn.Module
     obs_dim: int

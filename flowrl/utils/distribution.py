@@ -7,7 +7,7 @@ from flowrl.types import PRNGKey, Shape
 
 class TanhMultivariateNormalDiag(distrax.Transformed):
     def __init__(self, loc: jax.Array, scale_diag: jax.Array) -> None:
-        distribution = distrax.MultivariateNormalDiag(loc=loc, scale_diag=scale_diag)
+        self.original_distribution = distribution = distrax.MultivariateNormalDiag(loc=loc, scale_diag=scale_diag)
         super().__init__(
             distribution=distribution, bijector=distrax.Block(distrax.Tanh(), 1)
         )
@@ -16,11 +16,17 @@ class TanhMultivariateNormalDiag(distrax.Transformed):
         clip_bound = 1.0 - jnp.finfo(sample.dtype).eps
         return jnp.clip(sample, -clip_bound, clip_bound)
 
+    def tanh_mean(self) -> jnp.ndarray:
+        return jnp.tanh(self.original_distribution.mean())
+
     def sample(
         self, *, seed: PRNGKey, sample_shape: Shape = () # type: ignore
     ) -> jnp.ndarray:
         sample = super().sample(seed=seed, sample_shape=sample_shape)
         return self._clip(sample)
+
+    def log_prob(self, *args, **kwargs):
+        return super().log_prob(*args, **kwargs)[..., jnp.newaxis]
 
     def sample_and_log_prob(
         self, *, seed: PRNGKey, sample_shape: Shape = () # type: ignore
@@ -28,4 +34,4 @@ class TanhMultivariateNormalDiag(distrax.Transformed):
         sample, log_prob = super().sample_and_log_prob(
             seed=seed, sample_shape=sample_shape
         )
-        return self._clip(sample), log_prob
+        return self._clip(sample), log_prob[..., jnp.newaxis]

@@ -16,7 +16,7 @@ def get_install_requires():
     return [
         "jax[cuda12]==0.5.3",
         "flax==0.10.5",
-        "gymnasium==0.29.1",
+        "gymnasium",
         'shimmy==1.3.0',
         "gym==0.23.1",
         "mujoco_py==2.1.2.14",
@@ -25,7 +25,7 @@ def get_install_requires():
         'Cython<3',
         'six==1.17.0',
         "tqdm",
-        "hydra-core", 
+        "hydra-core",
         "distrax",
         "tensorboardX==2.6.2.2",
         "scikit-learn==1.6.1",
