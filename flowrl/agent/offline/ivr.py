@@ -230,6 +230,7 @@ class IVRAgent(BaseAgent):
 
     def sample_actions(self, obs, deterministic=True, num_samples=1):
         assert num_samples == 1, "IVR only supports num_samples=1"
+        assert deterministic, "IVR only supports deterministic=True"
         action = jit_sample_action(
             self.actor,
             obs,

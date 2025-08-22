@@ -1,6 +1,6 @@
+import os
 import random
 
-import os
 import numpy as np
 
 from flowrl.types import *
@@ -16,10 +16,10 @@ def set_seed_everywhere(seed: Optional[Union[str, int]] = None):
 
 def wandb_sync_run(root_path: str, *args):
     import wandb
-    
+
     if not os.path.exists(root_path):
         raise FileNotFoundError(f"wandb_sync_offline: path {root_path} not found.")
-    
+
     def recursive_upload(path):
         if os.path.isfile(path):
             return

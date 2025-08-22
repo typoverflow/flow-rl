@@ -29,7 +29,6 @@ SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "dtql": DTQLAgent,
 }
 
-
 class Trainer():
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -111,7 +110,9 @@ class Trainer():
                 update_info = self.agent.train_step(batch, step=i)
                 if i % self.cfg.log.interval == 0:
                     self.logger.log_scalars("", update_info, step=i)
-        except (KeyboardInterrupt, RuntimeError) as e:
+        except KeyboardInterrupt:
+            print("Stopped by keyboard interruption. ")
+        except RuntimeError as e:
             print("Stopped by exception: ", str(e))
 
     def eval_and_save(self, step: int, prefix: str = "eval"):
@@ -143,12 +144,12 @@ class Trainer():
                     dones[i] = True
 
         eval_metrics = {
-            'mean': np.mean(returns),
-            'median': np.median(returns),
-            'std': np.std(returns),
-            'min': np.min(returns),
-            'max': np.max(returns),
-            'length': np.mean(lengths)
+            "mean": np.mean(returns),
+            "median": np.median(returns),
+            "std": np.std(returns),
+            "min": np.min(returns),
+            "max": np.max(returns),
+            "length": np.mean(lengths),
         }
         self.logger.log_scalars(prefix, eval_metrics, step=step)
         if self.cfg.log.save_ckpt:
