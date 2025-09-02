@@ -1,6 +1,4 @@
 import os
-from functools import partial
-from typing import Type
 
 import gymnasium as gym
 import hydra
@@ -19,6 +17,7 @@ from flowrl.utils.misc import set_seed_everywhere
 
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sac": SACAgent,
+    "td3": TD3Agent,
     "sdac": SDACAgent,
 }
 
@@ -183,11 +182,6 @@ def main(cfg: Config):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-    SUPPORTED_TRAINERS: Dict[str, OffPolicyTrainer | OnPolicyTrainer] = {
-        "sac": OffPolicyTrainer,
-        "sdac": OffPolicyTrainer,
-    }
-
     try:
         algo_name = cfg.algo.name
     except omegaconf.errors.MissingMandatoryValue:
@@ -197,7 +191,7 @@ def main(cfg: Config):
         print(err_string)
         exit(1)
 
-    trainer = SUPPORTED_TRAINERS[algo_name](cfg)
+    trainer = OffPolicyTrainer(cfg)
     trainer.train()
 
 if __name__ == "__main__":

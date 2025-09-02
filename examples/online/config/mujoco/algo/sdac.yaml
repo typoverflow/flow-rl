@@ -10,6 +10,7 @@ algo:
   num_samples: 32
   num_reverse_samples: 64
   ema: 0.005
+  alpha: 1.0
   diffusion:
     time_dim: 64
     mlp_hidden_dims: [256, 256, 256]

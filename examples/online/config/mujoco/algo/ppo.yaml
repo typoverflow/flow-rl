@@ -1,0 +1,15 @@
+# PPO Configuration
+name: PPO
+learning_rate: 3e-4
+
+# Network architecture
+actor_hidden_dims: [64, 64]
+critic_hidden_dims: [64, 64]
+layer_norm: false
+
+# PPO specific parameters
+clip_coef: 0.2
+entropy_coef: 0.0
+value_coef: 0.5
+clip_vloss: true
+max_grad_norm: 0.5

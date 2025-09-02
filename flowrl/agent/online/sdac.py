@@ -49,10 +49,12 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     if not deterministic:
         rng, stoc_rng = jax.random.split(rng)
-        actions = actions + jax.random.normal(stoc_rng, actions.shape) * jnp.exp(log_alpha()) * noise_scaler
+        # actions = actions + jax.random.normal(stoc_rng, actions.shape) * jnp.exp(log_alpha()) * noise_scaler
+        actions = actions + jax.random.normal(stoc_rng, actions.shape) * 0.1
+        actions = jnp.clip(actions, -1.0, 1.0)
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "num_samples", "solver", "noise_scaler", "num_reverse_samples", "target_entropy", "ema"))
+@partial(jax.jit, static_argnames=("discount", "num_samples", "solver", "noise_scaler", "num_reverse_samples", "target_entropy", "alpha",  "ema"))
 def jit_update_sdac(
     rng: PRNGKey,
     actor: DDPM,
@@ -67,6 +69,8 @@ def jit_update_sdac(
     noise_scaler: float,
     num_reverse_samples: int,
     target_entropy: float,
+    alpha: float,
+    q_scale: float,
     ema: float,
 ) -> Tuple[PRNGKey, DDPM, DDPM, Model, Model, Model, Metric]:
 
@@ -114,8 +118,9 @@ def jit_update_sdac(
     eps_reverse = jax.random.normal(reverse_rng, at.shape)
     a0_hat = jnp.sqrt(1 / actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
     q0 = critic(next_obs_repeat, a0_hat).min(axis=0)
-    Z = jax.nn.logsumexp(q0, axis=0, keepdims=True)
-    weights = jnp.exp(q0 - Z).clip(0, 100.0)
+    weights = jax.nn.softmax(q0 / q_scale / alpha, axis=0)
+    # Z = jax.nn.logsumexp(q0, axis=0, keepdims=True) - jnp.log(num_reverse_samples) # partition function
+    # weights = jnp.exp((q0 - Z) / q_scale / alpha)
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         eps_pred = actor.apply(
@@ -130,7 +135,10 @@ def jit_update_sdac(
         return loss, {
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),
+            "misc/weight_std": weights.std(0).mean(),
             "misc/weights_max": weights.max(),
+            "misc/weights_min": weights.min(),
+            "misc/q_scale": q_scale,
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
@@ -151,7 +159,8 @@ def jit_update_sdac(
 
     new_actor_target = ema_update(new_actor, actor_target, ema)
     new_critic_target = ema_update(new_critic, critic_target, ema)
-    return rng, new_actor, new_actor_target, new_critic, new_critic_target, new_log_alpha, {
+    new_q_scale = q_scale + ema * (q0.std(axis=0).mean() - q_scale)
+    return rng, new_actor, new_actor_target, new_critic, new_critic_target, new_log_alpha, new_q_scale, {
         **critic_metrics,
         **actor_metrics,
         **alpha_metrics,
@@ -208,6 +217,7 @@ class SDACAgent(BaseAgent):
             x_max=cfg.diffusion.x_max,
             optimizer=optax.adam(learning_rate=actor_lr),
         )
+        # CHECK: is this really necessary, since we are not using the target actor for policy evaluation?
         self.actor_target = DDPM.create(
             network=backbone_def,
             rng=actor_rng,
@@ -241,7 +251,9 @@ class SDACAgent(BaseAgent):
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
         )
-
+        # define entropy related terms
+        self.alpha = cfg.alpha
+        self.q_scale = jnp.array(1.0)
         self.log_alpha = Model.create(
             TunableCoefficient(init_value=0.2),
             alpha_rng,
@@ -254,7 +266,7 @@ class SDACAgent(BaseAgent):
         self._n_training_steps = 0
 
     def train_step(self, batch: Batch, step: int) -> Metric:
-        self.rng, self.actor, self.actor_target, self.critic, self.critic_target, self.log_alpha, metrics = jit_update_sdac(
+        self.rng, self.actor, self.actor_target, self.critic, self.critic_target, self.log_alpha, self.q_scale, metrics = jit_update_sdac(
             self.rng,
             self.actor,
             self.actor_target,
@@ -268,6 +280,8 @@ class SDACAgent(BaseAgent):
             noise_scaler=self.cfg.diffusion.noise_scaler,
             num_reverse_samples=self.cfg.num_reverse_samples,
             target_entropy=self.target_entropy,
+            alpha=self.alpha,
+            q_scale=self.q_scale,
             ema=self.cfg.ema,
         )
         self._n_training_steps += 1

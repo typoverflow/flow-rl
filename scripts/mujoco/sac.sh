@@ -38,7 +38,7 @@ run_task() {
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
     echo "Running $env $seed on GPU $device"
-    command="python3 examples/online/main_mujoco.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]}"
+    command="python3 examples/online/main_mujoco_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else
