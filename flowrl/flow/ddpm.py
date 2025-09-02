@@ -135,6 +135,7 @@ class DDPM(Model):
             postvars=postvars,
         )
 
+    @partial(jax.jit, static_argnames=())
     def add_noise(self, rng, x0):
         rng, t_rng, noise_rng = jax.random.split(rng, 3)
         t = jax.random.randint(t_rng, (*x0.shape[:-1], 1), 1, self.steps+1)
