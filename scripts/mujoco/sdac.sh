@@ -21,8 +21,8 @@ TASKS=(
 
 SHARED_ARGS=(
     "algo=sdac"
-    "algo.alpha=10.0"
-    "log.tag=softmax-alpha10.0-noise0.1"
+    "algo.alpha=1.0"
+    "log.tag=fix-alpha1.0"
     "log.project=flow-rl"
     "log.entity=lamda-rl"
 )

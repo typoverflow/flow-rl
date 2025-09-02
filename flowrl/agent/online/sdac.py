@@ -1,7 +1,6 @@
 from functools import partial
 from typing import Tuple
 
-import distrax
 import jax
 import jax.numpy as jnp
 import optax
@@ -11,7 +10,6 @@ from flowrl.config.online.mujoco.algo.sdac import SDACConfig
 from flowrl.flow.ddpm import DDPM, DDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.actor import SquashedGaussianActor
 from flowrl.module.critic import EnsembleCritic
 from flowrl.module.misc import TunableCoefficient
 from flowrl.module.mlp import MLP
@@ -114,9 +112,21 @@ def jit_update_sdac(
     at = at[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
     t = t[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
     next_obs_repeat = batch.next_obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    # reverse sampling
+    # clipped reverse sampling
     eps_reverse = jax.random.normal(reverse_rng, at.shape)
     a0_hat = jnp.sqrt(1 / actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
+    a0_hat = jnp.clip(a0_hat, -1.0, 1.0)
+
+    # # tnormal reverse sampling
+    # reverse_tnormal_rng, reverse_clipped_rng = jax.random.split(reverse_rng)
+    # lower_bound = - 1.0 / jnp.sqrt(1 - actor.alpha_hats[t]) * at - jnp.sqrt(actor.alpha_hats[t] / (1-actor.alpha_hats[t]))
+    # upper_bound = - 1.0 / jnp.sqrt(1 - actor.alpha_hats[t]) * at + jnp.sqrt(actor.alpha_hats[t] / (1-actor.alpha_hats[t]))
+    # tnormal_noise = jax.random.truncated_normal(reverse_tnormal_rng, at.shape, lower_bound, upper_bound)
+    # normal_noise = jax.random.normal(reverse_clipped_rng, at.shape)
+    # normal_noise_clipped = jnp.clip(normal_noise, lower_bound, upper_bound)
+    # eps_reverse = jnp.where(jnp.isnan(tnormal_noise), normal_noise_clipped, tnormal_noise)
+    # a0_hat = 1 / jnp.sqrt(actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
+
     q0 = critic(next_obs_repeat, a0_hat).min(axis=0)
     weights = jax.nn.softmax(q0 / q_scale / alpha, axis=0)
     # Z = jax.nn.logsumexp(q0, axis=0, keepdims=True) - jnp.log(num_reverse_samples) # partition function
@@ -136,8 +146,8 @@ def jit_update_sdac(
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),
             "misc/weight_std": weights.std(0).mean(),
-            "misc/weights_max": weights.max(),
-            "misc/weights_min": weights.min(),
+            "misc/weights_max": weights.max(0).mean(),
+            "misc/weights_min": weights.min(0).mean(),
             "misc/q_scale": q_scale,
         }
 
@@ -209,8 +219,8 @@ class SDACAgent(BaseAgent):
             inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
             x_dim=self.act_dim,
             steps=cfg.diffusion.steps,
-            noise_schedule=cfg.diffusion.noise_schedule,
-            noise_schedule_params=None,
+            noise_schedule="linear",
+            noise_schedule_params={"beta_min": 1e-4, "beta_max": 0.999},  # NOTE: make sure linear schedule works with a few diffusion steps
             approx_postvar=False,
             clip_sampler=cfg.diffusion.clip_sampler,
             x_min=cfg.diffusion.x_min,
@@ -224,7 +234,7 @@ class SDACAgent(BaseAgent):
             inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
             x_dim=self.act_dim,
             steps=cfg.diffusion.steps,
-            noise_schedule=cfg.diffusion.noise_schedule,
+            noise_schedule="linear",
             noise_schedule_params=None,
             approx_postvar=False,
             clip_sampler=cfg.diffusion.clip_sampler,

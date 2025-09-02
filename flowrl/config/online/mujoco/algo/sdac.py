@@ -13,7 +13,6 @@ class SDACDiffusionConfig:
     lr_decay_steps: int | None
     lr_decay_begin: int
     steps: int
-    noise_schedule: str
     clip_sampler: bool
     x_min: float
     x_max: float
