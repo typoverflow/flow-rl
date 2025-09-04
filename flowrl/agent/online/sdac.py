@@ -7,84 +7,61 @@ import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.online.mujoco.algo.sdac import SDACConfig
-from flowrl.flow.ddpm import DDPM, DDPMBackbone
+from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
 from flowrl.module.critic import EnsembleCritic
-from flowrl.module.misc import TunableCoefficient
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
-from flowrl.module.time_embedding import PositionalEmbedding
+from flowrl.module.time_embedding import LearnableFourierEmbedding
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
 
-@partial(jax.jit, static_argnames=("training", "num_samples", "solver", "deterministic", "noise_scaler"))
+@partial(jax.jit, static_argnames=("training", "num_samples", "solver"))
 def jit_sample_actions(
     rng: PRNGKey,
-    model: DDPM,
-    q: Model,
-    log_alpha: Model,
+    actor: ContinuousDDPM,
+    critic: Model,
     obs: jnp.ndarray,
     training: bool,
     num_samples: int,
     solver: str,
-    deterministic: bool,
-    noise_scaler: float,
 ) -> Tuple[PRNGKey, jnp.ndarray]:
+    assert len(obs.shape) == 2
     B = obs.shape[0]
     rng, xT_rng = jax.random.split(rng)
 
     # sample
     obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
-    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], model.x_dim))
-    rng, actions, _ = model.sample(rng, xT, obs_repeat, training, solver)
+    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
+    rng, actions, _ = actor.sample(rng, xT, obs_repeat, training, solver)
     if num_samples == 1:
         actions = actions[:, 0]
     else:
-        qs = q(obs_repeat, actions)
+        qs = critic(obs_repeat, actions)
         qs = qs.min(axis=0).reshape(B, num_samples)
         best_idx = qs.argmax(axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
-    if not deterministic:
-        rng, stoc_rng = jax.random.split(rng)
-        # actions = actions + jax.random.normal(stoc_rng, actions.shape) * jnp.exp(log_alpha()) * noise_scaler
-        actions = actions + jax.random.normal(stoc_rng, actions.shape) * 0.1
-        actions = jnp.clip(actions, -1.0, 1.0)
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "num_samples", "solver", "noise_scaler", "num_reverse_samples", "target_entropy", "alpha",  "ema"))
+@partial(jax.jit, static_argnames=("discount", "solver", "num_reverse_samples", "temp", "ema"))
 def jit_update_sdac(
     rng: PRNGKey,
-    actor: DDPM,
-    actor_target: DDPM,
+    actor: ContinuousDDPM,
     critic: Model,
     critic_target: Model,
-    log_alpha: Model,
     batch: Batch,
     discount: float,
-    num_samples: int,
     solver: str,
-    noise_scaler: float,
     num_reverse_samples: int,
-    target_entropy: float,
-    alpha: float,
-    q_scale: float,
+    temp: float,
     ema: float,
-) -> Tuple[PRNGKey, DDPM, DDPM, Model, Model, Model, Metric]:
+) -> Tuple[PRNGKey, ContinuousDDPM, Model, Model, Metric]:
 
     # update critic
-    rng, next_action = jit_sample_actions(
-        rng,
-        actor,
-        critic,
-        log_alpha,
-        batch.next_obs,
-        training=False,
-        num_samples=num_samples,
-        solver=solver,
-        deterministic=False,
-        noise_scaler=noise_scaler,
-    )
+    rng, next_xT_rng = jax.random.split(rng)
+    next_xT = jax.random.normal(next_xT_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
+    rng, next_action, _ = actor.sample(rng, next_xT, batch.next_obs, training=False, solver=solver)
     q_target = critic_target(batch.next_obs, next_action)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target.min(axis=0)
 
@@ -105,75 +82,63 @@ def jit_update_sdac(
 
     new_critic, critic_metrics = critic.apply_gradient(critic_loss_fn)
 
-    # update actor
-    a0 = next_action
-    rng, reverse_rng = jax.random.split(rng)
+    # # update actor using clipped reverse sampling
+    # a0 = next_action
+    # rng, reverse_rng = jax.random.split(rng)
+    # rng, at, t, eps = actor.add_noise(rng, a0)
+    # at = at[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
+    # t = t[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
+    # next_obs_repeat = batch.next_obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
+    # eps_reverse = jax.random.normal(reverse_rng, at.shape)
+    # a0_hat = jnp.sqrt(1 / actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
+    # a0_hat = jnp.clip(a0_hat, -1.0, 1.0)
+
+    # update actor using tnormal reverse sampling
+    a0 = batch.action
+    obs_repeat = batch.obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
+
+    # a0 = next_action
+    rng, tnormal_rng, clipped_rng = jax.random.split(rng, 3)
     rng, at, t, eps = actor.add_noise(rng, a0)
     at = at[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
     t = t[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    next_obs_repeat = batch.next_obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    # clipped reverse sampling
-    eps_reverse = jax.random.normal(reverse_rng, at.shape)
-    a0_hat = jnp.sqrt(1 / actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
-    a0_hat = jnp.clip(a0_hat, -1.0, 1.0)
+    alpha1, alpha2 = actor.noise_schedule_func(t)
+    # next_obs_repeat = batch.next_obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
+    lower_bound = - 1.0 / alpha2 * at - alpha1 / alpha2
+    upper_bound = - 1.0 / alpha2 * at + alpha1 / alpha2
+    tnormal_noise = jax.random.truncated_normal(tnormal_rng, lower_bound, upper_bound, at.shape)
+    normal_noise = jax.random.normal(clipped_rng, at.shape)
+    normal_noise_clipped = jnp.clip(normal_noise, lower_bound, upper_bound)
+    eps_reverse = jnp.where(jnp.isnan(tnormal_noise), normal_noise_clipped, tnormal_noise)
+    a0_hat = 1 / alpha1 * at + alpha2 / alpha1 * eps_reverse
 
-    # # tnormal reverse sampling
-    # reverse_tnormal_rng, reverse_clipped_rng = jax.random.split(reverse_rng)
-    # lower_bound = - 1.0 / jnp.sqrt(1 - actor.alpha_hats[t]) * at - jnp.sqrt(actor.alpha_hats[t] / (1-actor.alpha_hats[t]))
-    # upper_bound = - 1.0 / jnp.sqrt(1 - actor.alpha_hats[t]) * at + jnp.sqrt(actor.alpha_hats[t] / (1-actor.alpha_hats[t]))
-    # tnormal_noise = jax.random.truncated_normal(reverse_tnormal_rng, at.shape, lower_bound, upper_bound)
-    # normal_noise = jax.random.normal(reverse_clipped_rng, at.shape)
-    # normal_noise_clipped = jnp.clip(normal_noise, lower_bound, upper_bound)
-    # eps_reverse = jnp.where(jnp.isnan(tnormal_noise), normal_noise_clipped, tnormal_noise)
-    # a0_hat = 1 / jnp.sqrt(actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
-
-    q0 = critic(next_obs_repeat, a0_hat).min(axis=0)
-    weights = jax.nn.softmax(q0 / q_scale / alpha, axis=0)
-    # Z = jax.nn.logsumexp(q0, axis=0, keepdims=True) - jnp.log(num_reverse_samples) # partition function
-    # weights = jnp.exp((q0 - Z) / q_scale / alpha)
+    q0 = critic(obs_repeat, a0_hat).min(axis=0)
+    weights = jax.nn.softmax(q0 / temp, axis=0)
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         eps_pred = actor.apply(
             {"params": actor_params},
             at,
             t,
-            condition=next_obs_repeat,
+            condition=obs_repeat,
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        loss = (weights * ((eps_pred - eps_reverse) ** 2)).mean()
+        loss = (weights * ((eps_pred + eps_reverse) ** 2)).mean()
         return loss, {
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),
             "misc/weight_std": weights.std(0).mean(),
             "misc/weights_max": weights.max(0).mean(),
             "misc/weights_min": weights.min(0).mean(),
-            "misc/q_scale": q_scale,
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
 
-    # update log_alpha
-    approx_entropy = 0.5 * next_action.shape[-1] * jnp.log(2*jnp.pi*jnp.e*jnp.exp(log_alpha()))
-    def alpha_loss_fn(log_alpha_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        log_alpha_value = log_alpha.apply(
-            {"params": log_alpha_params},
-        )
-        loss = log_alpha_value * jax.lax.stop_gradient(approx_entropy - target_entropy)
-        return loss, {
-            "loss/alpha_loss": loss,
-            "misc/approx_entropy": approx_entropy,
-            "misc/alpha": jnp.exp(log_alpha_value).mean(),
-        }
-    new_log_alpha, alpha_metrics = log_alpha.apply_gradient(alpha_loss_fn)
-
-    new_actor_target = ema_update(new_actor, actor_target, ema)
     new_critic_target = ema_update(new_critic, critic_target, ema)
-    new_q_scale = q_scale + ema * (q0.std(axis=0).mean() - q_scale)
-    return rng, new_actor, new_actor_target, new_critic, new_critic_target, new_log_alpha, new_q_scale, {
+    return rng, new_actor, new_critic, new_critic_target, {
         **critic_metrics,
         **actor_metrics,
-        **alpha_metrics,
     }
 
 
@@ -187,10 +152,11 @@ class SDACAgent(BaseAgent):
     def __init__(self, obs_dim: int, act_dim: int, cfg: SDACConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
-        self.rng, actor_rng, critic_rng, alpha_rng = jax.random.split(self.rng, 4)
+        self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
         # define the actor
-        time_embedding = partial(PositionalEmbedding, output_dim=cfg.diffusion.time_dim)
+        time_embedding = partial(LearnableFourierEmbedding, output_dim=cfg.diffusion.time_dim)
+        cond_embedding = partial(MLP, hidden_dims=(128, 128), activation=mish)
         noise_predictor = partial(
             MLP,
             hidden_dims=cfg.diffusion.mlp_hidden_dims,
@@ -199,9 +165,10 @@ class SDACAgent(BaseAgent):
             layer_norm=False,
             dropout=None,
         )
-        backbone_def = DDPMBackbone(
+        backbone_def = ContinuousDDPMBackbone(
             noise_predictor=noise_predictor,
             time_embedding=time_embedding,
+            cond_embedding=cond_embedding,
         )
 
         if cfg.diffusion.lr_decay_steps is not None:
@@ -213,39 +180,41 @@ class SDACAgent(BaseAgent):
             )
         else:
             actor_lr = cfg.diffusion.lr
-        self.actor = DDPM.create(
+
+
+        self.actor = ContinuousDDPM.create(
             network=backbone_def,
             rng=actor_rng,
             inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
             x_dim=self.act_dim,
             steps=cfg.diffusion.steps,
-            noise_schedule="linear",
-            noise_schedule_params={"beta_min": 1e-4, "beta_max": 0.999},  # NOTE: make sure linear schedule works with a few diffusion steps
-            approx_postvar=False,
+            noise_schedule="cosine",
+            noise_schedule_params={},
             clip_sampler=cfg.diffusion.clip_sampler,
             x_min=cfg.diffusion.x_min,
             x_max=cfg.diffusion.x_max,
+            t_schedule_n=1.0,
             optimizer=optax.adam(learning_rate=actor_lr),
         )
         # CHECK: is this really necessary, since we are not using the target actor for policy evaluation?
-        self.actor_target = DDPM.create(
+        self.actor_target = ContinuousDDPM.create(
             network=backbone_def,
             rng=actor_rng,
             inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
             x_dim=self.act_dim,
             steps=cfg.diffusion.steps,
-            noise_schedule="linear",
-            noise_schedule_params=None,
-            approx_postvar=False,
+            noise_schedule="cosine",
+            noise_schedule_params={},
             clip_sampler=cfg.diffusion.clip_sampler,
             x_min=cfg.diffusion.x_min,
             x_max=cfg.diffusion.x_max,
+            t_schedule_n=1.0,
         )
 
         # define the critic
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,
-            activation=mish,
+            activation=jax.nn.relu,
             layer_norm=False,
             dropout=None,
             ensemble_size=2,
@@ -261,37 +230,21 @@ class SDACAgent(BaseAgent):
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
         )
-        # define entropy related terms
-        self.alpha = cfg.alpha
-        self.q_scale = jnp.array(1.0)
-        self.log_alpha = Model.create(
-            TunableCoefficient(init_value=0.2),
-            alpha_rng,
-            inputs=(),
-            optimizer=optax.adam(learning_rate=cfg.alpha_lr),
-        )
-        self.target_entropy = - act_dim * self.cfg.target_entropy_scale
 
         # define tracking variables
         self._n_training_steps = 0
 
     def train_step(self, batch: Batch, step: int) -> Metric:
-        self.rng, self.actor, self.actor_target, self.critic, self.critic_target, self.log_alpha, self.q_scale, metrics = jit_update_sdac(
+        self.rng, self.actor, self.critic, self.critic_target, metrics = jit_update_sdac(
             self.rng,
             self.actor,
-            self.actor_target,
             self.critic,
             self.critic_target,
-            self.log_alpha,
             batch,
             discount=self.cfg.discount,
-            num_samples=self.cfg.num_samples,
             solver=self.cfg.diffusion.solver,
-            noise_scaler=self.cfg.diffusion.noise_scaler,
             num_reverse_samples=self.cfg.num_reverse_samples,
-            target_entropy=self.target_entropy,
-            alpha=self.alpha,
-            q_scale=self.q_scale,
+            temp=self.cfg.temp,
             ema=self.cfg.ema,
         )
         self._n_training_steps += 1
@@ -303,16 +256,19 @@ class SDACAgent(BaseAgent):
         deterministic: bool = True,
         num_samples: int = 1,
     ) -> Tuple[jnp.ndarray, Metric]:
+        # if deterministic is true, sample cfg.num_samples actions and select the best one
+        # if not, sample 1 action
+        if deterministic:
+            num_samples = self.cfg.num_samples
+        else:
+            num_samples = 1
         self.rng, action = jit_sample_actions(
             self.rng,
-            self.actor_target,
+            self.actor,
             self.critic,
-            self.log_alpha,
             obs,
             training=False,
-            num_samples=self.cfg.num_samples, # NOTE: we sample multiple actions and get the best one
+            num_samples=num_samples,
             solver=self.cfg.diffusion.solver,
-            deterministic=deterministic,
-            noise_scaler=self.cfg.diffusion.noise_scaler,
         )
         return action, {}

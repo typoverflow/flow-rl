@@ -2,19 +2,17 @@
 
 algo:
   name: sdac
-  critic_hidden_dims: [256, 256, 256]
+  critic_hidden_dims: [256, 256]
   critic_lr: 0.0003
-  alpha_lr: 0.0003
-  target_entropy_scale: 1.0
   discount: 0.99
-  num_samples: 32
-  num_reverse_samples: 64
+  num_samples: 10
+  num_reverse_samples: 500
   ema: 0.005
-  alpha: 1.0
+  temp: 0.2
   diffusion:
     time_dim: 64
-    mlp_hidden_dims: [256, 256, 256]
-    lr: 0.0001
+    mlp_hidden_dims: [256, 256]
+    lr: 0.0003
     end_lr: null
     lr_decay_steps: null
     lr_decay_begin: null
@@ -23,4 +21,3 @@ algo:
     x_min: -1.0
     x_max: 1.0
     solver: ddpm
-    noise_scaler: 1.0

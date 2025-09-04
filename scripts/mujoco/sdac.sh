@@ -1,6 +1,6 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
-SEEDS=(0 1)
+SEEDS=(0 1 2 3 4)
 NUM_EACH_GPU=2
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
@@ -8,7 +8,7 @@ PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 TASKS=(
     "Ant-v5"
     "HalfCheetah-v5"
-    "Hopper-v5"
+    # "Hopper-v5"
     # "HumanoidStandup-v5"
     "Humanoid-v5"
     # "InvertedDoublePendulum-v5"
@@ -21,10 +21,16 @@ TASKS=(
 
 SHARED_ARGS=(
     "algo=sdac"
-    "algo.alpha=1.0"
-    "log.tag=fix-alpha1.0"
+    "log.tag=smaller_temp"
     "log.project=flow-rl"
     "log.entity=lamda-rl"
+)
+
+declare -A TASK_ARGS
+TASK_ARGS=(
+    ["Ant-v5"]="algo.temp=0.05"
+    ["HalfCheetah-v5"]="algo.temp=0.2"
+    ["Humanoid-v5"]="algo.temp=0.02"
 )
 
 run_task() {
@@ -35,7 +41,7 @@ run_task() {
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
     echo "Running $env $seed on GPU $device"
-    command="python3 examples/online/main_mujoco_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]}"
+    command="python3 examples/online/main_mujoco_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else
