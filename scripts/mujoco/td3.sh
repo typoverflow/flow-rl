@@ -21,11 +21,6 @@ TASKS=(
 
 SHARED_ARGS=(
     "algo=td3"
-    # "batch_size=256"
-    # "algo.actor_hidden_dims=[256,256]"
-    # "algo.critic_hidden_dims=[256,256]"
-    # "algo.layer_norm=false"
-    # "log.tag=light"
     "log.tag=default"
     "log.project=flow-rl"
     "log.entity=lamda-rl"

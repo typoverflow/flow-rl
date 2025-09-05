@@ -1,27 +1,27 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
 SEEDS=(0 1 2 3 4)
-NUM_EACH_GPU=2
+NUM_EACH_GPU=3
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
     "Ant-v5"
     "HalfCheetah-v5"
-    # "Hopper-v5"
+    "Hopper-v5"
     # "HumanoidStandup-v5"
     "Humanoid-v5"
     # "InvertedDoublePendulum-v5"
     # "InvertedPendulum-v5"
     # "Pusher-v5"
     # "Reacher-v5"
-    # "Swimmer-v5"
-    # "Walker2d-v5"
+    "Swimmer-v5"
+    "Walker2d-v5"
 )
 
 SHARED_ARGS=(
     "algo=sdac"
-    "log.tag=smaller_temp"
+    "log.tag=fix_temp"
     "log.project=flow-rl"
     "log.entity=lamda-rl"
 )
@@ -30,7 +30,10 @@ declare -A TASK_ARGS
 TASK_ARGS=(
     ["Ant-v5"]="algo.temp=0.05"
     ["HalfCheetah-v5"]="algo.temp=0.2"
+    ["Hopper-v5"]="algo.temp=0.05"
     ["Humanoid-v5"]="algo.temp=0.02"
+    ["Swimmer-v5"]="algo.temp=0.01"
+    ["Walker2d-v5"]="algo.temp=0.01"
 )
 
 run_task() {

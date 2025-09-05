@@ -12,6 +12,7 @@ class TD3Config(BaseAlgoConfig):
     actor_hidden_dims: List[int]
     critic_hidden_dims: List[int]
     critic_ensemble_size: int
+    layer_norm: bool
     actor_lr: float
     critic_lr: float
     clip_grad_norm: float | None

@@ -14,9 +14,9 @@ seed: 0
 device: '0'
 task: ???
 frame_skip: 1
-num_train_envs: 10
+num_train_envs: 1
 utd: 1
-batch_size: 512
+batch_size: 256
 buffer_size: 1_000_000
 norm_obs: false
 norm_reward: false

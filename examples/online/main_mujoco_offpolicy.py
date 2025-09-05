@@ -1,6 +1,7 @@
 import os
 
 import gymnasium as gym
+import gymnasium_robotics
 import hydra
 import numpy as np
 import omegaconf
