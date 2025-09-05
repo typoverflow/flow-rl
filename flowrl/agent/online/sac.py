@@ -45,8 +45,7 @@ def update_q(
     dist = actor(batch.next_obs)
     next_action, next_logprob = dist.sample_and_log_prob(seed=sample_rng)
     next_q = critic_target(batch.next_obs, next_action)
-    target_q = batch.reward + discount * (1-batch.terminal) * next_q.min(axis=0)
-    target_q = target_q - jnp.exp(log_alpha()) * next_logprob
+    target_q = batch.reward + discount * (1-batch.terminal) * (next_q.min(axis=0) - jnp.exp(log_alpha()) * next_logprob)
 
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         q = critic.apply(
@@ -148,10 +147,15 @@ class SACAgent(BaseAgent):
         self.cfg = cfg
         self.rng, actor_rng, critic_rng, alpha_rng = jax.random.split(self.rng, 4)
 
+        activation = {
+            "relu": jax.nn.relu,
+            "elu": jax.nn.elu,
+        }[cfg.activation]
         actor_def = SquashedGaussianActor(
             backbone=MLP(
                 hidden_dims=cfg.actor_hidden_dims,
                 layer_norm=cfg.layer_norm,
+                activation=activation,
                 dropout=None,
             ),
             obs_dim=self.obs_dim,
@@ -161,6 +165,7 @@ class SACAgent(BaseAgent):
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,
             layer_norm=cfg.layer_norm,
+            activation=activation,
             dropout=None,
             ensemble_size=cfg.critic_ensemble_size,
         )
@@ -169,14 +174,14 @@ class SACAgent(BaseAgent):
             actor_def,
             actor_rng,
             inputs=(jnp.ones((1, self.obs_dim)),),
-            optimizer=optax.adamw(learning_rate=cfg.actor_lr),
+            optimizer=optax.adam(learning_rate=cfg.actor_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic = Model.create(
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
-            optimizer=optax.adamw(learning_rate=cfg.critic_lr),
+            optimizer=optax.adam(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(

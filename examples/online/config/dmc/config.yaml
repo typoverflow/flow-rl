@@ -13,10 +13,9 @@ hydra:
 seed: 0
 device: '0'
 task: ???
-frame_skip: 1
-num_train_envs: 1
-utd: 1
-batch_size: 256
+frame_skip: 2
+frame_stack: 1
+batch_size: 512
 buffer_size: 1_000_000
 norm_obs: false
 norm_reward: false

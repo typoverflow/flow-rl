@@ -16,7 +16,7 @@ from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
 
-@partial(jax.jit, static_argnames=("deterministic"))
+@partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
 def jit_sample_action(
     rng: PRNGKey,
     actor: Model,
@@ -107,11 +107,15 @@ class TD3Agent(BaseAgent):
 
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
+        activation = {
+            "relu": jax.nn.relu,
+            "elu": jax.nn.elu,
+        }[cfg.activation]
         actor_def = SquashedDeterministicActor(
             backbone=MLP(
                 hidden_dims=cfg.actor_hidden_dims,
-                layer_norm=True,
-                activation=nn.elu,
+                layer_norm=cfg.layer_norm,
+                activation=activation,
                 dropout=None,
             ),
             obs_dim=self.obs_dim,
@@ -120,8 +124,8 @@ class TD3Agent(BaseAgent):
 
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,
-            layer_norm=True,
-            activation=nn.elu,
+            layer_norm=cfg.layer_norm,
+            activation=activation,
             dropout=None,
             ensemble_size=cfg.critic_ensemble_size,
         )
@@ -130,7 +134,7 @@ class TD3Agent(BaseAgent):
             actor_def,
             actor_rng,
             inputs=(jnp.ones((1, self.obs_dim)),),
-            optimizer=optax.adamw(learning_rate=cfg.actor_lr),
+            optimizer=optax.adam(learning_rate=cfg.actor_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.actor_target = Model.create(
@@ -142,7 +146,7 @@ class TD3Agent(BaseAgent):
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
-            optimizer=optax.adamw(learning_rate=cfg.critic_lr),
+            optimizer=optax.adam(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(

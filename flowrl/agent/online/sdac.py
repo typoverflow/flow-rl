@@ -82,32 +82,17 @@ def jit_update_sdac(
 
     new_critic, critic_metrics = critic.apply_gradient(critic_loss_fn)
 
-    # # update actor using clipped reverse sampling
-    # a0 = next_action
-    # rng, reverse_rng = jax.random.split(rng)
-    # rng, at, t, eps = actor.add_noise(rng, a0)
-    # at = at[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    # t = t[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    # next_obs_repeat = batch.next_obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    # eps_reverse = jax.random.normal(reverse_rng, at.shape)
-    # a0_hat = jnp.sqrt(1 / actor.alpha_hats[t]) * at + jnp.sqrt(1 / actor.alpha_hats[t] - 1) * eps_reverse
-    # a0_hat = jnp.clip(a0_hat, -1.0, 1.0)
-
     # update actor using tnormal reverse sampling
     a0 = batch.action
     obs_repeat = batch.obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
 
-    # a0 = next_action
     rng, tnormal_rng, clipped_rng = jax.random.split(rng, 3)
     rng, at, t, eps = actor.add_noise(rng, a0)
-    at = at[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
-    t = t[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
     alpha1, alpha2 = actor.noise_schedule_func(t)
-    # next_obs_repeat = batch.next_obs[jnp.newaxis, ...].repeat(num_reverse_samples, axis=0)
     lower_bound = - 1.0 / alpha2 * at - alpha1 / alpha2
     upper_bound = - 1.0 / alpha2 * at + alpha1 / alpha2
-    tnormal_noise = jax.random.truncated_normal(tnormal_rng, lower_bound, upper_bound, at.shape)
-    normal_noise = jax.random.normal(clipped_rng, at.shape)
+    tnormal_noise = jax.random.truncated_normal(tnormal_rng, lower_bound, upper_bound, (num_reverse_samples, *at.shape))
+    normal_noise = jax.random.normal(clipped_rng, (num_reverse_samples, *at.shape))
     normal_noise_clipped = jnp.clip(normal_noise, lower_bound, upper_bound)
     eps_reverse = jnp.where(jnp.isnan(tnormal_noise), normal_noise_clipped, tnormal_noise)
     a0_hat = 1 / alpha1 * at + alpha2 / alpha1 * eps_reverse
@@ -120,11 +105,11 @@ def jit_update_sdac(
             {"params": actor_params},
             at,
             t,
-            condition=obs_repeat,
+            condition=batch.obs,
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        loss = (weights * ((eps_pred + eps_reverse) ** 2)).mean()
+        loss = (weights * ((eps_pred[jnp.newaxis, ...] + eps_reverse) ** 2)).mean()
         return loss, {
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),

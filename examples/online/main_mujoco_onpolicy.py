@@ -2,6 +2,7 @@ import os
 from typing import Dict, Tuple
 
 import gymnasium as gym
+import gymnasium_robotics
 import hydra
 import jax.numpy as jnp
 import numpy as np

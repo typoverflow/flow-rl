@@ -11,6 +11,7 @@ class SACConfig(BaseAlgoConfig):
     ema: float
     actor_hidden_dims: List[int]
     critic_hidden_dims: List[int]
+    activation: str
     critic_ensemble_size: int
     layer_norm: bool
     actor_lr: float

@@ -1,17 +1,18 @@
 import os
 
 import gymnasium as gym
-import gymnasium_robotics
 import hydra
+import jax.numpy as jnp
 import numpy as np
 import omegaconf
 from omegaconf import OmegaConf
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco import Config
 from flowrl.dataset.buffer.state import ReplayBuffer
+from flowrl.env.online.dmc_env import DMControlEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
@@ -49,18 +50,9 @@ class OffPolicyTrainer():
         print(f"\nSave results to: {self.logger.log_dir}\n")
 
         # create env
-        assert cfg.train_frames % (cfg.frame_skip * cfg.num_train_envs) == 0, f"train_frames ({cfg.train_frames}) must be divisible by frame_skip ({cfg.frame_skip}) * num_train_envs ({cfg.num_train_envs})"
-        assert cfg.log_frames % (cfg.frame_skip * cfg.num_train_envs) == 0, f"log_frames ({cfg.log_frames}) must be divisible by frame_skip ({cfg.frame_skip}) * num_train_envs ({cfg.num_train_envs})"
-        assert int(cfg.num_train_envs * cfg.utd) > 0, f"num_train_envs ({cfg.num_train_envs}) * utd ({cfg.utd}) must be greater than 0"
         self.frame_skip = cfg.frame_skip
-        self.num_train_envs = cfg.num_train_envs
-        self.update_per_iter = int(cfg.num_train_envs * cfg.utd)
-        self.train_env = gym.vector.SyncVectorEnv([
-            lambda: gym.make(cfg.task) for _ in range(cfg.num_train_envs)
-        ], autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
-        self.eval_env = gym.vector.SyncVectorEnv([
-            lambda: gym.make(cfg.task) for _ in range(cfg.eval.num_episodes)
-        ], autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
+        self.train_env = DMControlEnv(cfg.task, cfg.seed, False, cfg.frame_skip, cfg.frame_stack)
+        self.eval_env = [DMControlEnv(cfg.task, cfg.seed + i*100, False, cfg.frame_skip, cfg.frame_stack) for i in range(cfg.eval.num_episodes)]
 
         # create buffer
         self.buffer = ReplayBuffer(
@@ -80,6 +72,7 @@ class OffPolicyTrainer():
         )
 
         self.global_step = 0
+        self.global_episode = 0
 
     @property
     def global_frame(self) -> int:
@@ -87,51 +80,50 @@ class OffPolicyTrainer():
 
     def train(self):
         cfg = self.cfg
-        try:
-            obs, _ = self.train_env.reset()
-            with tqdm(total=cfg.train_frames, desc="training") as pbar:
-                while self.global_frame < cfg.train_frames:
-                    actions, _ = self.agent.sample_actions(
-                        self.buffer.normalize_obs(obs),
-                        deterministic=False,
-                        num_samples=1
-                    )
-                    if self.global_frame < cfg.random_frames:
-                        actions = self.train_env.action_space.sample()
 
-                    next_obs, rewards, terminated, truncated, infos = self.train_env.step(actions)
+        ep_length = ep_return = 0
+        obs, _ = self.train_env.reset()
+        with tqdm(total=cfg.train_frames, desc="training") as pbar:
+            while self.global_frame < cfg.train_frames:
+                action, _ = self.agent.sample_actions(
+                    self.buffer.normalize_obs(obs[jnp.newaxis, ...]),
+                    deterministic=False,
+                    num_samples=1,
+                )
+                action = action[0]
+                if self.global_frame < cfg.random_frames:
+                    action = self.train_env.action_space.sample()
 
-                    for i in range(self.num_train_envs):
-                        # get the actual next observation
-                        if terminated[i] or truncated[i]:
-                            actual_next_obs = infos["final_obs"][i]
-                        else:
-                            actual_next_obs = next_obs[i]
-                        self.buffer.add(obs[i], actions[i], actual_next_obs, rewards[i], terminated[i])
+                next_obs, reward, terminated, truncated, info = self.train_env.step(action)
+                ep_length += 1
+                ep_return += reward
 
-                    if self.global_frame < cfg.warmup_frames:
-                        update_info = {}
-                    else:
-                        for _ in range(self.update_per_iter):
-                            batch = self.buffer.sample(batch_size=cfg.batch_size)
-                            update_info = self.agent.train_step(batch, step=self.global_frame)
+                self.buffer.add(obs, action, next_obs, reward, terminated)
 
-                    if self.global_frame % cfg.log_frames == 0:
-                        self.logger.log_scalars("", update_info, step=self.global_frame)
+                if terminated or truncated:
+                    obs, _ = self.train_env.reset()
+                    self.global_episode += 1
+                    self.logger.log_scalars("", {
+                        "rollout/episode_return": ep_return,
+                        "rollout/episode_length": ep_length
+                    }, step=self.global_frame)
+                    ep_length = ep_return = 0
 
-                    if self.global_frame % cfg.eval_frames == 0:
-                        self.eval_and_save()
+                if self.global_frame < cfg.warmup_frames:
+                    train_metrics = {}
+                else:
+                    batch = self.buffer.sample(batch_size=cfg.batch_size)
+                    train_metrics = self.agent.train_step(batch, step=self.global_frame)
 
-                    # update step count and obs
-                    self.global_step += self.num_train_envs
-                    obs = next_obs
-                    pbar.update(self.num_train_envs)
-                self.eval_and_save()
+                if self.global_frame % cfg.log_frames == 0:
+                    self.logger.log_scalars("", train_metrics, step=self.global_frame)
 
-        except KeyboardInterrupt:
-            print("Stopped by keyboard interruption. ")
-        except Exception as e:
-            raise e
+                if self.global_frame % cfg.eval_frames == 0:
+                    self.eval_and_save()
+
+                self.global_step += 1
+                obs = next_obs
+                pbar.update(self.frame_skip)
 
     def eval_and_save(self):
         # initialize arrays to store results
@@ -139,7 +131,7 @@ class OffPolicyTrainer():
         lengths = np.zeros(self.cfg.eval.num_episodes)
 
         # reset all environments
-        obs, _ = self.eval_env.reset()
+        obs = np.stack([env.reset()[0] for env in self.eval_env], axis=0)
         returns = np.zeros(self.cfg.eval.num_episodes)
         lengths = np.zeros(self.cfg.eval.num_episodes)
         dones = np.zeros(self.cfg.eval.num_episodes, dtype=bool)
@@ -154,7 +146,11 @@ class OffPolicyTrainer():
             )
 
             # step all environments
-            obs, rewards, terminated, truncated, infos = self.eval_env.step(actions)
+            obs, rewards, terminated, truncated, infos = zip(*[env.step(action) for env, action in zip(self.eval_env, actions)])
+            obs = np.stack(obs, axis=0)
+            rewards = np.stack(rewards, axis=0)
+            terminated = np.stack(terminated, axis=0)
+            truncated = np.stack(truncated, axis=0)
             new_dones = terminated | truncated
 
             returns += rewards * (1-dones)
@@ -178,7 +174,7 @@ class OnPolicyTrainer():
     pass
 
 
-@hydra.main(config_path="./config/mujoco", config_name="config", version_base=None)
+@hydra.main(config_path="./config/dmc", config_name="config", version_base=None)
 def main(cfg: Config):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"

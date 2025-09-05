@@ -26,6 +26,7 @@ class Config:
     task: str
     algo: Any
     frame_skip: int
+    frame_stack: int
     num_train_envs: int
     utd: int
     batch_size: int
