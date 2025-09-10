@@ -1,0 +1,25 @@
+# .dockerignore
+
+**/*.ipynb
+**/log
+**/.vscode
+**/__pycache__
+*.egg-info
+out/
+wandb
+tests/
+shells/
+ckpts
+log_bkp/
+logs/
+core*
+*.mp4
+*.pyc
+*.pyo
+*.log
+*.json
+**/wandb
+**/runs
+**/videos
+.git
+*.tfevents.*
