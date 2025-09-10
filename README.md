@@ -15,6 +15,12 @@ cd flow-rl
 pip install -e .
 ```
 
+Alternatively, you can use our Docker image:
+```bash
+docker pull typoverflow/flow-rl
+docker run --gpus all -it typoverflow/flow-rl bash
+```
+
 The entry files are presented in `examples/`. Please refer to the scripts in `scripts/` for how to execute the algorithms.
 
 ## 📊 Supported Algorithms
@@ -26,6 +32,13 @@ Offline RL:
 |FQL|`flowrl/agent/fql/fql.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl?nw=u9y84ki7rdi&panelDisplayName=eval%2Fmean&panelSectionName=eval) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=u9y84ki7rdi)|
 |DAC|`flowrl/agent/dac.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=uqr7jg46c5) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=uqr7jg46c5)|
 |BDPO|`flowrl/agent/bdpo/bdpo.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=2q8v54gusia) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=2q8v54gusia)|
+
+Online RL (Gym-MuJoCo):
+|Algorithm|Location|WandB Report|
+|:---:|:---:|:---:|
+|SAC|`flowrl/agent/online/sac.py`|[[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=xgjfpp0sg5o)|
+|TD3|`flowrl/agent/online/td3.py`|[[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=xgjfpp0sg5o)|
+|SDAC|`flowrl/agent/online/sdac.py`|[[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=xgjfpp0sg5o)|
 
 ## 📝 Citing Flow RL
 If you use Flow RL in your research, please cite:
