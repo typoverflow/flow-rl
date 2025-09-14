@@ -20,6 +20,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sac": SACAgent,
     "td3": TD3Agent,
     "sdac": SDACAgent,
+    "dpmd": DPMDAgent,
 }
 
 class OffPolicyTrainer():

@@ -1,6 +1,7 @@
 from hydra.core.config_store import ConfigStore
 
 from .algo.base import BaseAlgoConfig
+from .algo.dpmd import DPMDConfig
 from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
@@ -18,6 +19,7 @@ _CONFIGS = {
     "sac": SACConfig,
     "sdac": SDACConfig,
     "td3": TD3Config,
+    "dpmd": DPMDConfig,
 }
 
 for name, cfg in _CONFIGS.items():

@@ -132,7 +132,7 @@ class SDACAgent(BaseAgent):
     Soft Diffusion Actor-Critic (SDAC) agent.
     """
     name = "SDACAgent"
-    model_names = [] # TODO
+    model_names = ["actor", "critic", "critic_target"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: SDACConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
