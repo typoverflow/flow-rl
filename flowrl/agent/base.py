@@ -127,9 +127,17 @@ class BaseAgent():
         Args:
             path (str): The path to load the agent's state from.
         """
+        print(f"Loading agent from {path}, models: {self.saved_model_names}")
         checkpointer = orbax.PyTreeCheckpointer()
         ckpt = checkpointer.restore(os.path.join(os.getcwd(), path))
         for name in self.saved_model_names:
             model: Model = getattr(self, name)
             new_state = model.state.replace(**ckpt[name])
+            # restore optimizer state correctly (https://github.com/google-deepmind/optax/discussions/180)
+            new_state = new_state.replace(
+                opt_state=jax.tree_util.tree_unflatten(
+                    jax.tree_util.tree_structure(model.state.opt_state),
+                    jax.tree_util.tree_leaves(ckpt[name]["opt_state"])
+                )
+            )
             setattr(self, name, model.replace(state=new_state))
