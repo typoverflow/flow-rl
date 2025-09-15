@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.online.mujoco.algo.sac import SACConfig
+from flowrl.config.online.mujoco.algo.td3 import TD3Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.critic import EnsembleCritic
@@ -96,7 +96,7 @@ class TD3Agent(BaseAgent):
     name = "TD3Agent"
     model_names = ["actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: SACConfig, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: TD3Config, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
         self.actor_update_freq = cfg.actor_update_freq
@@ -185,6 +185,7 @@ class TD3Agent(BaseAgent):
             self.critic_target = ema_update(self.critic, self.critic_target, self.cfg.ema)
             self.actor_target = ema_update(self.actor, self.actor_target, self.cfg.ema)
 
+        self._n_training_steps += 1
         return metrics
 
     def sample_actions(self, obs, deterministic=True, num_samples=1):

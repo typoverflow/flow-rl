@@ -111,6 +111,7 @@ class DMControlEnv(object):
             obs_shape = 0
             for v in self.env.observation_spec().values():
                 obs_shape += np.prod(v.shape)
+            obs_shape = int(obs_shape)
             self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_shape,), dtype=np.float32)
         self.action_space = gym.spaces.Box(
             low=-np.ones(self.env.action_spec().shape),
