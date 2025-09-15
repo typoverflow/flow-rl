@@ -12,7 +12,7 @@ ROOT_DIR = pathlib.Path(__file__).parent
 README = (ROOT_DIR / "README.md").read_text()
 VERSION = get_version()
 
-def get_install_requires():
+def get_base_requirements():
     return [
         "jax[cuda12]==0.5.3",
         "flax==0.10.5",
@@ -21,8 +21,6 @@ def get_install_requires():
         'shimmy==1.3.0',
         "gym==0.23.1",
         "mujoco_py==2.1.2.14",
-        "dm_control<=1.0.20", # https://github.com/Farama-Foundation/D4RL/issues/236
-        "mujoco<=3.1.6", # https://github.com/Farama-Foundation/D4RL/issues/236
         'Cython<3',
         'six==1.17.0',
         "tqdm",
@@ -33,8 +31,20 @@ def get_install_requires():
         "wandb",
     ]
 
+def get_install_requires():
+    return get_base_requirements()
+
 def get_extras_require():
-    return {}
+    return {
+        'offline': [
+            "dm_control<=1.0.20",
+            "mujoco<=3.1.6",
+        ],
+        'online': [
+            "dm_control==1.0.27",
+            "mujoco==3.2.7",
+        ],
+    }
 
 setup(
     name                = "flowrl",
@@ -50,5 +60,6 @@ setup(
     include_package_data = True,
     tests_require=["pytest", "mock"],
     python_requires=">=3.11",
-    install_requires = get_install_requires()
+    install_requires = get_install_requires(),
+    extras_require = get_extras_require(),
 )

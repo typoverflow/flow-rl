@@ -20,6 +20,7 @@ from flowrl.utils.misc import set_seed_everywhere
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sac": SACAgent,
     "td3": TD3Agent,
+    "td7": TD7Agent,
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
 }
