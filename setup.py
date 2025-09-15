@@ -1,6 +1,7 @@
 import os
 import pathlib
 
+from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import find_packages, setup
 
 
@@ -46,6 +47,15 @@ def get_extras_require():
         ],
     }
 
+def get_ext_modules():
+    return [
+        Pybind11Extension(
+            "data_structure",
+            ["flowrl/data_structure/data_structure.cc"],
+            define_macros=[("VERSION_INFO", "\"{}\"".format(VERSION))],
+        )
+    ]
+
 setup(
     name                = "flowrl",
     version             = VERSION,
@@ -60,6 +70,8 @@ setup(
     include_package_data = True,
     tests_require=["pytest", "mock"],
     python_requires=">=3.11",
+    ext_modules = get_ext_modules(),
+    cmdclass={"build_ext": build_ext},
     install_requires = get_install_requires(),
     extras_require = get_extras_require(),
 )

@@ -2,6 +2,7 @@
 **/log
 **/.vscode
 **/__pycache__
+**/*.so
 *.egg-info
 # scripts/
 out/
