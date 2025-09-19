@@ -16,4 +16,8 @@ algo:
   exploration_noise: 0.1
   lam: 0.0
   max_action: 1.0
-  lap: false
+
+lap_alpha: 0.4
+lap_reset_frames: 250
+warmup_frames: 25000
+random_frames: 25000

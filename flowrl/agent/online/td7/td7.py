@@ -10,6 +10,7 @@ from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.td7.network import TD7Actor, TD7Encoder, TD7EnsembleCritic
 from flowrl.config.online.mujoco.algo.td7 import TD7Config
 from flowrl.functional.ema import ema_update
+from flowrl.functional.misc import sg
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
@@ -31,7 +32,7 @@ def jit_sample_action(
     return action
 
 
-@partial(jax.jit, static_argnames=("discount", "policy_noise", "noise_clip", "max_action", "lap"))
+@partial(jax.jit, static_argnames=("discount", "policy_noise", "noise_clip", "max_action"))
 def update_critic(
     rng: PRNGKey,
     critic: Model,
@@ -46,7 +47,6 @@ def update_critic(
     max_action: float,
     min_target_q: float,
     max_target_q: float,
-    lap: bool,
 ) -> Tuple[PRNGKey, Model, Metric, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     rng, noise_rng = jax.random.split(rng)
 
@@ -88,10 +88,7 @@ def update_critic(
         )
 
         td = jnp.abs(q_target[jnp.newaxis, :] - q)
-        if lap:
-            critic_loss = jnp.where(td < 1.0, 0.5 * td**2, td).sum(axis=0).mean()
-        else:
-            critic_loss = 0.5 * (td**2).sum(axis=0).mean()
+        critic_loss = jnp.where(td < 1.0, 0.5 * td**2, td).sum(axis=0).mean()
 
         return critic_loss, {
             "loss/critic_loss": critic_loss,
@@ -104,7 +101,7 @@ def update_critic(
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
 
     priority = metrics.pop("priority")
-    return rng, new_critic, metrics, q_target.max(), q_target.min(), priority
+    return rng, new_critic, metrics, q_target.max(), q_target.min(), priority.squeeze()
 
 
 @partial(jax.jit, static_argnames=("lam"))
@@ -131,7 +128,7 @@ def update_actor(
         actor_q_loss = -q.mean()
 
         if lam > 0:
-            bc_loss = jnp.abs(q).mean() * jnp.mean((new_action - batch.action)**2)
+            bc_loss = sg(jnp.abs(q).mean()) * jnp.mean((new_action - batch.action)**2)
         else:
             bc_loss = 0.0
 
@@ -150,10 +147,11 @@ def update_actor(
 def update_encoder(
     rng: PRNGKey,
     encoder: Model,
+    fixed_encoder_target: Model,
     batch: Batch,
 ) -> Tuple[PRNGKey, Model, Metric]:
+    next_zs = encoder(batch.next_obs, method="zs")
     def encoder_loss_fn(encoder_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        next_zs = encoder(batch.next_obs, method="zs")
         zs_pred = encoder.apply(
             {"params": encoder_params}, batch.obs, method="zs", training=True, rngs={"dropout": dropout_rng}
         )
@@ -219,7 +217,7 @@ class TD7Agent(BaseAgent):
             embed_dim=cfg.embed_dim,
             hidden_dim=cfg.hidden_dim,
             ensemble_size=2,
-            activation=nn.relu,
+            activation=nn.elu,
         )
 
         # Initialize models
@@ -289,7 +287,7 @@ class TD7Agent(BaseAgent):
 
         # Update encoder
         self.rng, self.encoder, encoder_metrics = update_encoder(
-            self.rng, self.encoder, batch
+            self.rng, self.encoder, self.fixed_encoder_target, batch
         )
         metrics.update(encoder_metrics)
 
@@ -308,7 +306,6 @@ class TD7Agent(BaseAgent):
             max_action=cfg.max_action,
             min_target_q=self._min_target_q,
             max_target_q=self._max_target_q,
-            lap=cfg.lap,
         )
         metrics.update(critic_metrics)
 
@@ -338,7 +335,10 @@ class TD7Agent(BaseAgent):
             self._min_target_q = self._min_target_q_uptodate
 
         self._n_training_steps += 1
-        return metrics
+        return {
+            **metrics,
+            "priority": priority,
+        }
 
     def sample_actions(self, obs, deterministic=True, num_samples=1):
         assert num_samples == 1, "TD7 only supports num_samples=1"

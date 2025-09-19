@@ -31,6 +31,7 @@ class Config:
     utd: int
     batch_size: int
     buffer_size: int
+    lap_alpha: float
     norm_obs: bool
     norm_reward: bool
 
@@ -38,6 +39,7 @@ class Config:
     random_frames: int
     warmup_frames: int
     eval_frames: int
+    lap_reset_frames: int
     log_frames: int
     eval_episodes: int
 

@@ -18,6 +18,7 @@ num_train_envs: 1
 utd: 1
 batch_size: 256
 buffer_size: 1_000_000
+lap_alpha: 0.0
 norm_obs: false
 norm_reward: false
 train_frames: 1_000_000
@@ -25,6 +26,7 @@ warmup_frames: 5_000
 random_frames: 5_000
 eval_frames: 10_000
 log_frames: 1_000
+lap_reset_frames: 250
 eval_episodes: 10
 log:
   dir: logs

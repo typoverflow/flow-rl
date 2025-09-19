@@ -65,12 +65,14 @@ class OffPolicyTrainer():
         ], autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
 
         # create buffer
+        self.use_lap_buffer = cfg.lap_alpha > 0
         self.buffer = ReplayBuffer(
             obs_dim=self.train_env.observation_space.shape[-1],
             action_dim=self.train_env.action_space.shape[-1],
             max_size=cfg.buffer_size,
             norm_obs=cfg.norm_obs,
             norm_reward=cfg.norm_reward,
+            lap_alpha=cfg.lap_alpha,
         )
 
         # create agent
@@ -112,14 +114,21 @@ class OffPolicyTrainer():
                         self.buffer.add(obs[i], actions[i], actual_next_obs, rewards[i], terminated[i])
 
                     if self.global_frame < cfg.warmup_frames:
-                        update_info = {}
+                        train_metrics = {}
                     else:
                         for _ in range(self.update_per_iter):
-                            batch = self.buffer.sample(batch_size=cfg.batch_size)
-                            update_info = self.agent.train_step(batch, step=self.global_frame)
+                            batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                            train_metrics = self.agent.train_step(batch, step=self.global_frame)
+                            if self.use_lap_buffer:
+                                new_priorities = train_metrics.pop("priority")
+                                self.buffer.update(indices, new_priorities)
+                                train_metrics["misc/max_priority"] = self.buffer.max_priority
+
+                    if self.use_lap_buffer and self.global_frame % cfg.lap_reset_frames == 0:
+                        self.buffer.reset_max_priority()
 
                     if self.global_frame % cfg.log_frames == 0:
-                        self.logger.log_scalars("", update_info, step=self.global_frame)
+                        self.logger.log_scalars("", train_metrics, step=self.global_frame)
 
                     if self.global_frame % cfg.eval_frames == 0:
                         self.eval_and_save()

@@ -3,8 +3,8 @@
 algo:
   name: td7
   discount: 0.99
-  hidden_dim: 512
-  embed_dim: 512
+  hidden_dim: 256
+  embed_dim: 256
   actor_lr: 0.0003
   critic_lr: 0.0003
   encoder_lr: 0.0003
@@ -12,8 +12,12 @@ algo:
   actor_update_freq: 1
   target_update_freq: 250
   target_policy_noise: 0.2
-  noise_clip: 0.3
-  exploration_noise: 0.2
+  noise_clip: 0.5
+  exploration_noise: 0.1
   lam: 0.0
   max_action: 1.0
-  lap: false
+
+lap_alpha: 0.4
+lap_reset_frames: 250
+warmup_frames: 25000
+random_frames: 25000

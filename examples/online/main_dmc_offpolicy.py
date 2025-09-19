@@ -57,12 +57,14 @@ class OffPolicyTrainer():
         self.eval_env = [DMControlEnv(cfg.task, cfg.seed + i*100, False, cfg.frame_skip, cfg.frame_stack) for i in range(cfg.eval.num_episodes)]
 
         # create buffer
+        self.use_lap_buffer = cfg.lap_alpha > 0
         self.buffer = ReplayBuffer(
             obs_dim=self.train_env.observation_space.shape[-1],
             action_dim=self.train_env.action_space.shape[-1],
             max_size=cfg.buffer_size,
             norm_obs=cfg.norm_obs,
             norm_reward=cfg.norm_reward,
+            lap_alpha=cfg.lap_alpha,
         )
 
         # create agent
@@ -114,8 +116,15 @@ class OffPolicyTrainer():
                 if self.global_frame < cfg.warmup_frames:
                     train_metrics = {}
                 else:
-                    batch = self.buffer.sample(batch_size=cfg.batch_size)
+                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
+                    if self.use_lap_buffer:
+                        new_priorities = train_metrics.pop("priority")
+                        self.buffer.update(indices, new_priorities)
+                        train_metrics["misc/max_priority"] = self.buffer.max_priority
+
+                if self.use_lap_buffer and self.global_frame % cfg.lap_reset_frames == 0:
+                    self.buffer.reset_max_priority()
 
                 if self.global_frame % cfg.log_frames == 0:
                     self.logger.log_scalars("", train_metrics, step=self.global_frame)

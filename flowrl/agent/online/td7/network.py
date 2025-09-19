@@ -47,7 +47,6 @@ class TD7Encoder(nn.Module):
     def zsa(self, zs: jnp.ndarray, action: jnp.ndarray, training: bool = False) -> jnp.ndarray:
         out = jnp.concatenate([zs, action], axis=-1)
         out = self.zsa_layers(out, training=training)
-        out = self.avg_l1_norm(out)
         return out
 
     def __call__(self, obs: jnp.ndarray, action: jnp.ndarray, training: bool = False) -> jnp.ndarray:
