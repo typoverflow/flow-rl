@@ -88,7 +88,7 @@ class OffPolicyTrainer():
         ep_length = ep_return = 0
         obs, _ = self.train_env.reset()
         with tqdm(total=cfg.train_frames, desc="training") as pbar:
-            while self.global_frame < cfg.train_frames:
+            while self.global_frame <= cfg.train_frames:
                 action, _ = self.agent.sample_actions(
                     self.buffer.normalize_obs(obs[jnp.newaxis, ...]),
                     deterministic=False,
