@@ -94,7 +94,7 @@ class OffPolicyTrainer():
                     deterministic=False,
                     num_samples=1,
                 )
-                action = action[0]
+                action = np.asarray(action[0])
                 if self.global_frame < cfg.random_frames:
                     action = self.train_env.action_space.sample()
 
@@ -105,7 +105,7 @@ class OffPolicyTrainer():
                 self.buffer.add(obs, action, next_obs, reward, terminated)
 
                 if terminated or truncated:
-                    obs, _ = self.train_env.reset()
+                    next_obs, _ = self.train_env.reset()
                     self.global_episode += 1
                     self.logger.log_scalars("", {
                         "rollout/episode_return": ep_return,
@@ -151,10 +151,11 @@ class OffPolicyTrainer():
         while not np.all(dones):
             # get actions for all environments
             actions, _ = self.agent.sample_actions(
-                obs,
+                self.buffer.normalize_obs(obs),
                 deterministic=True,
                 num_samples=self.cfg.eval.num_samples,
             )
+            actions = np.asarray(actions)
 
             # step all environments
             obs, rewards, terminated, truncated, infos = zip(*[env.step(action) for env, action in zip(self.eval_env, actions)])

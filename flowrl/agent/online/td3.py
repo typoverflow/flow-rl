@@ -57,7 +57,7 @@ def update_critic(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        critic_loss = ((q - q_target[jnp.newaxis, :])**2).mean()
+        critic_loss = ((q - q_target[jnp.newaxis, :])**2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q_mean": q.mean(),
@@ -115,7 +115,6 @@ class TD3Agent(BaseAgent):
             backbone=MLP(
                 hidden_dims=cfg.actor_hidden_dims,
                 layer_norm=cfg.layer_norm,
-                activation=activation,
                 dropout=None,
             ),
             obs_dim=self.obs_dim,
