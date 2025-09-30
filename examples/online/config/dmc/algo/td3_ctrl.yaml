@@ -1,6 +1,7 @@
 # @package _global_
 
 algo:
+  name: ctrl_td3
   cls: ctrl_td3
   discount: 0.99
 
@@ -33,9 +34,15 @@ algo:
   back_critic_grad: false
   critic_coef: 1.0
   aug_batch_size: 512
+  batch_size: 512
+
   num_noises: 25
   linear: false
   beta: 1.0
   ranking: true
+  activation: elu
+  layer_norm: true
+  critic_ensemble_size: 2
+  clip_grad_norm: null
 
 norm_obs: true

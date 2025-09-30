@@ -25,7 +25,7 @@ class FactorizedNCE(nn.Module):
         # jax nn mish vs flax nn
         # no need to do any device work right
         self.mlp_t = nn.Sequential(
-            PositionalEmbedding(128), nn.Dense(256), mish, nn.Dense(128)
+            [PositionalEmbedding(128), nn.Dense(256), mish, nn.Dense(128)]
         )
         self.mlp_phi = ResidualMLP(
             self.phi_hidden_dims, self.feature_dim, activation=mish, dropout=None

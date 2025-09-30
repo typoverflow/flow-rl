@@ -5,6 +5,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
+from operator import attrgetter
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.online.mujoco.algo.ctrl import CTRL_TD3_Config
@@ -37,10 +38,11 @@ def jit_sample_action(
 def _make_noised(
     sp: jnp.ndarray, num_noises: int, alphabars: jnp.ndarray, rng: jax.random.PRNGKey
 ):
+    # TODO: double check this
     if num_noises > 0:
         N = num_noises
         B, D = sp.shape
-        sp = jnp.expand_dims(sp, 0).repeat([num_noises, 1, 1])
+        sp = jnp.tile(jnp.expand_dims(sp, 0), (num_noises, 1, 1))
         t = jnp.arange(N)
         alpha_t = alphabars[t]  # [N]
         alpha_t = alpha_t[:, None, None]  # [N, 1, 1]
@@ -76,15 +78,17 @@ def update_feature(
     )
     rng, noise_rng = jax.random.split(rng)
 
-    def feature_loss_fn(feature_params: Param) -> Tuple[jnp.ndarray, Metric]:
+    def feature_loss_fn(feature_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         B = s.shape[0]
 
         z_phi = feature.apply(
-            {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi
+            {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi,
+            rngs={"dropout": dropout_rng}
         )
         xt, t = _make_noised(sp, num_noises, alphabars, noise_rng)
         z_mu = feature.apply(
-            {"params": feature_params}, xt, t, method=FactorizedNCE.forward_mu
+            {"params": feature_params}, xt, t, method=FactorizedNCE.forward_mu,
+            rngs={"dropout": dropout_rng}
         )
 
         # TODO: these aren't same dims as in compute_logits
@@ -94,25 +98,29 @@ def update_feature(
         else:
             eff_logits = logits
 
+        breakpoint()
         normalizer = feature.apply(
             {"params": feature_params},
             num_noises,
             ranking,
             method=FactorizedNCE.get_normalizer,
+            rngs={"dropout": dropout_rng}
         )
 
         # TODO: need to make sure these are the right shape
         if ranking:
+            breakpoint()
             labels = jnp.expand_dims(jnp.arange(B), axis=0).repeat(num_noises, 1)
             ce_per_noise = jax.vmap(
                 lambda L: optax.softmax_cross_entropy_with_integer_labels(
                     L, labels
                 ).mean()
             )(eff_logits)
+            breakpoint()
             model_loss = ce_per_noise.mean()
         else:
             # repeats, is this right?
-            labels = jnp.expand_dims(jnp.eye(B), axis=0).repeat([num_noises, 1, 1])
+            labels = jnp.tile(jnp.expand_dims(jnp.eye(B), axis=0), (num_noises, 1, 1))
             if linear:
                 # ???
                 scale = jnp.exp(normalizer)[:, None, None] / float(B)
@@ -125,7 +133,8 @@ def update_feature(
             model_loss = bce.mean()
 
         pred_r = feature.apply(
-            {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward
+            {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward,
+            rngs={"dropout": dropout_rng}
         )
         reward_loss = jnp.mean((pred_r - r) ** 2)
         total_loss = model_loss + reward_loss
@@ -334,8 +343,20 @@ class Ctrl_TD3_Agent(BaseAgent):
         metrics = {}
 
         batch_size = self.batch_size
-        critic_batch = Batch(*(getattr(batch, f)[:batch_size] for f in batch._fields))
-        feat_batch = Batch(*(getattr(batch, f)[batch_size:] for f in batch._fields))
+        obs, action, next_obs, reward, terminal = [
+            b[:batch_size]
+            for b in attrgetter("obs", "action", "next_obs", "reward", "terminal")(
+                batch
+            )
+        ]
+        fobs, faction, fnext_obs, freward, fterminal = [
+            b[batch_size:]
+            for b in attrgetter("obs", "action", "next_obs", "reward", "terminal")(
+                batch
+            )
+        ]
+        critic_batch = Batch(obs, action, next_obs, reward, terminal, None)
+        feat_batch = Batch(fobs, faction, fnext_obs, freward, fterminal, None)
 
         self.rng, self.nce, nce_metrics = update_feature(
             self.rng,
@@ -365,7 +386,7 @@ class Ctrl_TD3_Agent(BaseAgent):
                 self.rng,
                 self.actor,
                 self.critic,
-                batch,
+                critic_batch,
             )
             metrics.update(actor_metrics)
 

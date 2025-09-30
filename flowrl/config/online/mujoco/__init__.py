@@ -6,7 +6,7 @@ from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
 from .algo.td7 import TD7Config
-from .algo.ctrl import CTRL_TD3_CONFIG
+from .algo.ctrl import CTRL_TD3_Config
 from .config import Config, LogConfig
 
 _DEF_SUFFIX = "_cfg_def"
@@ -23,7 +23,7 @@ _CONFIGS = {
     "td3": TD3Config,
     "td7": TD7Config,
     "dpmd": DPMDConfig,
-    "ctrl": CTRL_TD3_CONFIG,
+    "ctrl": CTRL_TD3_Config,
 }
 
 for name, cfg in _CONFIGS.items():
