@@ -12,32 +12,11 @@ from flowrl.functional.ema import ema_update
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import *
+from flowrl.module.noise_schedule import linear_beta_schedule, vp_beta_schedule, cosine_beta_schedule
 
 SUPPORTED_SOLVERS = [
     "ddim", "ddpm",
 ]
-
-
-# ======= Noise Schedules ========
-
-def linear_beta_schedule(T: int=1000, beta_min: float=1e-4, beta_max: float=2e-2):
-    return jnp.linspace(beta_min, beta_max, T)
-
-def cosine_beta_schedule(T: int=1000, s=0.008):
-    steps = T + 1
-    t = jnp.linspace(0, T, steps) / T
-    alphas_cumprod = jnp.cos((t + s) / (1 + s) * jnp.pi * 0.5) ** 2
-    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return jnp.clip(betas, 0, 0.999)
-
-def vp_beta_schedule(T: int=1000):
-    t = jnp.arange(1, T + 1)
-    b_max = 10.
-    b_min = 0.1
-    alpha = jnp.exp(-b_min / T - 0.5 * (b_max - b_min) * (2 * t - 1) / T ** 2)
-    betas = 1 - alpha
-    return betas
 
 # ======= Noise Network ========
 
