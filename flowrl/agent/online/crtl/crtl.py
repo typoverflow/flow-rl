@@ -7,13 +7,14 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.online.mujoco.algo.td3 import TD3Config
+from flowrl.config.online.mujoco.algo.crtl import CRTL_TD3_Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.critic import EnsembleCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
+from flowrl.agent.online.crtl.network import FactorizedNCE
 
 
 @partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
@@ -31,6 +32,27 @@ def jit_sample_action(
     return action
 
 
+def _make_noised(
+    sp: jnp.ndarray, num_noises: int, alphabars: jnp.ndarray, rng: jax.random.PRNGKey
+):
+    if num_noises > 0:
+        N = num_noises
+        B, D = sp.shape
+        sp = jnp.expand_dims(sp, 0).repeat([num_noises, 1, 1])
+        t = jnp.arange(N)
+        alpha_t = alphabars[t]  # [N]
+        alpha_t = alpha_t[:, None, None]  # [N, 1, 1]
+
+        sp_exp = jnp.broadcast_to(sp, (N, B, D))
+        eps = jax.random.normal(rng, sp_exp.shape)
+        xt = jnp.sqrt(alphabars) * sp + jnp.sqrt((1 - alphabars)) * eps
+        t = jnp.expand_dims(t, -1)
+    else:
+        xt = jnp.expand_dims(sp, 0)
+        t = None
+    return xt, t
+
+
 # TODO: update_feature
 @partial(jax.jit, static_argnames=("num_noises", "linear", "ranking"))
 def update_feature(
@@ -42,10 +64,6 @@ def update_feature(
     linear: bool = False,  # Fix: feature also has linear?
     ranking: bool = False,
 ) -> Tuple[PRNGKey, Model, Metric]:
-    B = batch.next_obs.shape[0]
-    rng, noise_rng = jax.random.split(rng)
-    use_noise_perturbation = True if num_noises > 0 else False
-
     s, a, sp, r, terminal = (
         batch.obs,
         batch.action,
@@ -54,64 +72,74 @@ def update_feature(
         batch.terminal,
     )
 
+    rng, noise_rng = jax.random.split(rng)
     # TODO: get alphas, betas
-
-    if use_noise_perturbation:
-        # this is not right!
-        sp = jnp.expand_dims(sp, 0).repeat([num_noises, 1, 1])
-        t = jnp.arange(0, num_noises)
-        # TODO: fix here
-        t = jnp.repeat_interleave
-        alphabars = self.alphabars[t]
-        eps = jax.random.normal(noise_rng, sp.shape)
-        xt = jnp.sqrt(alphabars) * sp + jnp.sqrt((1 - alphabars)) * eps
-        t = jnp.expand_dims(t, -1)
-    else:
-        xt = jnp.expand_dims(sp, 0)
-        t = None
-
-    def compute_logits(self, s, a, sp, z_phi=None):
-        if z_phi is None:
-            z_phi = self.forward_phi(s, a)
-        z_mu = self.forward_mu(xt, t)  # (N, RB, z_dim)
-        z_phi = jnp.expand_dims(z_phi, 0).repeat(z_mu.shape[0], 1, 1)  # (N, LB, z_dim)
-        # TODO: has a batch matmul?
-        logits = jnp.matmul(z_mu, z_phi)  # (N, LB, RB)
-        return logits
 
     def feature_loss_fn(feature_params: Param) -> Tuple[jnp.ndarray, Metric]:
         B = s.shape[0]
         N = 1 if num_noises <= 0 else num_noises
-        # z_phi = feature.forward_phi(s, a)
-        z_phi = feature.apply(s, a, method=feature.forward_phi)
-        logits = self.compute_logits(s, a, sp, z_phi)
 
+        z_phi = feature.apply(
+            {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi
+        )
+        xt, t = _make_noised(sp, num_noises, alphabars, noise_rng)
+        z_mu = feature.apply(
+            {"params": feature_params}, xt, t, method=FactorizedNCE.forward_mu
+        )
+
+        # TODO: these aren't same dims as in compute_logits
+        logits = jnp.matmul(z_mu, z_phi)
         if linear:
-            # TODO: wrong
-            eff_logits = jnp.log(softplus_beta(logits, beta=3.0) + 1e-6)
-            # if self.ranking:
-            #     model_loss =
+            eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log()
+        else:
+            eff_logits = logits
 
-        batch_size = batch.obs.shape[0]  # ???
+        normalizer = feature.apply(
+            {"params": feature_params},
+            num_noises,
+            ranking,
+            method=FactorizedNCE.get_normalizer,
+        )
+
+        # TODO: need to make sure these are the right shape
         if ranking:
-            labels = jnp.expand_dims(jnp.arange(batch_size), axis=0).repeat(
-                num_noises, 1
-            )
+            labels = jnp.expand_dims(jnp.arange(B), axis=0).repeat(num_noises, 1)
+            ce_per_noise = jax.vmap(
+                lambda L: optax.softmax_cross_entropy_with_integer_labels(
+                    L, labels
+                ).mean()
+            )(eff_logits)
+            model_loss = ce_per_noise.mean()
         else:
             # repeats, is this right?
-            labels = jnp.expand_dims(jnp.eye(batch_size), axis=0).repeat(
-                [num_noises, 1, 1]
-            )
-            # self.normalizer = self.variable(
-            #     "normalizer",
-            #     "etc",
-            #     jnp.zeros(
-            #         [max(self.num_noises, 1)], dtype=jnp.float32, device=self.device
-            #     ),
-            # )
-        reward_loss = MSE()
+            labels = jnp.expand_dims(jnp.eye(B), axis=0).repeat([num_noises, 1, 1])
+            if linear:
+                # ???
+                scale = jnp.exp(normalizer)[:, None, None] / float(B)
+                logits_scaled = eff_logits * scale
+            else:
+                logits_scaled = (
+                    eff_logits + normalizer[:, None, None] - jnp.log(float(B))
+                )
+            bce = optax.sigmoid_binary_cross_entropy(logits_scaled, labels)
+            model_loss = bce.mean()
 
-        return loss, metrics
+        pred_r = feature.apply(
+            {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward
+        )
+        print(f"shape {pred_r.shape}, ")
+        reward_loss = jnp.mean((pred_r - r) ** 2)
+        total_loss = model_loss + reward_loss
+
+        metrics = {
+            "loss/total": model_loss,
+            "loss/model_loss": model_loss,
+            "loss/reward_loss": reward_loss,
+            "misc/phi_norm": jnp.abs(z_phi).mean().item(),
+            # "misc/phi_std": j
+        }
+
+        return total_loss, metrics
 
     new_feature, metrics = feature.apply_gradient(feature_loss_fn)
 
@@ -190,7 +218,7 @@ class Ctrl_TD3_Agent(BaseAgent):
     name = "CTRLTD3Agent"
     model_names = ["nce", "actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: TD3Config, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: CRTL_TD3_Config, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
         self.actor_update_freq = cfg.actor_update_freq
@@ -199,14 +227,20 @@ class Ctrl_TD3_Agent(BaseAgent):
         self.noise_clip = cfg.noise_clip
         self.exploration_noise = cfg.exploration_noise
 
-        self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
+        self.ctrl_coef = cfg.ctrl_coef
+        self.critic_coef = cfg.critic_coef
+        self.aug_batch_size = cfg.aug_batch_size
+        self.feature_tau = cfg.feature_tau
+        self.linear = cfg.linear
+        self.ranking = cfg.ranking
+        self.feature_dim = cfg.feature_dim
+
+        self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
         activation = {
             "relu": jax.nn.relu,
             "elu": jax.nn.elu,
         }[cfg.activation]
-
-        # TODO: also we are syncing with ema_update
 
         actor_def = SquashedDeterministicActor(
             backbone=MLP(
@@ -226,6 +260,41 @@ class Ctrl_TD3_Agent(BaseAgent):
             ensemble_size=cfg.critic_ensemble_size,
         )
 
+        nce_def = FactorizedNCE(
+            self.obs_dim,
+            self.act_dim,
+            self.feature_dim,
+            cfg.phi_hidden_dims,
+            cfg.mu_hidden_dims,
+            cfg.reward_hidden_dims,
+            cfg.rff_dim,
+            cfg.num_noises,
+            self.linear,
+            self.ranking,
+        )
+
+        self.nce = Model.create(
+            nce_def,
+            nce_rng,
+            inputs=(
+                jnp.ones((1, self.obs_dim)),
+                jnp.ones((1, self.act_dim)),
+                jnp.ones((1, self.obs_dim)),
+            ),
+            optimizer=optax.adam(learning_rate=cfg.feature_lr),
+            clip_grad_norm=cfg.clip_grad_norm,
+        )
+        self.nce_target = Model.create(
+            nce_def,
+            nce_rng,
+            inputs=(
+                jnp.ones((1, self.obs_dim)),
+                jnp.ones((1, self.act_dim)),
+                jnp.ones((1, self.obs_dim)),
+            ),
+            optimizer=optax.adam(learning_rate=cfg.feature_lr),
+            clip_grad_norm=cfg.clip_grad_norm,
+        )
         self.actor = Model.create(
             actor_def,
             actor_rng,
@@ -286,6 +355,7 @@ class Ctrl_TD3_Agent(BaseAgent):
                 self.critic, self.critic_target, self.cfg.ema
             )
             self.actor_target = ema_update(self.actor, self.actor_target, self.cfg.ema)
+            self.nce_target = ema_update(self.nce, self.nce_target, self.feature_tau)
 
         self._n_training_steps += 1
         return metrics

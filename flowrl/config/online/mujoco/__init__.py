@@ -6,12 +6,13 @@ from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
 from .algo.td7 import TD7Config
+from .algo.crtl import CRTL_TD3_Config
 from .config import Config, LogConfig
 
 _DEF_SUFFIX = "_cfg_def"
 
 cs = ConfigStore.instance()
-cs.store(name="config"+_DEF_SUFFIX, node=Config)
+cs.store(name="config" + _DEF_SUFFIX, node=Config)
 
 # raise error if algo is not specified
 cs.store(group="algo", name="base", node=BaseAlgoConfig)
@@ -22,7 +23,8 @@ _CONFIGS = {
     "td3": TD3Config,
     "td7": TD7Config,
     "dpmd": DPMDConfig,
+    "crtl": CRTL_TD3_Config,
 }
 
 for name, cfg in _CONFIGS.items():
-    cs.store(group="algo", name=name+_DEF_SUFFIX, node=cfg)
+    cs.store(group="algo", name=name + _DEF_SUFFIX, node=cfg)
