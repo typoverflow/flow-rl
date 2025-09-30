@@ -5,7 +5,7 @@ from .base import BaseAlgoConfig
 
 
 @dataclass
-class CRTL_TD3_Config(BaseAlgoConfig):
+class CTRL_TD3_Config(BaseAlgoConfig):
     name: str
     discount: float
     ema: float

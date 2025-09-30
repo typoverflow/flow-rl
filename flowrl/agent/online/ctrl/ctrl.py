@@ -7,14 +7,14 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.online.mujoco.algo.crtl import CRTL_TD3_Config
+from flowrl.config.online.mujoco.algo.ctrl import CTRL_TD3_Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.critic import EnsembleCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
-from flowrl.agent.online.crtl.network import FactorizedNCE
+from flowrl.agent.online.ctrl.network import FactorizedNCE
 from flowrl.module.noise_schedule import get_noise_schedule
 from flowrl.functional.activation import softplus_beta
 
@@ -218,7 +218,7 @@ class Ctrl_TD3_Agent(BaseAgent):
     name = "CTRLTD3Agent"
     model_names = ["nce", "actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: CRTL_TD3_Config, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: CTRL_TD3_Config, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
         self.actor_update_freq = cfg.actor_update_freq
