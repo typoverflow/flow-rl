@@ -23,6 +23,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td7": TD7Agent,
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
+    "td3_crtl": Ctrl_TD3_Agent,
 }
 
 class OffPolicyTrainer():
@@ -116,7 +117,8 @@ class OffPolicyTrainer():
                 if self.global_frame < cfg.warmup_frames:
                     train_metrics = {}
                 else:
-                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                    batch_size = cfg.batch_size + getattr(cfg, "aug_batch_size", 0)
+                    batch, indices = self.buffer.sample(batch_size=batch_size)
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")

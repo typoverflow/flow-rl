@@ -15,6 +15,8 @@ from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
 from flowrl.agent.online.crtl.network import FactorizedNCE
+from flowrl.module.noise_schedule import get_noise_schedule
+from flowrl.functional.activation import softplus_beta
 
 
 @partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
@@ -58,26 +60,24 @@ def _make_noised(
 def update_feature(
     rng: PRNGKey,
     feature: Model,
-    # normalizer is an optional model?
     batch: Batch,
+    alphabars: jnp.ndarray,
     num_noises: int = 0,
     linear: bool = False,  # Fix: feature also has linear?
     ranking: bool = False,
 ) -> Tuple[PRNGKey, Model, Metric]:
-    s, a, sp, r, terminal = (
+    
+    # assert batch.obs.shape[0] == cfg.batch_size + cfg.aug_batch_size
+    s, a, sp, r = (
         batch.obs,
         batch.action,
         batch.next_obs,
         batch.reward,
-        batch.terminal,
     )
-
     rng, noise_rng = jax.random.split(rng)
-    # TODO: get alphas, betas
 
     def feature_loss_fn(feature_params: Param) -> Tuple[jnp.ndarray, Metric]:
         B = s.shape[0]
-        N = 1 if num_noises <= 0 else num_noises
 
         z_phi = feature.apply(
             {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi
@@ -127,7 +127,6 @@ def update_feature(
         pred_r = feature.apply(
             {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward
         )
-        print(f"shape {pred_r.shape}, ")
         reward_loss = jnp.mean((pred_r - r) ** 2)
         total_loss = model_loss + reward_loss
 
@@ -136,12 +135,13 @@ def update_feature(
             "loss/model_loss": model_loss,
             "loss/reward_loss": reward_loss,
             "misc/phi_norm": jnp.abs(z_phi).mean().item(),
-            # "misc/phi_std": j
+            "misc/phi_std": jnp.std(z_phi, 0).mean().item()
         }
-
+        # TODO: add detailed metrics?
         return total_loss, metrics
 
     new_feature, metrics = feature.apply_gradient(feature_loss_fn)
+    return rng, new_feature, metrics
 
 
 @partial(jax.jit, static_argnames=("discount", "target_policy_noise", "noise_clip"))
@@ -229,11 +229,13 @@ class Ctrl_TD3_Agent(BaseAgent):
 
         self.ctrl_coef = cfg.ctrl_coef
         self.critic_coef = cfg.critic_coef
+        self.batch_size = cfg.batch_size
         self.aug_batch_size = cfg.aug_batch_size
         self.feature_tau = cfg.feature_tau
         self.linear = cfg.linear
         self.ranking = cfg.ranking
         self.feature_dim = cfg.feature_dim
+        self.num_noises = cfg.num_noises
 
         self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
@@ -241,6 +243,10 @@ class Ctrl_TD3_Agent(BaseAgent):
             "relu": jax.nn.relu,
             "elu": jax.nn.elu,
         }[cfg.activation]
+
+        self.alphas, self.betas, self.alphabars = get_noise_schedule(
+            "vp", self.num_noises
+        )
 
         actor_def = SquashedDeterministicActor(
             backbone=MLP(
@@ -327,14 +333,27 @@ class Ctrl_TD3_Agent(BaseAgent):
 
         metrics = {}
 
-        # TODO: nce = update_feature, for loop over feature_update_ratio
+        batch_size = self.batch_size
+        critic_batch = Batch(*(getattr(batch, f)[:batch_size] for f in batch._fields))
+        feat_batch = Batch(*(getattr(batch, f)[batch_size:] for f in batch._fields))
+
+        self.rng, self.nce, nce_metrics = update_feature(
+            self.rng,
+            self.nce,
+            feat_batch,
+            self.alphabars,
+            self.num_noises,
+            self.linear,
+            self.ranking,
+        )
+        metrics.update(nce_metrics)
 
         self.rng, self.critic, critic_metrics = update_critic(
             self.rng,
             self.critic,
             self.critic_target,
             self.actor_target,
-            batch,
+            critic_batch,
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,
             noise_clip=self.noise_clip,

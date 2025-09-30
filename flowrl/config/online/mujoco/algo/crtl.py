@@ -33,6 +33,7 @@ class CRTL_TD3_Config(BaseAlgoConfig):
     feature_dim: int
     rff_dim: int
 
+    batch_size: int
     aug_batch_size: int
     num_noises: int
     ranking: bool

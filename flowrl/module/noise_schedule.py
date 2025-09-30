@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+from flowrl.types import Tuple
 
 
 def linear_beta_schedule(T: int = 1000, beta_min: float = 1e-4, beta_max: float = 2e-2):
@@ -29,7 +30,7 @@ def get_noise_schedule(
     beta_min: float = 1e-4,
     beta_max: float = 0.02,
     s: float = 0.008,
-):
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     if noise_schedule == "linear":
         betas = linear_beta_schedule(num_noises, beta_min, beta_max)
     elif noise_schedule == "cosine":

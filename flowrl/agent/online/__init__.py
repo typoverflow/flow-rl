@@ -5,6 +5,7 @@ from .sac import SACAgent
 from .sdac import SDACAgent
 from .td3 import TD3Agent
 from .td7.td7 import TD7Agent
+from .crtl.crtl import Ctrl_TD3_Agent
 
 __all__ = [
     "BaseAgent",
@@ -14,4 +15,5 @@ __all__ = [
     "SDACAgent",
     "DPMDAgent",
     "PPOAgent",
+    "Ctrl_TD3_Agent",
 ]
