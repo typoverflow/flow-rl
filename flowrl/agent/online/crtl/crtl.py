@@ -32,6 +32,88 @@ def jit_sample_action(
 
 
 # TODO: update_feature
+@partial(jax.jit, static_argnames=("num_noises", "linear", "ranking"))
+def update_feature(
+    rng: PRNGKey,
+    feature: Model,
+    # normalizer is an optional model?
+    batch: Batch,
+    num_noises: int = 0,
+    linear: bool = False,  # Fix: feature also has linear?
+    ranking: bool = False,
+) -> Tuple[PRNGKey, Model, Metric]:
+    B = batch.next_obs.shape[0]
+    rng, noise_rng = jax.random.split(rng)
+    use_noise_perturbation = True if num_noises > 0 else False
+
+    s, a, sp, r, terminal = (
+        batch.obs,
+        batch.action,
+        batch.next_obs,
+        batch.reward,
+        batch.terminal,
+    )
+
+    # TODO: get alphas, betas
+
+    if use_noise_perturbation:
+        # this is not right!
+        sp = jnp.expand_dims(sp, 0).repeat([num_noises, 1, 1])
+        t = jnp.arange(0, num_noises)
+        # TODO: fix here
+        t = jnp.repeat_interleave
+        alphabars = self.alphabars[t]
+        eps = jax.random.normal(noise_rng, sp.shape)
+        xt = jnp.sqrt(alphabars) * sp + jnp.sqrt((1 - alphabars)) * eps
+        t = jnp.expand_dims(t, -1)
+    else:
+        xt = jnp.expand_dims(sp, 0)
+        t = None
+
+    def compute_logits(self, s, a, sp, z_phi=None):
+        if z_phi is None:
+            z_phi = self.forward_phi(s, a)
+        z_mu = self.forward_mu(xt, t)  # (N, RB, z_dim)
+        z_phi = jnp.expand_dims(z_phi, 0).repeat(z_mu.shape[0], 1, 1)  # (N, LB, z_dim)
+        # TODO: has a batch matmul?
+        logits = jnp.matmul(z_mu, z_phi)  # (N, LB, RB)
+        return logits
+
+    def feature_loss_fn(feature_params: Param) -> Tuple[jnp.ndarray, Metric]:
+        B = s.shape[0]
+        N = 1 if num_noises <= 0 else num_noises
+        # z_phi = feature.forward_phi(s, a)
+        z_phi = feature.apply(s, a, method=feature.forward_phi)
+        logits = self.compute_logits(s, a, sp, z_phi)
+
+        if linear:
+            # TODO: wrong
+            eff_logits = jnp.log(softplus_beta(logits, beta=3.0) + 1e-6)
+            # if self.ranking:
+            #     model_loss =
+
+        batch_size = batch.obs.shape[0]  # ???
+        if ranking:
+            labels = jnp.expand_dims(jnp.arange(batch_size), axis=0).repeat(
+                num_noises, 1
+            )
+        else:
+            # repeats, is this right?
+            labels = jnp.expand_dims(jnp.eye(batch_size), axis=0).repeat(
+                [num_noises, 1, 1]
+            )
+            # self.normalizer = self.variable(
+            #     "normalizer",
+            #     "etc",
+            #     jnp.zeros(
+            #         [max(self.num_noises, 1)], dtype=jnp.float32, device=self.device
+            #     ),
+            # )
+        reward_loss = MSE()
+
+        return loss, metrics
+
+    new_feature, metrics = feature.apply_gradient(feature_loss_fn)
 
 
 @partial(jax.jit, static_argnames=("discount", "target_policy_noise", "noise_clip"))
@@ -123,6 +205,9 @@ class Ctrl_TD3_Agent(BaseAgent):
             "relu": jax.nn.relu,
             "elu": jax.nn.elu,
         }[cfg.activation]
+
+        # TODO: also we are syncing with ema_update
+
         actor_def = SquashedDeterministicActor(
             backbone=MLP(
                 hidden_dims=cfg.actor_hidden_dims,
@@ -173,7 +258,7 @@ class Ctrl_TD3_Agent(BaseAgent):
 
         metrics = {}
 
-        # TODO: nce = update_feature
+        # TODO: nce = update_feature, for loop over feature_update_ratio
 
         self.rng, self.critic, critic_metrics = update_critic(
             self.rng,

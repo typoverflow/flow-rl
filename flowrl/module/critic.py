@@ -1,7 +1,6 @@
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
-import flax
 
 from flowrl.functional.activation import mish
 from flowrl.types import *
