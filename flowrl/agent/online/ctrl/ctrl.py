@@ -16,7 +16,7 @@ from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
 from flowrl.agent.online.ctrl.network import FactorizedNCE
-from flowrl.module.noise_schedule import get_noise_schedule
+from flowrl.flow.ddpm import get_noise_schedule
 from flowrl.functional.activation import softplus_beta
 from flowrl.agent.online.td3 import TD3Agent
 
@@ -160,6 +160,7 @@ def update_critic(
     critic: Model,
     critic_target: Model,
     actor_target: Model,
+    nce_target: Model,
     batch: Batch,
     discount: float,
     target_policy_noise: float,
@@ -169,6 +170,9 @@ def update_critic(
     noise = jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise
     noise = jnp.clip(noise, -noise_clip, noise_clip)
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
+    # next_feature = nce_target.apply({"params": })
+    # next_feature = self.get_feature(next_obs, next_action, use_target=True)
+    q_target = self.critic_target(next_action).min(0)[0]
 
     q_target = critic_target(batch.next_obs, next_action).min(axis=0)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
@@ -372,6 +376,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.critic,
             self.critic_target,
             self.actor_target,
+            self.nce,
             critic_batch,
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,
