@@ -26,6 +26,7 @@ class CTRL_TD3_Config(BaseAlgoConfig):
     target_policy_noise: float
     noise_clip: float
     exploration_noise: float
+    reward_coef: float
 
     ctrl_coef: float
     critic_coef: float

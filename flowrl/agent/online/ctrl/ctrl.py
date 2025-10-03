@@ -18,6 +18,7 @@ from flowrl.types import Batch, Metric, Param, PRNGKey
 from flowrl.agent.online.ctrl.network import FactorizedNCE
 from flowrl.module.noise_schedule import get_noise_schedule
 from flowrl.functional.activation import softplus_beta
+from flowrl.agent.online.td3 import TD3Agent
 
 
 @partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
@@ -57,8 +58,7 @@ def _make_noised(
     return xt, t
 
 
-# TODO: update_feature
-@partial(jax.jit, static_argnames=("num_noises", "linear", "ranking"))
+@partial(jax.jit, static_argnames=("num_noises", "linear", "ranking", "reward_coef"))
 def update_feature(
     rng: PRNGKey,
     feature: Model,
@@ -67,6 +67,7 @@ def update_feature(
     num_noises: int = 0,
     linear: bool = False,  # Fix: feature also has linear?
     ranking: bool = False,
+    reward_coef: float = 1.0
 ) -> Tuple[PRNGKey, Model, Metric]:
     
     # assert batch.obs.shape[0] == cfg.batch_size + cfg.aug_batch_size
@@ -137,7 +138,7 @@ def update_feature(
             rngs={"dropout": dropout_rng}
         )
         reward_loss = jnp.mean((pred_r - r) ** 2)
-        total_loss = model_loss + reward_loss
+        total_loss = model_loss + reward_coef * reward_loss
 
         metrics = {
             "loss/total": model_loss,
@@ -219,7 +220,7 @@ def update_actor(
     return rng, new_actor, metrics
 
 
-class Ctrl_TD3_Agent(BaseAgent):
+class Ctrl_TD3_Agent(TD3Agent):
     """
     Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
     """
@@ -245,15 +246,13 @@ class Ctrl_TD3_Agent(BaseAgent):
         self.ranking = cfg.ranking
         self.feature_dim = cfg.feature_dim
         self.num_noises = cfg.num_noises
+        self.reward_coef = cfg.reward_coef
 
         self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
-        activation = {
-            "relu": jax.nn.relu,
-            "elu": jax.nn.elu,
-        }[cfg.activation]
+        activation = jax.nn.elu # ?
 
-        self.alphas, self.betas, self.alphabars = get_noise_schedule(
+        _, _, self.alphabars = get_noise_schedule(
             "vp", self.num_noises
         )
 
@@ -307,8 +306,6 @@ class Ctrl_TD3_Agent(BaseAgent):
                 jnp.ones((1, self.act_dim)),
                 jnp.ones((1, self.obs_dim)),
             ),
-            optimizer=optax.adam(learning_rate=cfg.feature_lr),
-            clip_grad_norm=cfg.clip_grad_norm,
         )
         self.actor = Model.create(
             actor_def,
@@ -366,6 +363,7 @@ class Ctrl_TD3_Agent(BaseAgent):
             self.num_noises,
             self.linear,
             self.ranking,
+            self.reward_coef
         )
         metrics.update(nce_metrics)
 
@@ -399,15 +397,3 @@ class Ctrl_TD3_Agent(BaseAgent):
 
         self._n_training_steps += 1
         return metrics
-
-    def sample_actions(self, obs, deterministic=True, num_samples=1):
-        assert num_samples == 1, "TD3 only supports num_samples=1"
-        self.rng, sample_rng = jax.random.split(self.rng)
-        action = jit_sample_action(
-            sample_rng,
-            self.actor,
-            obs,
-            deterministic,
-            exploration_noise=self.exploration_noise,
-        )
-        return action, {}

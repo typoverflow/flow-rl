@@ -2,15 +2,20 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
+from functools import partial
 
 def mish(x):
     return x * jnp.tanh(nn.softplus(x))
 
 
-# still jitable with branch condition?
-def softplus_beta(x, beta=1.0):
-    threshold = 20.0
-    x_beta = beta * x
-    return jnp.where(
-        x_beta > threshold, x, (1.0 / beta) * jnp.log(1.0 + jnp.exp(x_beta))
-    )
+def _softplus_stable(u):
+    return jnp.maximum(u,0) + jnp.log1p(jnp.exp(-jnp.abs(u)))
+
+@partial(jax.jit, static_argnames=("beta","threshold"))
+def softplus_beta(x, beta: float = 1.0, threshold: float = 20.0):
+    if beta == 0.0:
+        return jnp.maximum(x, 0.0)
+    
+    xb = beta * x
+    sp = _softplus_stable(xb) / beta
+    return jnp.where(xb > threshold, x, sp)

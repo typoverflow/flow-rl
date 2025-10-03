@@ -117,8 +117,7 @@ class OffPolicyTrainer():
                 if self.global_frame < cfg.warmup_frames:
                     train_metrics = {}
                 else:
-                    batch_size = cfg.batch_size + getattr(cfg, "aug_batch_size", 0)
-                    batch, indices = self.buffer.sample(batch_size=batch_size)
+                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")
