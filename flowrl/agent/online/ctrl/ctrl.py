@@ -33,7 +33,7 @@ def _make_noised(
         alpha_t = alphabars[t]  # [N, D, 1]
 
         sp_exp = jnp.broadcast_to(sp, (N, B, D))
-        eps = jax.random.normal(rng, sp_exp.shape)  # [N, D, S]
+        eps = jax.random.normal(rng, sp_exp.shape)  # [N, B, D]
 
         xt = jnp.sqrt(alpha_t) * sp + jnp.sqrt((1 - alpha_t)) * eps
         t = jnp.expand_dims(t, -1)
@@ -48,13 +48,12 @@ def update_feature(
     rng: PRNGKey,
     feature: Model,
     batch: Batch,
-    alphabars: jnp.ndarray,  # "alphabars", "labels" unhashable
+    alphabars: jnp.ndarray,
     num_noises: int = 0,
-    linear: bool = False,  # Fix: feature also has linear?
+    linear: bool = False,
     ranking: bool = False,
     reward_coef: float = 1.0,
 ) -> Tuple[PRNGKey, Model, Metric]:
-    # assert batch.obs.shape[0] == cfg.batch_size + cfg.aug_batch_size
     s, a, sp, r = (
         batch.obs,
         batch.action,
@@ -70,13 +69,13 @@ def update_feature(
             rng, 6
         )
 
-        z_phi_base = feature.apply(
+        z_phi = feature.apply(
             {"params": feature_params},
             s,
             a,
             method=FactorizedNCE.forward_phi,
             rngs={"dropout": rng_phi},
-        )
+        ) # (B, D)
         xt, t = _make_noised(sp, num_noises, alphabars, noise_rng)
         z_mu = feature.apply(
             {"params": feature_params},
@@ -84,9 +83,9 @@ def update_feature(
             t,
             method=FactorizedNCE.forward_mu,
             rngs={"dropout": rng_mu},
-        )
+        ) # (N, B, D)
 
-        logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi_base, -1, -2))
+        logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi, -1, -2))
 
         normalizer = feature.apply(
             {"params": feature_params},
@@ -99,7 +98,7 @@ def update_feature(
             jnp.tile(jnp.expand_dims(jnp.arange(B), 0), (num_noises, 1))
             if ranking
             else jnp.tile(jnp.expand_dims(jnp.eye(B), 0), (num_noises, 1, 1))
-        )
+        ) # (N, B, 1) or (N, B, B)
         eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log() if linear else logits
 
         if linear:
@@ -114,7 +113,7 @@ def update_feature(
 
         pred_r = feature.apply(
             {"params": feature_params},
-            z_phi_base,
+            z_phi,
             method=FactorizedNCE.forward_reward,
             rngs={"dropout": rng_r},
         )
@@ -128,7 +127,6 @@ def update_feature(
             "loss/model_loss": model_loss,
             "loss/reward_loss": reward_loss,
         }
-        # TODO: add detailed metrics?
         return total_loss, metrics
 
     new_feature, metrics = feature.apply_gradient(feature_loss_fn)
@@ -147,10 +145,10 @@ def update_critic(
     discount: float,
     target_policy_noise: float,
     noise_clip: float,
+    critic_coef: float
 ) -> Tuple[PRNGKey, Model, Metric]:
     rng, sample_rng = jax.random.split(rng)
-    noise = jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise
-    noise = jnp.clip(noise, -noise_clip, noise_clip)
+    noise = jnp.clip(jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise, -noise_clip, noise_clip)
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
 
     rng, dropout_rng, dropout_rng2 = jax.random.split(rng, 3)
@@ -163,16 +161,15 @@ def update_critic(
         rngs={"dropout": dropout_rng},
     )
 
-    q_target = critic_target(next_feature).min(0)  # just need the values
+    q_target = critic_target(next_feature).min(0)  # take min of two nets
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
     back_critic_grad = False
     if back_critic_grad:
         raise NotImplementedError("no back critic grad exists")
     else:
-        # need dropout rng here right?
-        cur_feature = feature.apply(
-            {"params": feature.params},
+        cur_feature = feature_target.apply(
+            {"params": feature_target.params},
             batch.obs,
             batch.action,
             method=FactorizedNCE.forward_phi,
@@ -187,7 +184,7 @@ def update_critic(
             cur_feature,
             rngs={"dropout": dropout_rng},
         )
-        critic_loss = ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
+        critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
         }
@@ -207,19 +204,21 @@ def update_actor(
     def actor_loss_fn(
         actor_params: Param, dropout_rng: PRNGKey
     ) -> Tuple[jnp.ndarray, Metric]:
+        dropout_rng1, dropout_rng2 = jax.random.split(dropout_rng)
         new_action = actor.apply(
             {"params": actor_params},
             batch.obs,
             training=True,
-            rngs={"dropout": dropout_rng},
+            rngs={"dropout": dropout_rng1},
         )
+
         # TODO: back critic grad?
-        # TODO: dropout rng???
         new_feature = feature_target.apply(
             {"params": feature_target.params},
             batch.obs,
             new_action,
             method=FactorizedNCE.forward_phi,
+            rngs={"dropout": dropout_rng2}
         )
         q = critic(new_feature)
         actor_loss = -q.mean()
@@ -271,23 +270,6 @@ class Ctrl_TD3_Agent(TD3Agent):
         _, _, self.alphabars = get_noise_schedule("vp", self.num_noises)
         self.alphabars = jnp.expand_dims(self.alphabars, -1)
 
-        actor_def = SquashedDeterministicActor(
-            backbone=MLP(
-                hidden_dims=cfg.actor_hidden_dims,
-                layer_norm=cfg.layer_norm,
-                dropout=None,
-            ),
-            obs_dim=self.obs_dim,
-            action_dim=self.act_dim,
-        )
-
-        critic_def = RffDoubleQ(
-            feature_dim=self.feature_dim,
-            hidden_dims=cfg.critic_hidden_dims,
-            linear=cfg.linear,
-            rff_dim=cfg.rff_dim,
-        )
-
         nce_def = FactorizedNCE(
             self.obs_dim,
             self.act_dim,
@@ -300,7 +282,6 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.linear,
             self.ranking,
         )
-
         self.nce = Model.create(
             nce_def,
             nce_rng,
@@ -321,6 +302,22 @@ class Ctrl_TD3_Agent(TD3Agent):
                 jnp.ones((1, self.obs_dim)),
             ),
         )
+
+        actor_def = SquashedDeterministicActor(
+            backbone=MLP(
+                hidden_dims=cfg.actor_hidden_dims,
+                layer_norm=cfg.layer_norm,
+                dropout=None,
+            ),
+            obs_dim=self.obs_dim,
+            action_dim=self.act_dim,
+        )
+        critic_def = RffDoubleQ(
+            feature_dim=self.feature_dim,
+            hidden_dims=cfg.critic_hidden_dims,
+            linear=cfg.linear,
+            rff_dim=cfg.rff_dim,
+        )
         self.actor = Model.create(
             actor_def,
             actor_rng,
@@ -328,17 +325,17 @@ class Ctrl_TD3_Agent(TD3Agent):
             optimizer=optax.adam(learning_rate=cfg.actor_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
-        self.actor_target = Model.create(
-            actor_def,
-            actor_rng,
-            inputs=(jnp.ones((1, self.obs_dim)),),
-        )
         self.critic = Model.create(
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.feature_dim)),),
             optimizer=optax.adam(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
+        )
+        self.actor_target = Model.create(
+            actor_def,
+            actor_rng,
+            inputs=(jnp.ones((1, self.obs_dim)),),
         )
         self.critic_target = Model.create(
             critic_def,
@@ -390,6 +387,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,
             noise_clip=self.noise_clip,
+            critic_coef=self.critic_coef,
         )
         metrics.update(critic_metrics)
 
@@ -404,6 +402,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             metrics.update(actor_metrics)
 
         if self._n_training_steps % self.target_update_freq == 0:
+            # should i make this into a sync target?
             self.critic_target = ema_update(
                 self.critic, self.critic_target, self.cfg.ema
             )
