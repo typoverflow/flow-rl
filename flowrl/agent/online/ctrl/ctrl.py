@@ -39,18 +39,18 @@ def jit_sample_action(
 def _make_noised(
     sp: jnp.ndarray, num_noises: int, alphabars: jnp.ndarray, rng: jax.random.PRNGKey
 ):
-    # TODO: double check this
     if num_noises > 0:
         N = num_noises
         B, D = sp.shape
         sp = jnp.tile(jnp.expand_dims(sp, 0), (num_noises, 1, 1))
         t = jnp.arange(N)
-        alpha_t = alphabars[t]  # [N]
-        alpha_t = alpha_t[:, None, None]  # [N, 1, 1]
+        t = jnp.repeat(t, B).reshape(N,B)
+        alpha_t = alphabars[t]  # [N, D, 1]
 
         sp_exp = jnp.broadcast_to(sp, (N, B, D))
-        eps = jax.random.normal(rng, sp_exp.shape)
-        xt = jnp.sqrt(alphabars) * sp + jnp.sqrt((1 - alphabars)) * eps
+        eps = jax.random.normal(rng, sp_exp.shape) # [N, D, S]
+
+        xt = jnp.sqrt(alpha_t) * sp + jnp.sqrt((1 - alpha_t)) * eps
         t = jnp.expand_dims(t, -1)
     else:
         xt = jnp.expand_dims(sp, 0)
@@ -92,23 +92,23 @@ def update_feature(
             rngs={"dropout": dropout_rng}
         )
 
-        # TODO: these aren't same dims as in compute_logits
-        logits = jnp.matmul(z_mu, z_phi)
+        z_phi = jnp.tile(jnp.expand_dims(z_phi, 0), (z_mu.shape[0], 1, 1))
+
+        logits = jnp.matmul(z_mu, z_phi.transpose(0, 2, 1))
         if linear:
             eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log()
         else:
             eff_logits = logits
 
-        breakpoint()
         normalizer = feature.apply(
             {"params": feature_params},
             num_noises,
-            ranking,
             method=FactorizedNCE.get_normalizer,
             rngs={"dropout": dropout_rng}
         )
 
-        # TODO: need to make sure these are the right shape
+        print(f"ranking {ranking}, {eff_logits.shape}, linear: {linear}")
+        # TODO: fix this
         if ranking:
             breakpoint()
             labels = jnp.expand_dims(jnp.arange(B), axis=0).repeat(num_noises, 1)
@@ -170,9 +170,9 @@ def update_critic(
     noise = jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise
     noise = jnp.clip(noise, -noise_clip, noise_clip)
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
-    # next_feature = nce_target.apply({"params": })
-    # next_feature = self.get_feature(next_obs, next_action, use_target=True)
-    q_target = self.critic_target(next_action).min(0)[0]
+
+    next_feature = nce_target(batch.next_obs, next_action)
+    # q_target = self.critic_target(next_feature).min(0)[0]
 
     q_target = critic_target(batch.next_obs, next_action).min(axis=0)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
@@ -259,6 +259,8 @@ class Ctrl_TD3_Agent(TD3Agent):
         _, _, self.alphabars = get_noise_schedule(
             "vp", self.num_noises
         )
+        self.alphabars = jnp.expand_dims(self.alphabars, -1)
+        print(self.alphabars.shape)
 
         actor_def = SquashedDeterministicActor(
             backbone=MLP(
@@ -356,8 +358,8 @@ class Ctrl_TD3_Agent(TD3Agent):
                 batch
             )
         ]
-        critic_batch = Batch(obs, action, next_obs, reward, terminal, None)
-        feat_batch = Batch(fobs, faction, fnext_obs, freward, fterminal, None)
+        critic_batch = Batch(obs, action, reward,terminal, next_obs, None)
+        feat_batch = Batch(fobs, faction, freward, fterminal, fnext_obs, None)
 
         self.rng, self.nce, nce_metrics = update_feature(
             self.rng,
@@ -376,7 +378,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.critic,
             self.critic_target,
             self.actor_target,
-            self.nce,
+            self.nce_target,
             critic_batch,
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,

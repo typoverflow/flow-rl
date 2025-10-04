@@ -3,7 +3,7 @@ import jax.numpy as jnp
 
 from flowrl.module.time_embedding import PositionalEmbedding
 from flowrl.module.mlp import ResidualMLP
-from flowrl.module.critic import RffReward
+from flowrl.module.rff import RffReward
 from flowrl.functional.activation import mish
 from flowrl.types import Sequence
 
@@ -21,9 +21,6 @@ class FactorizedNCE(nn.Module):
     ranking: bool = False
 
     def setup(self):
-        # TODO: PositionalFeature?
-        # jax nn mish vs flax nn
-        # no need to do any device work right
         self.mlp_t = nn.Sequential(
             [PositionalEmbedding(128), nn.Dense(256), mish, nn.Dense(128)]
         )
@@ -68,7 +65,7 @@ class FactorizedNCE(nn.Module):
         a,
         sp,
     ):
-        z_phi = self.forward_phi(s, a)
+        z_phi = self.forward_phi(s, a) # (1,512)
         _ = self.forward_reward(z_phi)
 
         B = s.shape[0]
