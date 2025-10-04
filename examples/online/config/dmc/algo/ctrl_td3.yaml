@@ -36,7 +36,6 @@ algo:
   back_critic_grad: false
   critic_coef: 1.0
   aug_batch_size: 512
-  batch_size: 512
 
   num_noises: 25
   linear: false
@@ -48,3 +47,4 @@ algo:
   clip_grad_norm: null
 
 norm_obs: true
+batch_size: 1024

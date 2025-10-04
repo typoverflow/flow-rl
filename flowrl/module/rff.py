@@ -33,33 +33,30 @@ class RffLayer(nn.Module):
 class RffReward(nn.Module):
     feature_dim: int
     hidden_dims: list[int]
-    linear: bool = False
-    rff_dim: Optional[int] = None
+    rff_dim: int
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, training: bool = False) -> jnp.ndarray:
         x = nn.LayerNorm()(x)
+        x = RffLayer(self.feature_dim, self.rff_dim, learnable=True)(x)
 
-        if self.linear:
-            feat = x
-        else:
-            feat = RffLayer(self.feature_dim, self.rff_dim, learnable=True)(x)
-
-        y = MLP(
+        x = MLP(
             hidden_dims=self.hidden_dims,
             output_dim=1,
             layer_norm=True,
             activation=nn.elu,
-        )(feat, training=training)
-        return y
+        )(x, training=training)
+        return x
 
 
-# implement the double-q logic, foundin EnsembleCritic, use vmap
-class RffDoubleQ(nn.Module):
+class RffCritic(RffReward):
+    pass
+
+
+class RffEnsembleCritic(nn.Module):
     feature_dim: int
     hidden_dims: Sequence[int]
-    linear: bool | None = None
-    rff_dim: int | None = None
+    rff_dim: int
     ensemble_size: int = 2
 
     @nn.compact
@@ -72,5 +69,5 @@ class RffDoubleQ(nn.Module):
             out_axes=0,
             axis_size=self.ensemble_size,
         )
-        x = vmap_rff(self.feature_dim, self.hidden_dims, self.linear, self.rff_dim)(x)
+        x = vmap_rff(self.feature_dim, self.hidden_dims, self.rff_dim)(x)
         return x

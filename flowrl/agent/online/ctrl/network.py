@@ -1,10 +1,17 @@
-import flax.linen as nn
-import jax.numpy as jnp
+from functools import partial
 
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
+import optax
+
+from flowrl.flow.ddpm import get_noise_schedule
 from flowrl.functional.activation import mish
 from flowrl.module.mlp import ResidualMLP
+from flowrl.module.model import Model
 from flowrl.module.rff import RffReward
 from flowrl.module.time_embedding import PositionalEmbedding
+from flowrl.types import *
 from flowrl.types import Sequence
 
 
@@ -17,7 +24,6 @@ class FactorizedNCE(nn.Module):
     reward_hidden_dims: Sequence[int]
     rff_dim: int = 0
     num_noises: int = 0
-    linear: bool = False
     ranking: bool = False
 
     def setup(self):
@@ -38,16 +44,24 @@ class FactorizedNCE(nn.Module):
             activation=mish,
             dropout=None,
         )
-
         self.reward = RffReward(
             self.feature_dim,
             self.reward_hidden_dims,
-            linear=self.linear,
             rff_dim=self.rff_dim,
         )
-        N = max(self.num_noises, 1)
+        if self.num_noises > 0:
+            self.use_noise_perturbation = True
+            betas, alphas, alphabars = get_noise_schedule("vp", self.num_noises)
+            alphabars_prev = jnp.pad(alphabars[:-1], (1, 0), constant_values=1.0)
+            self.betas = betas[..., jnp.newaxis]
+            self.alphas = alphas[..., jnp.newaxis]
+            self.alphabars = alphabars[..., jnp.newaxis]
+            self.alphabars_prev = alphabars_prev[..., jnp.newaxis]
+        else:
+            self.use_noise_perturbation = False
+        self.N = max(self.num_noises, 1)
         if not self.ranking:
-            self.normalizer = self.param("normalizer", lambda key: jnp.zeros((N,), jnp.float32))
+            self.normalizer = self.param("normalizer", lambda key: jnp.zeros((self.N,), jnp.float32))
         else:
             self.normalizer = None
 
@@ -66,11 +80,36 @@ class FactorizedNCE(nn.Module):
     def forward_reward(self, x: jnp.ndarray):  # for z_phi
         return self.reward(x)
 
-    def get_normalizer(self):
-        if self.ranking:
-            N = max(self.num_noises, 1)
-            return jnp.zeros((N,), dtype=jnp.float32)
-        return self.normalizer
+    def forward_logits(
+        self,
+        rng: PRNGKey,
+        s: jnp.ndarray,
+        a: jnp.ndarray,
+        sp: jnp.ndarray,
+        z_phi: jnp.ndarray | None=None
+    ):
+        B, D = sp.shape
+        rng, eps_rng = jax.random.split(rng)
+        if z_phi is None:
+            z_phi = self.forward_phi(s, a)
+        if self.use_noise_perturbation:
+            sp = jnp.broadcast_to(sp, (self.N, B, D))
+            t = jnp.arange(self.num_noises)
+            t = jnp.repeat(t, B).reshape(self.N, B)
+            alphabars = self.alphabars[t]
+            eps = jax.random.normal(eps_rng)
+            xt = jnp.sqrt(alphabars) * sp + jnp.sqrt(1-alphabars) * eps
+            t = jnp.expand_dims(t, -1)
+        else:
+            xt = jnp.expand_dims(sp, 0)
+            t = None
+        z_mu = self.forward_mu(xt, t)
+        z_phi = jnp.broadcast_to(z_phi, (self.N, B, self.feature_dim))
+        logits = jax.lax.batch_matmul(z_phi, jnp.swapaxes(z_mu, -1, -2))
+        return logits
+
+    def forward_normalizer(self):
+        assert self.ranking, "Ranking-based NCE should not use normalizers"
 
     def __call__(
         self,
@@ -78,18 +117,71 @@ class FactorizedNCE(nn.Module):
         a,
         sp,
     ):
-        z_phi = self.forward_phi(s, a)  # (1,512)
+        z_phi = self.forward_phi(s, a)
         _ = self.forward_reward(z_phi)
+        rng = jax.random.PRNGKey(0)
+        _ = self.forward_logits(rng, s, a, sp, z_phi=z_phi)
 
-        B = s.shape[0]
-        if self.num_noises > 0:
-            dummy_t = jnp.zeros((self.num_noises, B, 1), dtype=s.dtype)
-            dummy_xt = jnp.zeros((self.num_noises, B, sp.shape[-1]), dtype=sp.dtype)
-            _ = self.forward_mu(dummy_xt, dummy_t)
+        _ = self.forward_normalizer()
+
+        return z_phi
+
+
+@partial(jax.jit, static_argnames=("ranking", "reward_coef"))
+def update_factorized_nce(
+    rng: PRNGKey,
+    nce: Model,
+    s: jnp.ndarray,
+    a: jnp.ndarray,
+    sp: jnp.ndarray,
+    r: jnp.ndarray,
+    ranking: bool,
+    reward_coef: float,
+) -> Tuple[PRNGKey, Model, Metric]:
+    B = s.shape[0]
+    rng, logits_rng = jax.random.split(rng)
+    if ranking:
+        labels = jnp.arange(B)
+    else:
+        labels = jnp.eye(B)
+
+    def loss_fn(nce_params: Param, dropout_rng: PRNGKey):
+        z_phi = nce.apply(
+            {"params": nce_params},
+            s,
+            a,
+            method="forward_phi",
+        )
+        logits = nce.apply(
+            {"params": nce_params},
+            logits_rng,
+            s,
+            a,
+            sp,
+            z_phi,
+            method="forward_logits",
+        )
+
+        if ranking:
+            model_loss = optax.softmax_cross_entropy_with_integer_labels(
+                logits, jnp.broadcast_to(labels, (logits.shape[0], B))
+            ).mean(axis=-1)
         else:
-            dummy_xt = jnp.expand_dims(sp, 0)
-            _ = self.forward_mu(dummy_xt, None)
+            raise NotImplementedError()
+        r_pred = nce.apply(
+            {"params": nce_params},
+            z_phi,
+            method="forward_reward",
+        )
+        reward_loss = jnp.mean((r_pred - r) ** 2)
 
-        _ = self.get_normalizer()
+        nce_loss = model_loss.mean() + reward_coef * reward_loss
 
-        return jnp.array(0.0, dtype=s.dtype)
+        return nce_loss, {
+            "loss/nce_loss": nce_loss,
+            "loss/model_loss": model_loss.mean(),
+            "loss/reward_loss": reward_loss,
+        }
+
+    new_nce, metrics = nce.apply_gradient(loss_fn)
+    return rng, new_nce, metrics

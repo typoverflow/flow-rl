@@ -1,9 +1,12 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 
 from flowrl.module.model import Model
 
 
+@partial(jax.jit, static_argnames=("ema_rate"))
 def ema_update(
     src: Model,
     tgt: Model,

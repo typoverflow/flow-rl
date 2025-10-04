@@ -1,7 +1,7 @@
 from hydra.core.config_store import ConfigStore
 
 from .algo.base import BaseAlgoConfig
-from .algo.ctrl import CTRL_TD3_Config
+from .algo.ctrl_td3 import CTRL_TD3_Config
 from .algo.dpmd import DPMDConfig
 from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
