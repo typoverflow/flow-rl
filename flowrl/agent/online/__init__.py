@@ -1,11 +1,11 @@
 from ..base import BaseAgent
+from .ctrl.ctrl import Ctrl_TD3_Agent
 from .dpmd import DPMDAgent
 from .ppo import PPOAgent
 from .sac import SACAgent
 from .sdac import SDACAgent
 from .td3 import TD3Agent
 from .td7.td7 import TD7Agent
-from .ctrl.ctrl import Ctrl_TD3_Agent
 
 __all__ = [
     "BaseAgent",

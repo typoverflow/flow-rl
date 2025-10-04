@@ -1,10 +1,10 @@
 import flax.linen as nn
 import jax.numpy as jnp
 
-from flowrl.module.time_embedding import PositionalEmbedding
+from flowrl.functional.activation import mish
 from flowrl.module.mlp import ResidualMLP
 from flowrl.module.rff import RffReward
-from flowrl.functional.activation import mish
+from flowrl.module.time_embedding import PositionalEmbedding
 from flowrl.types import Sequence
 
 
@@ -71,7 +71,7 @@ class FactorizedNCE(nn.Module):
             N = max(self.num_noises, 1)
             return jnp.zeros((N,), dtype=jnp.float32)
         return self.normalizer
-        
+
     def __call__(
         self,
         s,

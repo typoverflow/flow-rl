@@ -197,7 +197,7 @@ class TD3Agent(BaseAgent):
             exploration_noise=self.exploration_noise,
         )
         return action, {}
-    
+
     def sync_target(self):
         self.critic_target = ema_update(self.critic, self.critic_target, self.cfg.ema)
         self.actor_target = ema_update(self.actor, self.actor_target, self.cfg.ema)

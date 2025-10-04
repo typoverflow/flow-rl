@@ -6,10 +6,10 @@ import gymnasium_robotics
 import hydra
 import jax.numpy as jnp
 import numpy as np
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco import Config
 from flowrl.types import *

@@ -1,25 +1,25 @@
 from functools import partial
+from operator import attrgetter
 from typing import Tuple
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from operator import attrgetter
 
 from flowrl.agent.base import BaseAgent
+from flowrl.agent.online.ctrl.network import FactorizedNCE
+from flowrl.agent.online.td3 import TD3Agent
 from flowrl.config.online.mujoco.algo.ctrl import CTRL_TD3_Config
+from flowrl.flow.ddpm import get_noise_schedule
+from flowrl.functional.activation import softplus_beta
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.critic import EnsembleCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
-from flowrl.types import Batch, Metric, Param, PRNGKey
-from flowrl.agent.online.ctrl.network import FactorizedNCE
-from flowrl.flow.ddpm import get_noise_schedule
-from flowrl.functional.activation import softplus_beta
-from flowrl.agent.online.td3 import TD3Agent
 from flowrl.module.rff import RffDoubleQ
+from flowrl.types import Batch, Metric, Param, PRNGKey
 
 
 def compute_logits(

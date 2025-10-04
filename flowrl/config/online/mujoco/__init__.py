@@ -1,12 +1,12 @@
 from hydra.core.config_store import ConfigStore
 
 from .algo.base import BaseAlgoConfig
+from .algo.ctrl import CTRL_TD3_Config
 from .algo.dpmd import DPMDConfig
 from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
 from .algo.td7 import TD7Config
-from .algo.ctrl import CTRL_TD3_Config
 from .config import Config, LogConfig
 
 _DEF_SUFFIX = "_cfg_def"

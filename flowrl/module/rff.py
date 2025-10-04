@@ -1,9 +1,9 @@
 import flax.linen as nn
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 
+from flowrl.module.mlp import MLP
 from flowrl.types import *
-from .mlp import MLP
 
 
 class RffLayer(nn.Module):
