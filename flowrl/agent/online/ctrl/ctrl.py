@@ -19,6 +19,7 @@ from flowrl.agent.online.ctrl.network import FactorizedNCE
 from flowrl.flow.ddpm import get_noise_schedule
 from flowrl.functional.activation import softplus_beta
 from flowrl.agent.online.td3 import TD3Agent
+from flowrl.module.rff import RffDoubleQ
 
 
 @partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
@@ -107,14 +108,10 @@ def update_feature(
             rngs={"dropout": dropout_rng}
         )
 
-        print(f"ranking {ranking}, {eff_logits.shape}, linear: {linear}")
-
         if ranking:
             labels = jnp.tile(jnp.expand_dims(jnp.arange(B),0), (num_noises, 1))
         else:
             labels = jnp.tile(jnp.expand_dims(jnp.eye(B),0), (num_noises, 1, 1))
-
-        print(f"labels {labels.shape}")
 
         if linear:
             raise NotImplementedError("linear must be false")
@@ -124,18 +121,14 @@ def update_feature(
             if ranking:
                 # We manually broadcast labels here
                 labels = jnp.broadcast_to(jnp.expand_dims(labels, -1), eff_logits.shape) # [N, B, B]
-                print(f"labels {labels.shape}")
                 model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean(-1)
             else:
                 pass
-
-        print(f"model_loss {model_loss.shape}")
 
         pred_r = feature.apply(
             {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward,
             rngs={"dropout": dropout_rng}
         )
-        print(f"pred_r {pred_r.shape}")
 
         model_loss = model_loss.mean()
         reward_loss = jnp.mean((pred_r - r) ** 2)
@@ -145,8 +138,6 @@ def update_feature(
             "loss/total": total_loss,
             "loss/model_loss": model_loss,
             "loss/reward_loss": reward_loss,
-            # "misc/phi_norm": jnp.abs(z_phi).mean().item(),
-            # "misc/phi_std": jnp.std(z_phi, 0).mean().item()
         }
         # TODO: add detailed metrics?
         return total_loss, metrics
@@ -161,7 +152,8 @@ def update_critic(
     critic: Model,
     critic_target: Model,
     actor_target: Model,
-    nce_target: Model,
+    feature: Model,
+    feature_target: Model,
     batch: Batch,
     discount: float,
     target_policy_noise: float,
@@ -172,27 +164,30 @@ def update_critic(
     noise = jnp.clip(noise, -noise_clip, noise_clip)
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
 
-    next_feature = nce_target(batch.next_obs, next_action)
-    # q_target = self.critic_target(next_feature).min(0)[0]
+    rng, dropout_rng = jax.random.split(rng)
+    next_feature = feature_target.apply({"params": feature_target.params}, batch.next_obs, next_action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng})
 
-    q_target = critic_target(batch.next_obs, next_action).min(axis=0)
+    q_target = critic_target(next_feature).min(0) # just need the values
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
+
+    # TODO: am I suppossed to create a new dropout_rng for this?
+    back_critic_grad = False
+    if back_critic_grad:
+        raise NotImplementedError("no back critic grad exists")
+    else:
+        feature = feature.apply({"params": feature.params}, batch.next_obs, next_action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng})
 
     def critic_loss_fn(
         critic_params: Param, dropout_rng: PRNGKey
     ) -> Tuple[jnp.ndarray, Metric]:
-        q = critic.apply(
+        q_pred = critic.apply(
             {"params": critic_params},
-            batch.obs,
-            batch.action,
-            training=True,
+            feature,
             rngs={"dropout": dropout_rng},
         )
-        critic_loss = ((q - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
+        critic_loss = ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
-            "misc/q_mean": q.mean(),
-            "misc/reward": batch.reward.mean(),
         }
 
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
@@ -253,6 +248,7 @@ class Ctrl_TD3_Agent(TD3Agent):
         self.feature_dim = cfg.feature_dim
         self.num_noises = cfg.num_noises
         self.reward_coef = cfg.reward_coef
+        self.rff_dim = cfg.rff_dim
 
         self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
@@ -274,12 +270,11 @@ class Ctrl_TD3_Agent(TD3Agent):
             action_dim=self.act_dim,
         )
 
-        critic_def = EnsembleCritic(
+        critic_def = RffDoubleQ(
+            feature_dim=self.feature_dim,
             hidden_dims=cfg.critic_hidden_dims,
-            layer_norm=cfg.layer_norm,
-            activation=activation,
-            dropout=None,
-            ensemble_size=cfg.critic_ensemble_size,
+            linear=cfg.linear,
+            rff_dim=cfg.rff_dim
         )
 
         nce_def = FactorizedNCE(
@@ -330,14 +325,14 @@ class Ctrl_TD3_Agent(TD3Agent):
         self.critic = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=(jnp.ones((1, self.feature_dim))),
             optimizer=optax.adam(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=(jnp.ones((1, self.feature_dim))),
         )
 
         self._n_training_steps = 0
@@ -380,6 +375,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.critic,
             self.critic_target,
             self.actor_target,
+            self.nce,
             self.nce_target,
             critic_batch,
             discount=self.cfg.discount,

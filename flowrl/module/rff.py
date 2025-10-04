@@ -56,8 +56,6 @@ class RffReward(nn.Module):
 
 # implement the double-q logic, foundin EnsembleCritic, use vmap
 class RffDoubleQ(nn.Module):
-    net1: RffReward
-    net2: RffReward
     feature_dim: int
     hidden_dims: Sequence[int]
     linear: bool | None = None
