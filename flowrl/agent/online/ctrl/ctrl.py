@@ -63,7 +63,7 @@ def update_feature(
     rng: PRNGKey,
     feature: Model,
     batch: Batch,
-    alphabars: jnp.ndarray,
+    alphabars: jnp.ndarray, # "alphabars", "labels" unhashable
     num_noises: int = 0,
     linear: bool = False,  # Fix: feature also has linear?
     ranking: bool = False,
@@ -108,44 +108,45 @@ def update_feature(
         )
 
         print(f"ranking {ranking}, {eff_logits.shape}, linear: {linear}")
-        # TODO: fix this
+
         if ranking:
-            breakpoint()
-            labels = jnp.expand_dims(jnp.arange(B), axis=0).repeat(num_noises, 1)
-            ce_per_noise = jax.vmap(
-                lambda L: optax.softmax_cross_entropy_with_integer_labels(
-                    L, labels
-                ).mean()
-            )(eff_logits)
-            breakpoint()
-            model_loss = ce_per_noise.mean()
+            labels = jnp.tile(jnp.expand_dims(jnp.arange(B),0), (num_noises, 1))
         else:
-            # repeats, is this right?
-            labels = jnp.tile(jnp.expand_dims(jnp.eye(B), axis=0), (num_noises, 1, 1))
-            if linear:
-                # ???
-                scale = jnp.exp(normalizer)[:, None, None] / float(B)
-                logits_scaled = eff_logits * scale
+            labels = jnp.tile(jnp.expand_dims(jnp.eye(B),0), (num_noises, 1, 1))
+
+        print(f"labels {labels.shape}")
+
+        if linear:
+            raise NotImplementedError("linear must be false")
+            # eff_logits = (softplus_beta(logits, beta=3.0) + 1e-6).log()
+        else:
+            eff_logits = logits
+            if ranking:
+                # We manually broadcast labels here
+                labels = jnp.broadcast_to(jnp.expand_dims(labels, -1), eff_logits.shape) # [N, B, B]
+                print(f"labels {labels.shape}")
+                model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean(-1)
             else:
-                logits_scaled = (
-                    eff_logits + normalizer[:, None, None] - jnp.log(float(B))
-                )
-            bce = optax.sigmoid_binary_cross_entropy(logits_scaled, labels)
-            model_loss = bce.mean()
+                pass
+
+        print(f"model_loss {model_loss.shape}")
 
         pred_r = feature.apply(
             {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward,
             rngs={"dropout": dropout_rng}
         )
+        print(f"pred_r {pred_r.shape}")
+
+        model_loss = model_loss.mean()
         reward_loss = jnp.mean((pred_r - r) ** 2)
         total_loss = model_loss + reward_coef * reward_loss
 
         metrics = {
-            "loss/total": model_loss,
+            "loss/total": total_loss,
             "loss/model_loss": model_loss,
             "loss/reward_loss": reward_loss,
-            "misc/phi_norm": jnp.abs(z_phi).mean().item(),
-            "misc/phi_std": jnp.std(z_phi, 0).mean().item()
+            # "misc/phi_norm": jnp.abs(z_phi).mean().item(),
+            # "misc/phi_std": jnp.std(z_phi, 0).mean().item()
         }
         # TODO: add detailed metrics?
         return total_loss, metrics
@@ -243,6 +244,7 @@ class Ctrl_TD3_Agent(TD3Agent):
 
         self.ctrl_coef = cfg.ctrl_coef
         self.critic_coef = cfg.critic_coef
+        
         self.batch_size = cfg.batch_size
         self.aug_batch_size = cfg.aug_batch_size
         self.feature_tau = cfg.feature_tau
@@ -255,12 +257,12 @@ class Ctrl_TD3_Agent(TD3Agent):
         self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
         activation = jax.nn.elu # ?
+        assert self.aug_batch_size <= self.batch_size, "Aug batch size needs to be lower than batch size"
 
         _, _, self.alphabars = get_noise_schedule(
             "vp", self.num_noises
         )
         self.alphabars = jnp.expand_dims(self.alphabars, -1)
-        print(self.alphabars.shape)
 
         actor_def = SquashedDeterministicActor(
             backbone=MLP(
@@ -345,15 +347,15 @@ class Ctrl_TD3_Agent(TD3Agent):
 
         metrics = {}
 
-        batch_size = self.batch_size
+        split_index = self.batch_size - self.aug_batch_size
         obs, action, next_obs, reward, terminal = [
-            b[:batch_size]
+            b[:split_index]
             for b in attrgetter("obs", "action", "next_obs", "reward", "terminal")(
                 batch
             )
         ]
         fobs, faction, fnext_obs, freward, fterminal = [
-            b[batch_size:]
+            b[split_index:]
             for b in attrgetter("obs", "action", "next_obs", "reward", "terminal")(
                 batch
             )
