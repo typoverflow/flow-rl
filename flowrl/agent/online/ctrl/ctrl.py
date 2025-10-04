@@ -29,11 +29,11 @@ def _make_noised(
         N = num_noises
         B, D = sp.shape
         t = jnp.arange(N)
-        t = jnp.repeat(t, B).reshape(N,B)
+        t = jnp.repeat(t, B).reshape(N, B)
         alpha_t = alphabars[t]  # [N, D, 1]
 
         sp_exp = jnp.broadcast_to(sp, (N, B, D))
-        eps = jax.random.normal(rng, sp_exp.shape) # [N, D, S]
+        eps = jax.random.normal(rng, sp_exp.shape)  # [N, D, S]
 
         xt = jnp.sqrt(alpha_t) * sp + jnp.sqrt((1 - alpha_t)) * eps
         t = jnp.expand_dims(t, -1)
@@ -48,13 +48,12 @@ def update_feature(
     rng: PRNGKey,
     feature: Model,
     batch: Batch,
-    alphabars: jnp.ndarray, # "alphabars", "labels" unhashable
+    alphabars: jnp.ndarray,  # "alphabars", "labels" unhashable
     num_noises: int = 0,
     linear: bool = False,  # Fix: feature also has linear?
     ranking: bool = False,
-    reward_coef: float = 1.0
+    reward_coef: float = 1.0,
 ) -> Tuple[PRNGKey, Model, Metric]:
-    
     # assert batch.obs.shape[0] == cfg.batch_size + cfg.aug_batch_size
     s, a, sp, r = (
         batch.obs,
@@ -63,18 +62,28 @@ def update_feature(
         batch.reward,
     )
 
-    def feature_loss_fn(feature_params: Param, rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
+    def feature_loss_fn(
+        feature_params: Param, rng: PRNGKey
+    ) -> Tuple[jnp.ndarray, Metric]:
         B = s.shape[0]
-        rng, rng_phi, rng_mu, rng_normalizer, rng_r, noise_rng = jax.random.split(rng, 6)
+        rng, rng_phi, rng_mu, rng_normalizer, rng_r, noise_rng = jax.random.split(
+            rng, 6
+        )
 
         z_phi_base = feature.apply(
-            {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi,
-            rngs={"dropout": rng_phi}
+            {"params": feature_params},
+            s,
+            a,
+            method=FactorizedNCE.forward_phi,
+            rngs={"dropout": rng_phi},
         )
         xt, t = _make_noised(sp, num_noises, alphabars, noise_rng)
         z_mu = feature.apply(
-            {"params": feature_params}, xt, t, method=FactorizedNCE.forward_mu,
-            rngs={"dropout": rng_mu}
+            {"params": feature_params},
+            xt,
+            t,
+            method=FactorizedNCE.forward_mu,
+            rngs={"dropout": rng_mu},
         )
 
         logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi_base, -1, -2))
@@ -83,23 +92,31 @@ def update_feature(
             {"params": feature_params},
             num_noises,
             method=FactorizedNCE.get_normalizer,
-            rngs={"dropout": rng_normalizer}
+            rngs={"dropout": rng_normalizer},
         )
 
-        labels = jnp.tile(jnp.expand_dims(jnp.arange(B),0), (num_noises, 1)) if ranking else jnp.tile(jnp.expand_dims(jnp.eye(B),0), (num_noises, 1, 1))
+        labels = (
+            jnp.tile(jnp.expand_dims(jnp.arange(B), 0), (num_noises, 1))
+            if ranking
+            else jnp.tile(jnp.expand_dims(jnp.eye(B), 0), (num_noises, 1, 1))
+        )
         eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log() if linear else logits
 
         if linear:
             raise NotImplementedError("linear must be false")
         else:
             if ranking:
-                model_loss = optax.softmax_cross_entropy_with_integer_labels(eff_logits, labels).mean(-1)
+                model_loss = optax.softmax_cross_entropy_with_integer_labels(
+                    eff_logits, labels
+                ).mean(-1)
             else:
                 assert False
 
         pred_r = feature.apply(
-            {"params": feature_params}, z_phi_base, method=FactorizedNCE.forward_reward,
-            rngs={"dropout": rng_r}
+            {"params": feature_params},
+            z_phi_base,
+            method=FactorizedNCE.forward_reward,
+            rngs={"dropout": rng_r},
         )
 
         model_loss = model_loss.mean()
@@ -138,9 +155,15 @@ def update_critic(
 
     rng, dropout_rng, dropout_rng2 = jax.random.split(rng, 3)
     # need dropout rng here right?
-    next_feature = feature_target.apply({"params": feature_target.params}, batch.next_obs, next_action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng})
+    next_feature = feature_target.apply(
+        {"params": feature_target.params},
+        batch.next_obs,
+        next_action,
+        method=FactorizedNCE.forward_phi,
+        rngs={"dropout": dropout_rng},
+    )
 
-    q_target = critic_target(next_feature).min(0) # just need the values
+    q_target = critic_target(next_feature).min(0)  # just need the values
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
     back_critic_grad = False
@@ -148,7 +171,13 @@ def update_critic(
         raise NotImplementedError("no back critic grad exists")
     else:
         # need dropout rng here right?
-        cur_feature = feature.apply({"params": feature.params}, batch.obs, batch.action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng2})
+        cur_feature = feature.apply(
+            {"params": feature.params},
+            batch.obs,
+            batch.action,
+            method=FactorizedNCE.forward_phi,
+            rngs={"dropout": dropout_rng2},
+        )
 
     def critic_loss_fn(
         critic_params: Param, dropout_rng: PRNGKey
@@ -186,7 +215,12 @@ def update_actor(
         )
         # TODO: back critic grad?
         # TODO: dropout rng???
-        new_feature = feature_target.apply({"params": feature_target.params}, batch.obs, new_action, method=FactorizedNCE.forward_phi)
+        new_feature = feature_target.apply(
+            {"params": feature_target.params},
+            batch.obs,
+            new_action,
+            method=FactorizedNCE.forward_phi,
+        )
         q = critic(new_feature)
         actor_loss = -q.mean()
 
@@ -217,7 +251,7 @@ class Ctrl_TD3_Agent(TD3Agent):
 
         self.ctrl_coef = cfg.ctrl_coef
         self.critic_coef = cfg.critic_coef
-        
+
         self.batch_size = cfg.batch_size
         self.aug_batch_size = cfg.aug_batch_size
         self.feature_tau = cfg.feature_tau
@@ -230,11 +264,11 @@ class Ctrl_TD3_Agent(TD3Agent):
 
         self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
-        assert self.aug_batch_size <= self.batch_size, "Aug batch size needs to be lower than batch size"
-
-        _, _, self.alphabars = get_noise_schedule(
-            "vp", self.num_noises
+        assert self.aug_batch_size <= self.batch_size, (
+            "Aug batch size needs to be lower than batch size"
         )
+
+        _, _, self.alphabars = get_noise_schedule("vp", self.num_noises)
         self.alphabars = jnp.expand_dims(self.alphabars, -1)
 
         actor_def = SquashedDeterministicActor(
@@ -251,7 +285,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             feature_dim=self.feature_dim,
             hidden_dims=cfg.critic_hidden_dims,
             linear=cfg.linear,
-            rff_dim=cfg.rff_dim
+            rff_dim=cfg.rff_dim,
         )
 
         nce_def = FactorizedNCE(
@@ -330,7 +364,7 @@ class Ctrl_TD3_Agent(TD3Agent):
                 batch
             )
         ]
-        critic_batch = Batch(obs, action, reward,terminal, next_obs, None)
+        critic_batch = Batch(obs, action, reward, terminal, next_obs, None)
         feat_batch = Batch(fobs, faction, freward, fterminal, fnext_obs, None)
 
         self.rng, self.nce, nce_metrics = update_feature(
@@ -341,7 +375,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.num_noises,
             self.linear,
             self.ranking,
-            self.reward_coef
+            self.reward_coef,
         )
         metrics.update(nce_metrics)
 

@@ -25,10 +25,18 @@ class FactorizedNCE(nn.Module):
             [PositionalEmbedding(128), nn.Dense(256), mish, nn.Dense(128)]
         )
         self.mlp_phi = ResidualMLP(
-            self.phi_hidden_dims, self.feature_dim, multiplier=1,activation=mish, dropout=None
+            self.phi_hidden_dims,
+            self.feature_dim,
+            multiplier=1,
+            activation=mish,
+            dropout=None,
         )
         self.mlp_mu = ResidualMLP(
-            self.mu_hidden_dims, self.feature_dim, multiplier=1, activation=mish, dropout=None
+            self.mu_hidden_dims,
+            self.feature_dim,
+            multiplier=1,
+            activation=mish,
+            dropout=None,
         )
 
         self.reward = RffReward(
@@ -65,7 +73,7 @@ class FactorizedNCE(nn.Module):
         a,
         sp,
     ):
-        z_phi = self.forward_phi(s, a) # (1,512)
+        z_phi = self.forward_phi(s, a)  # (1,512)
         _ = self.forward_reward(z_phi)
 
         B = s.shape[0]

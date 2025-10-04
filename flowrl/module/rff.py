@@ -1,10 +1,10 @@
-
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
 
 from flowrl.types import *
 from .mlp import MLP
+
 
 class RffLayer(nn.Module):
     feature_dim: int
@@ -17,7 +17,9 @@ class RffLayer(nn.Module):
         half = self.rff_dim // 2
 
         if self.learnable:
-            x = MLP(hidden_dims=[], output_dim=half, layer_norm=False, activation=nn.relu)(x)
+            x = MLP(
+                hidden_dims=[], output_dim=half, layer_norm=False, activation=nn.relu
+            )(x)
         else:
             noise = self.variable(
                 "noise",
@@ -41,9 +43,7 @@ class RffReward(nn.Module):
         if self.linear:
             feat = x
         else:
-            feat = RffLayer(self.feature_dim, self.rff_dim, learnable=True)(
-                x
-            )
+            feat = RffLayer(self.feature_dim, self.rff_dim, learnable=True)(x)
 
         y = MLP(
             hidden_dims=self.hidden_dims,
@@ -72,10 +72,5 @@ class RffDoubleQ(nn.Module):
             out_axes=0,
             axis_size=self.ensemble_size,
         )
-        x = vmap_rff(
-            self.feature_dim,
-            self.hidden_dims,
-            self.linear,
-            self.rff_dim
-        )(x)
+        x = vmap_rff(self.feature_dim, self.hidden_dims, self.linear, self.rff_dim)(x)
         return x

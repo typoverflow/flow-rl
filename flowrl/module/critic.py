@@ -1,6 +1,5 @@
 import flax.linen as nn
 import jax.numpy as jnp
-import jax
 
 from flowrl.functional.activation import mish
 from flowrl.types import *
@@ -55,7 +54,7 @@ class EnsembleCritic(nn.Module):
             split_rngs={"params": True, "dropout": True},
             in_axes=None,
             out_axes=0,
-            axis_size=self.ensemble_size,
+            axis_size=self.ensemble_size
         )
         x = vmap_critic(
             hidden_dims=self.hidden_dims,
@@ -64,7 +63,6 @@ class EnsembleCritic(nn.Module):
             dropout=self.dropout,
         )(obs, action, training)
         return x
-
 
 class CriticT(nn.Module):
     time_embedding: nn.Module
@@ -86,9 +84,7 @@ class CriticT(nn.Module):
             hidden_dims=[t_ff.shape[-1], t_ff.shape[-1]],
             activation=mish,
         )(t_ff)
-        x = jnp.concatenate(
-            [item for item in [obs, action, t_ff] if item is not None], axis=-1
-        )
+        x = jnp.concatenate([item for item in [obs, action, t_ff] if item is not None], axis=-1)
         x = MLP(
             hidden_dims=self.hidden_dims,
             output_dim=1,
@@ -121,13 +117,13 @@ class EnsembleCriticT(nn.Module):
             split_rngs={"params": True, "dropout": True},
             in_axes=None,
             out_axes=0,
-            axis_size=self.ensemble_size,
+            axis_size=self.ensemble_size
         )
         x = vmap_critic_t(
             time_embedding=self.time_embedding,
             hidden_dims=self.hidden_dims,
             activation=self.activation,
             layer_norm=self.layer_norm,
-            dropout=self.dropout,
+            dropout=self.dropout
         )(obs, action, t, training)
         return x
