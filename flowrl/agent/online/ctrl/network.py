@@ -45,6 +45,11 @@ class FactorizedNCE(nn.Module):
             linear=self.linear,
             rff_dim=self.rff_dim,
         )
+        N = max(self.num_noises, 1)
+        if not self.ranking:
+            self.normalizer = self.param("normalizer", lambda key: jnp.zeros((N,), jnp.float32))
+        else:
+            self.normalizer = None
 
     def forward_phi(self, s, a):
         x = jnp.concat([s, a], axis=-1)
@@ -61,12 +66,12 @@ class FactorizedNCE(nn.Module):
     def forward_reward(self, x: jnp.ndarray):  # for z_phi
         return self.reward(x)
 
-    def get_normalizer(self, num_noises: int):
-        N = max(num_noises, 1)
+    def get_normalizer(self):
         if self.ranking:
+            N = max(self.num_noises, 1)
             return jnp.zeros((N,), dtype=jnp.float32)
-        return self.param("normalizer", lambda key: jnp.zeros((N,), jnp.float32))
-
+        return self.normalizer
+        
     def __call__(
         self,
         s,
@@ -85,6 +90,6 @@ class FactorizedNCE(nn.Module):
             dummy_xt = jnp.expand_dims(sp, 0)
             _ = self.forward_mu(dummy_xt, None)
 
-        _ = self.get_normalizer(self.num_noises)
+        _ = self.get_normalizer()
 
         return jnp.array(0.0, dtype=s.dtype)

@@ -89,7 +89,6 @@ def update_feature(
 
         normalizer = feature.apply(
             {"params": feature_params},
-            num_noises,
             method=FactorizedNCE.get_normalizer,
             rngs={"dropout": rng_normalizer},
         )
@@ -99,17 +98,24 @@ def update_feature(
             if ranking
             else jnp.tile(jnp.expand_dims(jnp.eye(B), 0), (num_noises, 1, 1))
         ) # (N, B, 1) or (N, B, B)
-        eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log() if linear else logits
+        eff_logits = jnp.log(softplus_beta(logits, 3.0) + 1e-6) if linear else logits
 
         if linear:
-            raise NotImplementedError("linear must be false")
+            if ranking:
+                model_loss = optax.softmax_cross_entropy_with_integer_labels(
+                    eff_logits, labels
+                ).mean(-1)
+            else:
+                eff_logits = eff_logits + jnp.exp(normalizer)[:, None, None] / B
+                model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean([-2, -1])
         else:
             if ranking:
                 model_loss = optax.softmax_cross_entropy_with_integer_labels(
                     eff_logits, labels
                 ).mean(-1)
             else:
-                assert False
+                eff_logits = eff_logits + normalizer[:, None, None] - jnp.log(B)
+                model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean([-2, -1])
 
         pred_r = feature.apply(
             {"params": feature_params},
@@ -184,6 +190,8 @@ def update_critic(
             cur_feature,
             rngs={"dropout": dropout_rng},
         )
+        # TODO: why do i need to reshape?
+        print(f"q_pred {q_pred.shape}, q_target {q_target.shape}, {q_target[None, :].shape}")
         critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
@@ -213,6 +221,7 @@ def update_actor(
         )
 
         # TODO: back critic grad?
+        # TODO: hmmm not sure dropout_rng2 right, should do eval?
         new_feature = feature_target.apply(
             {"params": feature_target.params},
             batch.obs,
@@ -402,12 +411,11 @@ class Ctrl_TD3_Agent(TD3Agent):
             metrics.update(actor_metrics)
 
         if self._n_training_steps % self.target_update_freq == 0:
-            # should i make this into a sync target?
-            self.critic_target = ema_update(
-                self.critic, self.critic_target, self.cfg.ema
-            )
-            self.actor_target = ema_update(self.actor, self.actor_target, self.cfg.ema)
-            self.nce_target = ema_update(self.nce, self.nce_target, self.feature_tau)
+            self.sync_target()
 
         self._n_training_steps += 1
         return metrics
+
+    def sync_target(self):
+        super().sync_target()
+        self.nce_target = ema_update(self.nce, self.nce_target, self.feature_tau)
