@@ -21,27 +21,33 @@ from flowrl.functional.activation import softplus_beta
 from flowrl.agent.online.td3 import TD3Agent
 from flowrl.module.rff import RffDoubleQ
 
+def compute_logits(feature, feature_params, s, a, sp, num_noises, alphabars, noise_rng: jax.random.PRNGKey, mu_dropout_rng, z_phi=None):
+    B, D = sp.shape
+    if z_phi is None:
+        z_phi = feature.apply({"params": feature_params}, s, a, method=FactorizedNCE.forward_phi)
 
-def _make_noised(
-    sp: jnp.ndarray, num_noises: int, alphabars: jnp.ndarray, rng: jax.random.PRNGKey
-):
     if num_noises > 0:
-        N = num_noises
-        B, D = sp.shape
-        t = jnp.arange(N)
-        t = jnp.repeat(t, B).reshape(N, B)
+        sp_exp = jnp.broadcast_to(sp, (num_noises, B, D))
+        t = jnp.arange(num_noises)
+        t = jnp.repeat(t, B).reshape(num_noises, B)
         alpha_t = alphabars[t]  # [N, D, 1]
-
-        sp_exp = jnp.broadcast_to(sp, (N, B, D))
-        eps = jax.random.normal(rng, sp_exp.shape)  # [N, B, D]
-
-        xt = jnp.sqrt(alpha_t) * sp + jnp.sqrt((1 - alpha_t)) * eps
+        eps = jax.random.normal(noise_rng, sp_exp.shape)  # [N, D, S]
+        xt = jnp.sqrt(alpha_t) * sp_exp + jnp.sqrt((1 - alpha_t)) * eps
         t = jnp.expand_dims(t, -1)
     else:
         xt = jnp.expand_dims(sp, 0)
         t = None
-    return xt, t
 
+    z_mu = feature.apply(
+        {"params": feature_params},
+        xt,
+        t,
+        method=FactorizedNCE.forward_mu,
+        rngs={"dropout": mu_dropout_rng},
+    ) # (N, B, D)
+
+    logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi, -1, -2))
+    return logits
 
 @partial(jax.jit, static_argnames=("num_noises", "linear", "ranking", "reward_coef"))
 def update_feature(
@@ -76,16 +82,7 @@ def update_feature(
             method=FactorizedNCE.forward_phi,
             rngs={"dropout": rng_phi},
         ) # (B, D)
-        xt, t = _make_noised(sp, num_noises, alphabars, noise_rng)
-        z_mu = feature.apply(
-            {"params": feature_params},
-            xt,
-            t,
-            method=FactorizedNCE.forward_mu,
-            rngs={"dropout": rng_mu},
-        ) # (N, B, D)
-
-        logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi, -1, -2))
+        logits = compute_logits(feature, feature_params, s, a, sp, num_noises, alphabars, noise_rng, rng_mu, z_phi)
 
         normalizer = feature.apply(
             {"params": feature_params},
@@ -94,21 +91,22 @@ def update_feature(
         )
 
         labels = (
-            jnp.tile(jnp.expand_dims(jnp.arange(B), 0), (num_noises, 1))
+            jnp.tile(jnp.expand_dims(jnp.arange(B, dtype=jnp.int32), 0), (num_noises, 1))
             if ranking
-            else jnp.tile(jnp.expand_dims(jnp.eye(B), 0), (num_noises, 1, 1))
+            else jnp.tile(jnp.expand_dims(jnp.eye(B, dtype=logits.dtype), 0), (num_noises, 1, 1))
         ) # (N, B, 1) or (N, B, B)
-        eff_logits = jnp.log(softplus_beta(logits, 3.0) + 1e-6) if linear else logits
 
         if linear:
+            eff_logits = jnp.log(softplus_beta(logits, 3.0) + 1e-6) 
             if ranking:
                 model_loss = optax.softmax_cross_entropy_with_integer_labels(
                     eff_logits, labels
                 ).mean(-1)
             else:
-                eff_logits = eff_logits + jnp.exp(normalizer)[:, None, None] / B
+                eff_logits = eff_logits * jnp.exp(normalizer)[:, None, None] / B
                 model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean([-2, -1])
         else:
+            eff_logits = logits
             if ranking:
                 model_loss = optax.softmax_cross_entropy_with_integer_labels(
                     eff_logits, labels
@@ -191,7 +189,6 @@ def update_critic(
             rngs={"dropout": dropout_rng},
         )
         # TODO: why do i need to reshape?
-        print(f"q_pred {q_pred.shape}, q_target {q_target.shape}, {q_target[None, :].shape}")
         critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
