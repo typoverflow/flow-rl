@@ -22,28 +22,12 @@ from flowrl.agent.online.td3 import TD3Agent
 from flowrl.module.rff import RffDoubleQ
 
 
-@partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
-def jit_sample_action(
-    rng: PRNGKey,
-    actor: Model,
-    obs: jnp.ndarray,
-    deterministic: bool,
-    exploration_noise: float,
-) -> jnp.ndarray:
-    action = actor(obs, training=False)
-    if not deterministic:
-        action = action + exploration_noise * jax.random.normal(rng, action.shape)
-        action = jnp.clip(action, -1.0, 1.0)
-    return action
-
-
 def _make_noised(
     sp: jnp.ndarray, num_noises: int, alphabars: jnp.ndarray, rng: jax.random.PRNGKey
 ):
     if num_noises > 0:
         N = num_noises
         B, D = sp.shape
-        sp = jnp.tile(jnp.expand_dims(sp, 0), (num_noises, 1, 1))
         t = jnp.arange(N)
         t = jnp.repeat(t, B).reshape(N,B)
         alpha_t = alphabars[t]  # [N, D, 1]
@@ -78,34 +62,29 @@ def update_feature(
         batch.next_obs,
         batch.reward,
     )
-    rng, noise_rng = jax.random.split(rng)
 
-    def feature_loss_fn(feature_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
+    def feature_loss_fn(feature_params: Param, rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         B = s.shape[0]
+        rng, rng_phi, rng_mu, rng_normalizer, rng_r, noise_rng = jax.random.split(rng, 6)
 
-        z_phi = feature.apply(
+        z_phi_base = feature.apply(
             {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi,
-            rngs={"dropout": dropout_rng}
+            rngs={"dropout": rng_phi}
         )
         xt, t = _make_noised(sp, num_noises, alphabars, noise_rng)
         z_mu = feature.apply(
             {"params": feature_params}, xt, t, method=FactorizedNCE.forward_mu,
-            rngs={"dropout": dropout_rng}
+            rngs={"dropout": rng_mu}
         )
 
-        z_phi = jnp.tile(jnp.expand_dims(z_phi, 0), (z_mu.shape[0], 1, 1))
+        logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi_base, -1, -2))
 
-        logits = jnp.matmul(z_mu, z_phi.transpose(0, 2, 1))
-        if linear:
-            eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log()
-        else:
-            eff_logits = logits
 
         normalizer = feature.apply(
             {"params": feature_params},
             num_noises,
             method=FactorizedNCE.get_normalizer,
-            rngs={"dropout": dropout_rng}
+            rngs={"dropout": rng_normalizer}
         )
 
         if ranking:
@@ -114,10 +93,13 @@ def update_feature(
             labels = jnp.tile(jnp.expand_dims(jnp.eye(B),0), (num_noises, 1, 1))
 
         if linear:
-            raise NotImplementedError("linear must be false")
-            # eff_logits = (softplus_beta(logits, beta=3.0) + 1e-6).log()
+            eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log()
         else:
             eff_logits = logits
+
+        if linear:
+            raise NotImplementedError("linear must be false")
+        else:
             if ranking:
                 # We manually broadcast labels here
                 labels = jnp.broadcast_to(jnp.expand_dims(labels, -1), eff_logits.shape) # [N, B, B]
@@ -126,12 +108,12 @@ def update_feature(
                 pass
 
         pred_r = feature.apply(
-            {"params": feature_params}, z_phi, method=FactorizedNCE.forward_reward,
-            rngs={"dropout": dropout_rng}
+            {"params": feature_params}, z_phi_base, method=FactorizedNCE.forward_reward,
+            rngs={"dropout": rng_r}
         )
 
         model_loss = model_loss.mean()
-        reward_loss = jnp.mean((pred_r - r) ** 2)
+        reward_loss = jnp.mean((pred_r.squeeze(-1) - r) ** 2)
         total_loss = model_loss + reward_coef * reward_loss
 
         metrics = {
@@ -164,26 +146,26 @@ def update_critic(
     noise = jnp.clip(noise, -noise_clip, noise_clip)
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
 
-    rng, dropout_rng = jax.random.split(rng)
+    rng, dropout_rng, dropout_rng2 = jax.random.split(rng, 3)
+    # need dropout rng here right?
     next_feature = feature_target.apply({"params": feature_target.params}, batch.next_obs, next_action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng})
 
     q_target = critic_target(next_feature).min(0) # just need the values
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
-    # TODO: am I suppossed to create a new dropout_rng for this?
     back_critic_grad = False
     if back_critic_grad:
         raise NotImplementedError("no back critic grad exists")
     else:
-        # TODO: need rng here? idts
-        feature = feature.apply({"params": feature.params}, batch.next_obs, next_action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng})
+        # need dropout rng here right?
+        cur_feature = feature.apply({"params": feature.params}, batch.obs, batch.action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng2})
 
     def critic_loss_fn(
         critic_params: Param, dropout_rng: PRNGKey
     ) -> Tuple[jnp.ndarray, Metric]:
         q_pred = critic.apply(
             {"params": critic_params},
-            feature,
+            cur_feature,
             rngs={"dropout": dropout_rng},
         )
         critic_loss = ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
@@ -258,7 +240,6 @@ class Ctrl_TD3_Agent(TD3Agent):
 
         self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
 
-        activation = jax.nn.elu # ?
         assert self.aug_batch_size <= self.batch_size, "Aug batch size needs to be lower than batch size"
 
         _, _, self.alphabars = get_noise_schedule(
@@ -331,14 +312,14 @@ class Ctrl_TD3_Agent(TD3Agent):
         self.critic = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.feature_dim))),
+            inputs=(jnp.ones((1, self.feature_dim)),),
             optimizer=optax.adam(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.feature_dim))),
+            inputs=(jnp.ones((1, self.feature_dim)),),
         )
 
         self._n_training_steps = 0
