@@ -79,7 +79,6 @@ def update_feature(
 
         logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi_base, -1, -2))
 
-
         normalizer = feature.apply(
             {"params": feature_params},
             num_noises,
@@ -87,25 +86,16 @@ def update_feature(
             rngs={"dropout": rng_normalizer}
         )
 
-        if ranking:
-            labels = jnp.tile(jnp.expand_dims(jnp.arange(B),0), (num_noises, 1))
-        else:
-            labels = jnp.tile(jnp.expand_dims(jnp.eye(B),0), (num_noises, 1, 1))
-
-        if linear:
-            eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log()
-        else:
-            eff_logits = logits
+        labels = jnp.tile(jnp.expand_dims(jnp.arange(B),0), (num_noises, 1)) if ranking else jnp.tile(jnp.expand_dims(jnp.eye(B),0), (num_noises, 1, 1))
+        eff_logits = (softplus_beta(logits, 3.0) + 1e-6).log() if linear else logits
 
         if linear:
             raise NotImplementedError("linear must be false")
         else:
             if ranking:
-                # We manually broadcast labels here
-                labels = jnp.broadcast_to(jnp.expand_dims(labels, -1), eff_logits.shape) # [N, B, B]
-                model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean(-1)
+                model_loss = optax.softmax_cross_entropy_with_integer_labels(eff_logits, labels).mean(-1)
             else:
-                pass
+                assert False
 
         pred_r = feature.apply(
             {"params": feature_params}, z_phi_base, method=FactorizedNCE.forward_reward,
