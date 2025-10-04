@@ -21,10 +21,24 @@ from flowrl.functional.activation import softplus_beta
 from flowrl.agent.online.td3 import TD3Agent
 from flowrl.module.rff import RffDoubleQ
 
-def compute_logits(feature, feature_params, s, a, sp, num_noises, alphabars, noise_rng: jax.random.PRNGKey, mu_dropout_rng, z_phi=None):
+
+def compute_logits(
+    feature: Model,
+    feature_params: Param,
+    s: jnp.ndarray,
+    a: jnp.ndarray,
+    sp: jnp.ndarray,
+    num_noises: int,
+    alphabars: jnp.ndarray,
+    noise_rng: jax.random.PRNGKey,
+    mu_dropout_rng: jax.random.PRNGKey,
+    z_phi: jnp.ndarray | None = None,
+):
     B, D = sp.shape
     if z_phi is None:
-        z_phi = feature.apply({"params": feature_params}, s, a, method=FactorizedNCE.forward_phi)
+        z_phi = feature.apply(
+            {"params": feature_params}, s, a, method=FactorizedNCE.forward_phi
+        )
 
     if num_noises > 0:
         sp_exp = jnp.broadcast_to(sp, (num_noises, B, D))
@@ -44,10 +58,11 @@ def compute_logits(feature, feature_params, s, a, sp, num_noises, alphabars, noi
         t,
         method=FactorizedNCE.forward_mu,
         rngs={"dropout": mu_dropout_rng},
-    ) # (N, B, D)
+    )  # (N, B, D)
 
     logits = jnp.matmul(z_mu, jnp.swapaxes(z_phi, -1, -2))
     return logits
+
 
 @partial(jax.jit, static_argnames=("num_noises", "linear", "ranking", "reward_coef"))
 def update_feature(
@@ -81,8 +96,19 @@ def update_feature(
             a,
             method=FactorizedNCE.forward_phi,
             rngs={"dropout": rng_phi},
-        ) # (B, D)
-        logits = compute_logits(feature, feature_params, s, a, sp, num_noises, alphabars, noise_rng, rng_mu, z_phi)
+        )  # (B, D)
+        logits = compute_logits(
+            feature,
+            feature_params,
+            s,
+            a,
+            sp,
+            num_noises,
+            alphabars,
+            noise_rng,
+            rng_mu,
+            z_phi,
+        )
 
         normalizer = feature.apply(
             {"params": feature_params},
@@ -90,21 +116,26 @@ def update_feature(
             rngs={"dropout": rng_normalizer},
         )
 
-        labels = (
-            jnp.tile(jnp.expand_dims(jnp.arange(B, dtype=jnp.int32), 0), (num_noises, 1))
-            if ranking
-            else jnp.tile(jnp.expand_dims(jnp.eye(B, dtype=logits.dtype), 0), (num_noises, 1, 1))
-        ) # (N, B, 1) or (N, B, B)
+        if ranking:
+            labels = jnp.tile(
+                jnp.expand_dims(jnp.arange(B, dtype=jnp.int32), 0), (num_noises, 1)
+            )
+        else:
+            labels = jnp.tile(
+                jnp.expand_dims(jnp.eye(B, dtype=logits.dtype), 0), (num_noises, 1, 1)
+            )
 
         if linear:
-            eff_logits = jnp.log(softplus_beta(logits, 3.0) + 1e-6) 
+            eff_logits = jnp.log(softplus_beta(logits, 3.0) + 1e-6)
             if ranking:
                 model_loss = optax.softmax_cross_entropy_with_integer_labels(
                     eff_logits, labels
                 ).mean(-1)
             else:
                 eff_logits = eff_logits * jnp.exp(normalizer)[:, None, None] / B
-                model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean([-2, -1])
+                model_loss = optax.sigmoid_binary_cross_entropy(
+                    eff_logits, labels
+                ).mean([-2, -1])
         else:
             eff_logits = logits
             if ranking:
@@ -113,7 +144,9 @@ def update_feature(
                 ).mean(-1)
             else:
                 eff_logits = eff_logits + normalizer[:, None, None] - jnp.log(B)
-                model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean([-2, -1])
+                model_loss = optax.sigmoid_binary_cross_entropy(
+                    eff_logits, labels
+                ).mean([-2, -1])
 
         pred_r = feature.apply(
             {"params": feature_params},
@@ -149,10 +182,14 @@ def update_critic(
     discount: float,
     target_policy_noise: float,
     noise_clip: float,
-    critic_coef: float
+    critic_coef: float,
 ) -> Tuple[PRNGKey, Model, Metric]:
     rng, sample_rng = jax.random.split(rng)
-    noise = jnp.clip(jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise, -noise_clip, noise_clip)
+    noise = jnp.clip(
+        jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise,
+        -noise_clip,
+        noise_clip,
+    )
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
 
     rng, dropout_rng, dropout_rng2 = jax.random.split(rng, 3)
@@ -189,7 +226,9 @@ def update_critic(
             rngs={"dropout": dropout_rng},
         )
         # TODO: why do i need to reshape?
-        critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
+        critic_loss = (
+            critic_coef * ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
+        )
         return critic_loss, {
             "loss/critic_loss": critic_loss,
         }
@@ -224,7 +263,7 @@ def update_actor(
             batch.obs,
             new_action,
             method=FactorizedNCE.forward_phi,
-            rngs={"dropout": dropout_rng2}
+            rngs={"dropout": dropout_rng2},
         )
         q = critic(new_feature)
         actor_loss = -q.mean()
