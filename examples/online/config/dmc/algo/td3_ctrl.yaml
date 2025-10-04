@@ -40,7 +40,7 @@ algo:
 
   num_noises: 25
   linear: false
-  beta: 1.0
+  beta: 1.0 # not used
   ranking: true
   activation: elu
   layer_norm: true

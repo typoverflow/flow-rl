@@ -44,7 +44,7 @@ def compute_logits(
         sp_exp = jnp.broadcast_to(sp, (num_noises, B, D))
         t = jnp.arange(num_noises)
         t = jnp.repeat(t, B).reshape(num_noises, B)
-        alpha_t = alphabars[t]  # [N, D, 1]
+        alpha_t = alphabars[t]  # [N, B, 1]
         eps = jax.random.normal(noise_rng, sp_exp.shape)  # [N, D, S]
         xt = jnp.sqrt(alpha_t) * sp_exp + jnp.sqrt((1 - alpha_t)) * eps
         t = jnp.expand_dims(t, -1)
@@ -82,6 +82,8 @@ def update_feature(
         batch.reward,
     )
 
+    # @chen I should probably rename this to dropout_rng
+    # but just not sure which rng I should be getting phi, mu, etc from.
     def feature_loss_fn(
         feature_params: Param, rng: PRNGKey
     ) -> Tuple[jnp.ndarray, Metric]:
@@ -116,6 +118,8 @@ def update_feature(
             rngs={"dropout": rng_normalizer},
         )
 
+        # this should be using num_noises not N i believe
+        N = max(num_noises, 1)
         if ranking:
             labels = jnp.tile(
                 jnp.expand_dims(jnp.arange(B, dtype=jnp.int32), 0), (num_noises, 1)
@@ -126,6 +130,7 @@ def update_feature(
             )
 
         if linear:
+            # @chen: this was hardcoded, should use cfg.beta right?
             eff_logits = jnp.log(softplus_beta(logits, 3.0) + 1e-6)
             if ranking:
                 model_loss = optax.softmax_cross_entropy_with_integer_labels(
@@ -207,6 +212,7 @@ def update_critic(
 
     back_critic_grad = False
     if back_critic_grad:
+        # this part will use feature
         raise NotImplementedError("no back critic grad exists")
     else:
         cur_feature = feature_target.apply(
@@ -227,7 +233,7 @@ def update_critic(
         )
         # TODO: why do i need to reshape?
         critic_loss = (
-            critic_coef * ((q_pred - q_target[jnp.newaxis, :]) ** 2).sum(0).mean()
+            critic_coef * ((q_target - q_pred) ** 2).sum(0).mean()
         )
         return critic_loss, {
             "loss/critic_loss": critic_loss,
@@ -257,7 +263,7 @@ def update_actor(
         )
 
         # TODO: back critic grad?
-        # TODO: hmmm not sure dropout_rng2 right, should do eval?
+        # TODO: hmmm not sure dropout_rng2
         new_feature = feature_target.apply(
             {"params": feature_target.params},
             batch.obs,
@@ -266,6 +272,7 @@ def update_actor(
             rngs={"dropout": dropout_rng2},
         )
         q = critic(new_feature)
+        # @chen this uses both heads from critic, which is wrong right?
         actor_loss = -q.mean()
 
         return actor_loss, {
@@ -278,7 +285,7 @@ def update_actor(
 
 class Ctrl_TD3_Agent(TD3Agent):
     """
-    Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
+    CTRL Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
     """
 
     name = "CTRLTD3Agent"
