@@ -60,15 +60,22 @@ class RffDoubleQ(nn.Module):
     hidden_dims: Sequence[int]
     linear: bool | None = None
     rff_dim: int | None = None
+    ensemble_size: int = 2
 
     @nn.compact
     def __call__(self, x) -> jnp.ndarray:
-        # combine this??
-        q1 = RffReward(
-            self.feature_dim, self.hidden_dims, self.linear, self.rff_dim
+        vmap_rff = nn.vmap(
+            RffReward,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.ensemble_size,
+        )
+        x = vmap_rff(
+            self.feature_dim,
+            self.hidden_dims,
+            self.linear,
+            self.rff_dim
         )(x)
-        q2 = RffReward(
-            self.feature_dim, self.hidden_dims, self.linear, self.rff_dim
-        )(x)
-
-        return jnp.stack([q1, q2], axis=0)
+        return x
