@@ -9,6 +9,8 @@ algo:
   actor_update_freq: 1
   target_update_freq: 1
 
+  ema: 0.005
+
   # critic_hidden_dims: [512, 512, 512] # this is actually not used
   actor_hidden_dims: [512, 512, 512]
 

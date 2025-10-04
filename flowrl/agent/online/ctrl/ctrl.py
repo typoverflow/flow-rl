@@ -175,6 +175,7 @@ def update_critic(
     if back_critic_grad:
         raise NotImplementedError("no back critic grad exists")
     else:
+        # TODO: need rng here? idts
         feature = feature.apply({"params": feature.params}, batch.next_obs, next_action, method=FactorizedNCE.forward_phi, rngs={"dropout": dropout_rng})
 
     def critic_loss_fn(
@@ -198,6 +199,7 @@ def update_critic(
 def update_actor(
     rng: PRNGKey,
     actor: Model,
+    feature_target: Model,
     critic: Model,
     batch: Batch,
 ) -> Tuple[PRNGKey, Model, Metric]:
@@ -210,8 +212,12 @@ def update_actor(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        q = critic(batch.obs, new_action)
+        # TODO: back critic grad?
+        # TODO: dropout rng???
+        new_feature = feature_target.apply({"params": feature_target.params}, batch.obs, new_action, method=FactorizedNCE.forward_phi)
+        q = critic(new_feature)
         actor_loss = -q.mean()
+
         return actor_loss, {
             "loss/actor_loss": actor_loss,
         }
@@ -338,8 +344,6 @@ class Ctrl_TD3_Agent(TD3Agent):
         self._n_training_steps = 0
 
     def train_step(self, batch: Batch, step: int) -> Metric:
-        # hmmm should i make this take in buffer? try with batch first?
-
         metrics = {}
 
         split_index = self.batch_size - self.aug_batch_size
@@ -388,6 +392,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.rng, self.actor, actor_metrics = update_actor(
                 self.rng,
                 self.actor,
+                self.nce_target,
                 self.critic,
                 critic_batch,
             )

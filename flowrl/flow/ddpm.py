@@ -64,6 +64,7 @@ def get_noise_schedule(
         jnp.array(alphas, dtype=jnp.float32),
         jnp.array(alphabars, dtype=jnp.float32),
     )
+
 # ======= Noise Network ========
 
 class DDPMBackbone(nn.Module):
