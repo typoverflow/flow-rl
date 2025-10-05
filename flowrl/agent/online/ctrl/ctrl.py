@@ -29,6 +29,7 @@ def update_critic(
     discount: float,
     target_policy_noise: float,
     noise_clip: float,
+    critic_coef: float
 ) -> Tuple[PRNGKey, Model, Metric]:
     rng, sample_rng = jax.random.split(rng)
     noise = jax.random.normal(sample_rng, batch.action.shape) * target_policy_noise
@@ -52,7 +53,8 @@ def update_critic(
             feature,
             rngs={"dropout": dropout_rng},
         )
-        critic_loss = ((q_pred - q_target[jnp.newaxis, :])**2).sum(0).mean()
+        # q_pred (2, 512, 1), q_target (512, 1)
+        critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :])**2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q_mean": q_pred.mean(),
@@ -99,7 +101,7 @@ class Ctrl_TD3_Agent(TD3Agent):
     """
 
     name = "CTRLTD3Agent"
-    model_names = ["nce", "actor", "actor_target", "critic", "critic_target"]
+    model_names = ["nce", "nce_target", "actor", "actor_target", "critic", "critic_target"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: CTRL_TD3_Config, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
@@ -237,6 +239,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,
             noise_clip=self.noise_clip,
+            critic_coef=self.critic_coef,
         )
         metrics.update(critic_metrics)
 

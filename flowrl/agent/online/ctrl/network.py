@@ -97,7 +97,7 @@ class FactorizedNCE(nn.Module):
             t = jnp.arange(self.num_noises)
             t = jnp.repeat(t, B).reshape(self.N, B)
             alphabars = self.alphabars[t]
-            eps = jax.random.normal(eps_rng)
+            eps = jax.random.normal(eps_rng, sp.shape)
             xt = jnp.sqrt(alphabars) * sp + jnp.sqrt(1-alphabars) * eps
             t = jnp.expand_dims(t, -1)
         else:
