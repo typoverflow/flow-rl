@@ -109,7 +109,7 @@ class FactorizedNCE(nn.Module):
         return logits
 
     def forward_normalizer(self):
-        assert self.ranking, "Ranking-based NCE should not use normalizers"
+        return self.normalizer
 
     def __call__(
         self,
@@ -167,7 +167,9 @@ def update_factorized_nce(
                 logits, jnp.broadcast_to(labels, (logits.shape[0], B))
             ).mean(axis=-1)
         else:
-            raise NotImplementedError()
+            normalizer = nce.apply({"params": nce_params}, method="forward_normalizer")
+            eff_logits = logits + normalizer[:, None, None] - jnp.log(B)
+            model_loss = optax.sigmoid_binary_cross_entropy(eff_logits, labels).mean([-2, -1])
         r_pred = nce.apply(
             {"params": nce_params},
             z_phi,
