@@ -110,6 +110,7 @@ def jit_update_qsm_actor(
         loss = ((eps_pred - eps_estimation) ** 2).mean()
         return loss, {
             "loss/actor_loss": loss,
+            "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
