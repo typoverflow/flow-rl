@@ -1,5 +1,6 @@
 from ..base import BaseAgent
 from .dpmd import DPMDAgent
+from .idem import IDEMAgent
 from .ppo import PPOAgent
 from .qsm import QSMAgent
 from .sac import SACAgent
@@ -16,4 +17,5 @@ __all__ = [
     "DPMDAgent",
     "PPOAgent",
     "QSMAgent",
+    "IDEMAgent"
 ]
