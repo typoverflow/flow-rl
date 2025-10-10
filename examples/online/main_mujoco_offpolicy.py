@@ -5,10 +5,10 @@ import gymnasium_robotics
 import hydra
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco import Config
 from flowrl.dataset.buffer.state import ReplayBuffer
