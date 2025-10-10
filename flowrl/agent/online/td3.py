@@ -181,8 +181,7 @@ class TD3Agent(BaseAgent):
             metrics.update(actor_metrics)
 
         if self._n_training_steps % self.target_update_freq == 0:
-            self.critic_target = ema_update(self.critic, self.critic_target, self.cfg.ema)
-            self.actor_target = ema_update(self.actor, self.actor_target, self.cfg.ema)
+            self.sync_target()
 
         self._n_training_steps += 1
         return metrics
@@ -198,3 +197,7 @@ class TD3Agent(BaseAgent):
             exploration_noise=self.exploration_noise,
         )
         return action, {}
+
+    def sync_target(self):
+        self.critic_target = ema_update(self.critic, self.critic_target, self.cfg.ema)
+        self.actor_target = ema_update(self.actor, self.actor_target, self.cfg.ema)
