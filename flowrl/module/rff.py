@@ -17,9 +17,7 @@ class RffLayer(nn.Module):
         half = self.rff_dim // 2
 
         if self.learnable:
-            x = MLP(
-                hidden_dims=[], output_dim=half, layer_norm=False, activation=nn.relu
-            )(x)
+            x = MLP(hidden_dims=[], output_dim=half)(x)
         else:
             noise = self.variable(
                 "noise",

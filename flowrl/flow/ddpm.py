@@ -20,11 +20,11 @@ SUPPORTED_SOLVERS = [
 
 # ======= Noise Schedules ========
 
-def linear_beta_schedule(T: int = 1000, beta_min: float = 1e-4, beta_max: float = 2e-2):
+def linear_beta_schedule(T: int=1000, beta_min: float=1e-4, beta_max: float=2e-2) -> jnp.ndarray:
     return jnp.linspace(beta_min, beta_max, T)
 
 
-def cosine_beta_schedule(T: int = 1000, s=0.008):
+def cosine_beta_schedule(T: int=1000, s: float=0.008) -> jnp.ndarray:
     steps = T + 1
     t = jnp.linspace(0, T, steps) / T
     alphas_cumprod = jnp.cos((t + s) / (1 + s) * jnp.pi * 0.5) ** 2
@@ -33,7 +33,7 @@ def cosine_beta_schedule(T: int = 1000, s=0.008):
     return jnp.clip(betas, 0, 0.999)
 
 
-def vp_beta_schedule(T: int = 1000):
+def vp_beta_schedule(T: int=1000) -> jnp.ndarray:
     t = jnp.arange(1, T + 1)
     b_max = 10.0
     b_min = 0.1
