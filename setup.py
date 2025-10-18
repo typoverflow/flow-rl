@@ -17,6 +17,7 @@ def get_base_requirements():
     return [
         "jax[cuda12]==0.5.3",
         "flax==0.10.5",
+        "orbax-checkpoint==0.11.23",
         "gymnasium",
         "gymnasium_robotics",
         'shimmy==1.3.0',
