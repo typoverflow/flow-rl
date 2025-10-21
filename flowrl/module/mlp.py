@@ -75,6 +75,8 @@ class ResidualMLP(nn.Module):
         x: jnp.ndarray,
         training: bool = False,
     ) -> jnp.ndarray:
+        if len(self.hidden_dims) > 0:
+            x = nn.Dense(self.hidden_dims[0], kernel_init=default_init())(x)
         for i, size in enumerate(self.hidden_dims):
             x = ResidualLinear(size, self.multiplier, self.activation, self.layer_norm, self.dropout)(x, training)
         if self.output_dim > 0:

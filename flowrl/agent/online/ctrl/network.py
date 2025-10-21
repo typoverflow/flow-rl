@@ -35,6 +35,7 @@ class FactorizedNCE(nn.Module):
             self.feature_dim,
             multiplier=1,
             activation=mish,
+            layer_norm=True,
             dropout=None,
         )
         self.mlp_mu = ResidualMLP(
@@ -42,6 +43,7 @@ class FactorizedNCE(nn.Module):
             self.feature_dim,
             multiplier=1,
             activation=mish,
+            layer_norm=True,
             dropout=None,
         )
         self.reward = RffReward(
