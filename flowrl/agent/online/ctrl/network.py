@@ -197,7 +197,7 @@ def update_factorized_nce(
             "misc/obs_std": s.std(axis=0).mean(),
             "misc/phi_l1": jnp.abs(z_phi).mean(),
         }
-        checkpoints = list(arange(0, logits.shape[0], logits.shape[0]//5))
+        checkpoints = list(range(0, logits.shape[0], logits.shape[0]//5))
         metrics.update({
             f"misc/positive_logits_{i}": pos_logits_per_noise[i].mean() for i in checkpoints
         })
