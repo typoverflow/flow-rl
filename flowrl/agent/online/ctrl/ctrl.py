@@ -123,7 +123,7 @@ class Ctrl_TD3_Agent(TD3Agent):
         assert not self.linear, "Removing linear version for now"
 
         # networks
-        self.rng, nce_rng, actor_rng, critic_rng = jax.random.split(self.rng, 4)
+        self.rng, nce_rng, nce_init_rng, actor_rng, critic_rng = jax.random.split(self.rng, 5)
         nce_def = FactorizedNCE(
             self.obs_dim,
             self.act_dim,
@@ -139,6 +139,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             nce_def,
             nce_rng,
             inputs=(
+                nce_init_rng,
                 jnp.ones((1, self.obs_dim)),
                 jnp.ones((1, self.act_dim)),
                 jnp.ones((1, self.obs_dim)),
@@ -150,6 +151,7 @@ class Ctrl_TD3_Agent(TD3Agent):
             nce_def,
             nce_rng,
             inputs=(
+                nce_init_rng,
                 jnp.ones((1, self.obs_dim)),
                 jnp.ones((1, self.act_dim)),
                 jnp.ones((1, self.obs_dim)),

@@ -91,7 +91,7 @@ class FactorizedNCE(nn.Module):
         z_phi: jnp.ndarray | None=None
     ):
         B, D = sp.shape
-        rng, eps_rng = jax.random.split(rng)
+        rng, eps_rng = jax.random.split(rng, 2)
         if z_phi is None:
             z_phi = self.forward_phi(s, a)
         if self.use_noise_perturbation:
@@ -115,13 +115,13 @@ class FactorizedNCE(nn.Module):
 
     def __call__(
         self,
+        rng: PRNGKey,
         s,
         a,
         sp,
     ):
         z_phi = self.forward_phi(s, a)
         _ = self.forward_reward(z_phi)
-        rng = jax.random.PRNGKey(0)
         _ = self.forward_logits(rng, s, a, sp, z_phi=z_phi)
 
         _ = self.forward_normalizer()
@@ -179,13 +179,32 @@ def update_factorized_nce(
         )
         reward_loss = jnp.mean((r_pred - r) ** 2)
 
-        nce_loss = model_loss.mean() + reward_coef * reward_loss
+        nce_loss = model_loss.mean() + reward_coef * reward_loss + 0.0001 * (logits**2).mean()
 
-        return nce_loss, {
+        pos_logits = logits[
+            jnp.arange(logits.shape[0])[..., jnp.newaxis],
+            jnp.arange(logits.shape[1]),
+            jnp.arange(logits.shape[2])[jnp.newaxis, ...].repeat(logits.shape[0], axis=0)
+        ]
+        pos_logits_per_noise = pos_logits.mean(axis=-1)
+        neg_logits = (logits.sum(axis=-1) - pos_logits) / (logits.shape[-1] - 1)
+        neg_logits_per_noise = neg_logits.mean(axis=-1)
+        metrics = {
             "loss/nce_loss": nce_loss,
             "loss/model_loss": model_loss.mean(),
             "loss/reward_loss": reward_loss,
+            "misc/obs_mean": s.mean(),
+            "misc/obs_std": s.std(axis=0).mean(),
+            "misc/phi_l1": jnp.abs(z_phi).mean(),
         }
+        checkpoints = [jnp.arange(0, logits.shape[0], logits.shape[0]//5)]
+        metrics.update({
+            f"misc/positive_logits_{i}": pos_logits_per_noise[i].mean() for i in checkpoints
+        })
+        metrics.update({
+            f"misc/negative_logits_{i}": neg_logits_per_noise[i].mean() for i in checkpoints
+        })
+        return nce_loss, metrics
 
     new_nce, metrics = nce.apply_gradient(loss_fn)
     return rng, new_nce, metrics
