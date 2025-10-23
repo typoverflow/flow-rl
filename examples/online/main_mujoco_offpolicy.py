@@ -3,6 +3,7 @@ import os
 import gymnasium as gym
 import gymnasium_robotics
 import hydra
+import jax
 import numpy as np
 import omegaconf
 import wandb
@@ -15,6 +16,8 @@ from flowrl.dataset.buffer.state import ReplayBuffer
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
+
+jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sac": SACAgent,
