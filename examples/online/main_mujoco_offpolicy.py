@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from flowrl.agent.online import *
+from flowrl.agent.online.idem import IDEMAgent
 from flowrl.config.online.mujoco import Config
 from flowrl.dataset.buffer.state import ReplayBuffer
 from flowrl.types import *
@@ -25,6 +26,8 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td7": TD7Agent,
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
+    "qsm": QSMAgent,
+    "idem": IDEMAgent,
 }
 
 class OffPolicyTrainer():
