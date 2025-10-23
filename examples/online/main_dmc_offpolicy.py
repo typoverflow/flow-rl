@@ -2,6 +2,7 @@ import os
 
 import gymnasium as gym
 import hydra
+import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
@@ -16,6 +17,8 @@ from flowrl.env.online.dmc_env import DMControlEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
+
+jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sac": SACAgent,
