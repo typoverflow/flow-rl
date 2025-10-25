@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.flow.ddpm import get_noise_schedule
-from flowrl.functional.activation import mish
+from flowrl.functional.activation import group_l2_normalize, mish
 from flowrl.module.mlp import ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.rff import RffReward
@@ -65,11 +65,12 @@ class FactorizedNCE(nn.Module):
         if not self.ranking:
             self.normalizer = self.param("normalizer", lambda key: jnp.zeros((self.N,), jnp.float32))
         else:
-            self.normalizer = None
+            self.normalizer = self.param("normalizer", lambda key: jnp.zeros((self.N,), jnp.float32))
 
     def forward_phi(self, s, a):
         x = jnp.concat([s, a], axis=-1)
         x = self.mlp_phi(x)
+        x = group_l2_normalize(x, group_size=None)
         return x
 
     def forward_mu(self, sp, t=None):
@@ -77,7 +78,8 @@ class FactorizedNCE(nn.Module):
             t_ff = self.mlp_t(t)
             sp = jnp.concat([sp, t_ff], axis=-1)
         sp = self.mlp_mu(sp)
-        return jnp.tanh(sp)
+        # return jnp.tanh(sp)
+        return sp
 
     def forward_reward(self, x: jnp.ndarray):  # for z_phi
         return self.reward(x)
@@ -108,6 +110,7 @@ class FactorizedNCE(nn.Module):
         z_mu = self.forward_mu(xt, t)
         z_phi = jnp.broadcast_to(z_phi, (self.N, B, self.feature_dim))
         logits = jax.lax.batch_matmul(z_phi, jnp.swapaxes(z_mu, -1, -2))
+        logits = logits / jnp.exp(self.normalizer[:, None, None])
         return logits
 
     def forward_normalizer(self):
@@ -177,9 +180,10 @@ def update_factorized_nce(
             z_phi,
             method="forward_reward",
         )
+        normalizer = nce.apply({"params": nce_params}, method="forward_normalizer")
         reward_loss = jnp.mean((r_pred - r) ** 2)
 
-        nce_loss = model_loss.mean() + reward_coef * reward_loss + 0.0001 * (logits**2).mean()
+        nce_loss = model_loss.mean() + reward_coef * reward_loss + 0.000 * (logits**2).mean()
 
         pos_logits = logits[
             jnp.arange(logits.shape[0])[..., jnp.newaxis],
@@ -197,12 +201,18 @@ def update_factorized_nce(
             "misc/obs_std": s.std(axis=0).mean(),
             "misc/phi_l1": jnp.abs(z_phi).mean(),
         }
-        checkpoints = list(range(0, logits.shape[0], logits.shape[0]//5))
+        checkpoints = list(range(0, logits.shape[0], logits.shape[0]//5)) + [logits.shape[0]-1]
         metrics.update({
             f"misc/positive_logits_{i}": pos_logits_per_noise[i].mean() for i in checkpoints
         })
         metrics.update({
             f"misc/negative_logits_{i}": neg_logits_per_noise[i].mean() for i in checkpoints
+        })
+        metrics.update({
+            f"misc/logits_gap_{i}": (pos_logits_per_noise[i] - neg_logits_per_noise[i]).mean() for i in checkpoints
+        })
+        metrics.update({
+            f"misc/normalizer_{i}": jnp.exp(normalizer[i]) for i in checkpoints
         })
         return nce_loss, metrics
 
