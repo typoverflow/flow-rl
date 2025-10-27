@@ -1,5 +1,5 @@
 from ..base import BaseAgent
-from .ctrl.ctrl import Ctrl_TD3_Agent
+from .ctrl.ctrl import CtrlTD3Agent
 from .dpmd import DPMDAgent
 from .ppo import PPOAgent
 from .sac import SACAgent
@@ -15,5 +15,5 @@ __all__ = [
     "SDACAgent",
     "DPMDAgent",
     "PPOAgent",
-    "Ctrl_TD3_Agent",
+    "CtrlTD3Agent",
 ]

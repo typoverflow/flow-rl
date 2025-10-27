@@ -1,5 +1,4 @@
 from functools import partial
-from operator import attrgetter
 from typing import Tuple
 
 import jax
@@ -8,7 +7,7 @@ import optax
 
 from flowrl.agent.online.ctrl.network import FactorizedNCE, update_factorized_nce
 from flowrl.agent.online.td3 import TD3Agent
-from flowrl.config.online.mujoco.algo.ctrl_td3 import CTRL_TD3_Config
+from flowrl.config.online.mujoco.algo.ctrl_td3 import CtrlTD3Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.mlp import MLP
@@ -23,7 +22,6 @@ def update_critic(
     critic: Model,
     critic_target: Model,
     actor_target: Model,
-    nce: Model,
     nce_target: Model,
     batch: Batch,
     discount: float,
@@ -42,7 +40,6 @@ def update_critic(
 
     back_critic_grad = False
     if back_critic_grad:
-        # this part will use feature
         raise NotImplementedError("no back critic grad exists")
 
     feature = nce_target(batch.obs, batch.action, method="forward_phi")
@@ -53,7 +50,6 @@ def update_critic(
             feature,
             rngs={"dropout": dropout_rng},
         )
-        # q_pred (2, 512, 1), q_target (512, 1)
         critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :])**2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
@@ -69,7 +65,6 @@ def update_critic(
 def update_actor(
     rng: PRNGKey,
     actor: Model,
-    nce: Model,
     nce_target: Model,
     critic: Model,
     batch: Batch,
@@ -95,23 +90,21 @@ def update_actor(
     return rng, new_actor, metrics
 
 
-class Ctrl_TD3_Agent(TD3Agent):
+class CtrlTD3Agent(TD3Agent):
     """
-    CTRL Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
+    CTRL with Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
     """
 
-    name = "CTRLTD3Agent"
+    name = "CtrlTD3Agent"
     model_names = ["nce", "nce_target", "actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: CTRL_TD3_Config, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: CtrlTD3Config, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
 
         self.ctrl_coef = cfg.ctrl_coef
         self.critic_coef = cfg.critic_coef
 
-        self.aug_batch_size = cfg.aug_batch_size
-        self.feature_tau = cfg.feature_tau
         self.linear = cfg.linear
         self.ranking = cfg.ranking
         self.feature_dim = cfg.feature_dim
@@ -120,7 +113,7 @@ class Ctrl_TD3_Agent(TD3Agent):
         self.rff_dim = cfg.rff_dim
 
         # sanity checks for the hyper-parameters
-        assert not self.linear, "Removing linear version for now"
+        assert not self.linear, "linear mode is not supported yet"
 
         # networks
         self.rng, nce_rng, nce_init_rng, actor_rng, critic_rng = jax.random.split(self.rng, 5)
@@ -203,28 +196,10 @@ class Ctrl_TD3_Agent(TD3Agent):
     def train_step(self, batch: Batch, step: int) -> Metric:
         metrics = {}
 
-        split_index = batch.obs.shape[0] - self.aug_batch_size
-        obs, action, next_obs, reward, terminal = [
-            b[:split_index]
-            for b in attrgetter("obs", "action", "next_obs", "reward", "terminal")(
-                batch
-            )
-        ]
-        fobs, faction, fnext_obs, freward, fterminal = [
-            b[split_index:]
-            for b in attrgetter("obs", "action", "next_obs", "reward", "terminal")(
-                batch
-            )
-        ]
-        rl_batch = Batch(obs, action, reward, terminal, next_obs, None)
-
         self.rng, self.nce, nce_metrics = update_factorized_nce(
             self.rng,
             self.nce,
-            fobs,
-            faction,
-            fnext_obs,
-            freward,
+            batch,
             self.ranking,
             self.reward_coef,
         )
@@ -235,9 +210,8 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.critic,
             self.critic_target,
             self.actor_target,
-            self.nce,
             self.nce_target,
-            rl_batch,
+            batch,
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,
             noise_clip=self.noise_clip,
@@ -249,10 +223,9 @@ class Ctrl_TD3_Agent(TD3Agent):
             self.rng, self.actor, actor_metrics = update_actor(
                 self.rng,
                 self.actor,
-                self.nce,
                 self.nce_target,
                 self.critic,
-                rl_batch,
+                batch,
             )
             metrics.update(actor_metrics)
 
@@ -264,4 +237,4 @@ class Ctrl_TD3_Agent(TD3Agent):
 
     def sync_target(self):
         super().sync_target()
-        self.nce_target = ema_update(self.nce, self.nce_target, self.feature_tau)
+        self.nce_target = ema_update(self.nce, self.nce_target, self.cfg.feature_ema)

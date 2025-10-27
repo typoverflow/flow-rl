@@ -7,6 +7,8 @@ from .base import BaseAlgoConfig
 @dataclass
 class TD3Config(BaseAlgoConfig):
     name: str
+    actor_update_freq: int
+    target_update_freq: int
     discount: float
     ema: float
     actor_hidden_dims: List[int]
@@ -17,8 +19,6 @@ class TD3Config(BaseAlgoConfig):
     actor_lr: float
     critic_lr: float
     clip_grad_norm: float | None
-    actor_update_freq: int
-    target_update_freq: int
     target_policy_noise: float
     noise_clip: float
     exploration_noise: float

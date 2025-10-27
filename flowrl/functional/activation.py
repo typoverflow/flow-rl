@@ -23,7 +23,7 @@ def softplus_beta(x, beta: float = 1.0, threshold: float = 20.0):
     return jnp.where(xb > threshold, x, sp)
 
 @partial(jax.jit, static_argnames=("group_size"))
-def group_l2_normalize(x, group_size: int | None = None):
+def l2_normalize(x, group_size: int | None = None):
     if group_size is None:
         group_size = x.shape[-1]
     assert x.shape[-1] % group_size == 0

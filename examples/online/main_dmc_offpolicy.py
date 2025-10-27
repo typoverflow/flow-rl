@@ -6,10 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm, trange
 
+import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco import Config
 from flowrl.dataset.buffer.state import ReplayBuffer
@@ -26,7 +26,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td7": TD7Agent,
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
-    "ctrl_td3": Ctrl_TD3_Agent,
+    "ctrl_td3": CtrlTD3Agent,
 }
 
 class OffPolicyTrainer():
