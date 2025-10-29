@@ -55,7 +55,6 @@ def jit_update_qsm_critic(
     solver: str,
     ema: float,
 ) -> Tuple[PRNGKey, Model, Model, Metric]:
-    # update critic
     rng, next_xT_rng = jax.random.split(rng)
     next_xT = jax.random.normal(next_xT_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
     rng, next_action, _ = actor.sample(rng, next_xT, batch.next_obs, training=False, solver=solver)
@@ -75,6 +74,7 @@ def jit_update_qsm_critic(
             "loss/critic_loss": critic_loss,
             "misc/q_mean": q.mean(),
             "misc/reward": batch.reward.mean(),
+            "misc/next_action_l1": jnp.abs(next_action).mean(),
         }
 
     new_critic, critic_metrics = critic.apply_gradient(critic_loss_fn)
@@ -96,7 +96,7 @@ def jit_update_qsm_actor(
 
     q_grad_fn = jax.vmap(jax.grad(lambda a, s: critic_target(s, a).min(axis=0).mean()))
     q_grad = q_grad_fn(at, batch.obs)
-    eps_estimation = - alpha2 * q_grad / temp
+    eps_estimation = - alpha2 * q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         eps_pred = actor.apply(
@@ -171,20 +171,6 @@ class QSMAgent(BaseAgent):
             t_schedule_n=1.0,
             optimizer=optax.adam(learning_rate=actor_lr),
         )
-        # CHECK: is this really necessary, since we are not using the target actor for policy evaluation?
-        self.actor_target = ContinuousDDPM.create(
-            network=backbone_def,
-            rng=actor_rng,
-            inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
-            x_dim=self.act_dim,
-            steps=cfg.diffusion.steps,
-            noise_schedule="cosine",
-            noise_schedule_params={},
-            clip_sampler=cfg.diffusion.clip_sampler,
-            x_min=cfg.diffusion.x_min,
-            x_max=cfg.diffusion.x_max,
-            t_schedule_n=1.0,
-        )
 
         # define the critic
         critic_def = EnsembleCritic(
@@ -251,4 +237,6 @@ class QSMAgent(BaseAgent):
             num_samples=num_samples,
             solver=self.cfg.diffusion.solver,
         )
+        if not deterministic:
+            action = action + 0.1 * jax.random.normal(self.rng, action.shape)
         return action, {}

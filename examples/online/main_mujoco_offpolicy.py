@@ -5,12 +5,11 @@ import gymnasium_robotics
 import hydra
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+import wandb
 from flowrl.agent.online import *
-from flowrl.agent.online.idem import IDEMAgent
 from flowrl.config.online.mujoco import Config
 from flowrl.dataset.buffer.state import ReplayBuffer
 from flowrl.types import *
@@ -25,6 +24,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "dpmd": DPMDAgent,
     "qsm": QSMAgent,
     "idem": IDEMAgent,
+    "alac": ALACAgent,
 }
 
 class OffPolicyTrainer():

@@ -1,5 +1,6 @@
 from hydra.core.config_store import ConfigStore
 
+from .algo.alac import ALACConfig
 from .algo.base import BaseAlgoConfig
 from .algo.ctrl_td3 import CTRL_TD3_Config
 from .algo.dpmd import DPMDConfig
@@ -26,7 +27,8 @@ _CONFIGS = {
     "td7": TD7Config,
     "dpmd": DPMDConfig,
     "qsm": QSMConfig,
-    "idem": IDEMConfig
+    "alac": ALACConfig,
+    "idem": IDEMConfig,
     "ctrl": CTRL_TD3_Config,
 }
 
