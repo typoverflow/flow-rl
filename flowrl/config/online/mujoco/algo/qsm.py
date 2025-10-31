@@ -23,6 +23,7 @@ class QSMDiffusionConfig:
 class QSMConfig(BaseAlgoConfig):
     name: str
     critic_hidden_dims: List[int]
+    critic_activation: str
     critic_lr: float
     discount: float
     num_samples: int

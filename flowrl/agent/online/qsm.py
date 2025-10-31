@@ -111,6 +111,7 @@ def jit_update_qsm_actor(
         return loss, {
             "loss/actor_loss": loss,
             "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
+            "misc/eps_estimation_std": jnp.std(eps_estimation, axis=0).mean(),
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
@@ -156,7 +157,6 @@ class QSMAgent(BaseAgent):
         else:
             actor_lr = cfg.diffusion.lr
 
-
         self.actor = ContinuousDDPM.create(
             network=backbone_def,
             rng=actor_rng,
@@ -173,9 +173,13 @@ class QSMAgent(BaseAgent):
         )
 
         # define the critic
+        critic_activation = {
+            "relu": jax.nn.relu,
+            "elu": jax.nn.elu,
+        }[cfg.critic_activation]
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,
-            activation=jax.nn.relu,
+            activation=critic_activation,
             layer_norm=False,
             dropout=None,
             ensemble_size=2,
