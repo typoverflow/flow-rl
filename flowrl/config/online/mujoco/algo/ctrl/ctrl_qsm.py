@@ -1,26 +1,23 @@
 from dataclasses import dataclass
 from typing import List
 
-from .base import BaseAlgoConfig
+from ..base import BaseAlgoConfig
+from ..qsm import QSMDiffusionConfig
 
 
 @dataclass
-class CtrlTD3Config(BaseAlgoConfig):
+class CtrlQSMConfig(BaseAlgoConfig):
     name: str
     actor_update_freq: int
     target_update_freq: int
     discount: float
     ema: float
-    actor_hidden_dims: List[int]
     # critic_hidden_dims: List[int]
+    critic_activation: str # not used
     critic_ensemble_size: int
     layer_norm: bool
-    actor_lr: float
     critic_lr: float
     clip_grad_norm: float | None
-    target_policy_noise: float
-    noise_clip: float
-    exploration_noise: float
 
     feature_dim: int
     feature_lr: float
@@ -38,3 +35,6 @@ class CtrlTD3Config(BaseAlgoConfig):
     num_noises: int
     linear: bool
     ranking: bool
+
+    num_samples: int
+    diffusion: QSMDiffusionConfig
