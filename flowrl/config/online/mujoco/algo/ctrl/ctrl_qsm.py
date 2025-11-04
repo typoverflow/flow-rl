@@ -37,4 +37,5 @@ class CtrlQSMConfig(BaseAlgoConfig):
     ranking: bool
 
     num_samples: int
+    temp: float
     diffusion: QSMDiffusionConfig
