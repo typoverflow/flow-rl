@@ -107,7 +107,6 @@ def update_actor(
         return q.min(axis=0).mean()
     q_grad_fn = jax.vmap(jax.grad(get_q_value))
     q_grad = q_grad_fn(at, batch.obs)
-    q_grad = alpha1 * q_grad - alpha2 * at
     eps_estimation = - alpha2 * q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
@@ -123,6 +122,7 @@ def update_actor(
         return loss, {
             "loss/actor_loss": loss,
             "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
+            "misc/eps_estimation_std": jnp.std(eps_estimation, axis=0).mean(),
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
