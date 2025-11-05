@@ -29,6 +29,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "ctrl_td3": CtrlTD3Agent,
     "qsm": QSMAgent,
     "ctrl_qsm": CtrlQSMAgent,
+    "aca": ACAAgent,
 }
 
 class OffPolicyTrainer():
