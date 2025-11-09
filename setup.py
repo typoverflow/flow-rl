@@ -31,6 +31,7 @@ def get_base_requirements():
         "tensorboardX==2.6.2.2",
         "scikit-learn==1.6.1",
         "wandb",
+        "matplotlib"
     ]
 
 def get_install_requires():

@@ -98,6 +98,21 @@ class BaseAgent():
         """
         raise NotImplementedError("sample_actions not implemented for this agent")
 
+    def plot_toy2d(self, save_dir: str, task: str) -> Metric:
+        """
+        Plot visualizations specific to this agent for toy2d tasks and return metrics.
+        This is an optional method that agents can override to provide custom visualizations.
+
+        Args:
+            save_dir (str): Directory to save the plots.
+            task (str): The toy2d task name.
+
+        Returns:
+            Metric: Dictionary of metrics computed during plotting (e.g., value function errors).
+                    Returns None if no metrics are computed.
+        """
+        return None
+
     @property
     def saved_model_names(self) -> List[str]:
         """

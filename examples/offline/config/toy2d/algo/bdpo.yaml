@@ -1,0 +1,55 @@
+# @package _global_
+
+train_steps: 100_000
+pretrain_steps: 100_000
+
+eval:
+  interval: 10000
+
+algo:
+  name: bdpo
+  warmup_steps: 5_000
+  temperature: 0.0
+  diffusion:
+    actor:
+      lr: 0.00001
+      lr_decay_steps: ${train_steps}
+      clip_grad_norm: 1.0
+      ema: 0.005
+      ema_every: 5
+    behavior:
+      lr: 0.0003
+      lr_decay_steps: null
+      clip_grad_norm: 1.0
+      ema: 0.005
+      ema_every: 1
+    noise_schedule: vp
+    resnet: false
+    dropout: 0.0
+    layer_norm: false
+    time_dim: 64
+    mlp_hidden_dims: [256, 256, 256, 256]
+    resnet_hidden_dims: [256, 256, 256]
+    solver: ddpm
+    steps: 50
+    clip_sampler: false
+    x_min: -1.0
+    x_max: 1.0
+  critic:
+    discount: 0.99
+    q_target: lcb
+    maxQ: false
+    ensemble_size: 10
+    rho: 0.0
+    eta: 0.05
+    hidden_dims: [256, 256, 256]
+    lr: 0.0003
+    lr_decay_steps: ${train_steps}
+    clip_grad_norm: 1.0
+    layer_norm: false
+    ema: 0.005
+    ema_every: 1
+    steps: 50
+    num_samples: 10
+    solver: ddpm
+    update_ratio: 5

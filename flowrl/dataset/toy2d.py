@@ -151,14 +151,16 @@ class Toy2dDataset(object):
         assert task in ["swissroll", "8gaussians", "moons", "rings", "checkerboard", "2spirals"]
         self.task = task
         self.data_size = data_size
+        self.scan = scan
         data, energy = inf_train_gen(task, batch_size=data_size)
 
         dataset = {
             "obs": np.zeros((data_size, 1), dtype=np.float32),
             "action": np.asarray(data, dtype=np.float32),
             "reward": np.asarray(energy, dtype=np.float32),
-            "terminal": np.zeros((data_size, 1), dtype=np.float32),
+            "terminal": np.ones((data_size, 1), dtype=np.float32), # bandit setting
             "next_obs": np.zeros((data_size, 1), dtype=np.float32),
+            "next_action": np.asarray(data, dtype=np.float32),
         }
 
         if self.scan:
@@ -185,4 +187,5 @@ class Toy2dDataset(object):
             reward=self.dataset["reward"][indices],
             terminal=self.dataset["terminal"][indices],
             next_obs=self.dataset["next_obs"][indices],
+            next_action=self.dataset["next_action"][indices],
         )

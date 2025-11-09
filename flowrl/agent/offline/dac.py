@@ -1,9 +1,13 @@
 from functools import partial
+import os
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
+from matplotlib import pyplot as plt
+from tqdm import tqdm
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.offline.d4rl.algo.dac import DACConfig
@@ -334,3 +338,59 @@ class DACAgent(BaseAgent):
             temperature=self.cfg.temperature,
         )
         return action, {}
+
+    def plot_toy2d(self, save_dir: str, task: str) -> Metric:
+        """
+        Plot DAC-specific visualizations for toy2d tasks.
+        This includes the Q value function over the action space.
+        """
+        metrics = {}
+        os.makedirs(save_dir, exist_ok=True)
+        self._plot_value(save_dir, task)
+        return metrics
+
+    def _plot_value(self, out_dir: str, task: str):
+        """Plot Q value function over the action space."""
+        from flowrl.utils.plot_toy2d import energy_sample, SAMPLE_GRAPH_SIZE
+        
+        plt.rc('font', family='Times New Roman', size=16)
+        
+        x_range = np.linspace(-4.5, 4.5, 90)
+        y_range = np.linspace(-4.5, 4.5, 90)
+        a, b = np.meshgrid(x_range, y_range, indexing='ij')
+        id_matrix = np.stack([b, a], axis=-1).reshape(-1, 2)
+        zero = np.zeros((90*90, 1))
+        
+        # Get vmin and vmax for color scale
+        data, e = energy_sample(task, 0, sample_per_state=SAMPLE_GRAPH_SIZE)
+        vmin = e.min()
+        vmax = e.max()
+        
+        plt.figure(figsize=(5, 3.0))
+        axes = []
+        
+        # DAC has a single Q function (no time dimension)
+        c = self.critic_target(zero, id_matrix).mean(0).reshape(90, 90)
+        
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.xlim(0, 89)
+        plt.ylim(0, 89)
+        
+        mappable = plt.imshow(
+            c, origin='lower', vmin=vmin, vmax=vmax, 
+            cmap="winter", rasterized=True
+        )
+        plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+        
+        axes.append(plt.gca())
+        plt.xticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+        plt.title('Q Value')
+        
+        plt.tight_layout()
+        plt.gcf().colorbar(mappable, ax=axes, fraction=0.1, pad=0.02, aspect=12)
+        import matplotlib
+        plt.gcf().axes[-1].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.1f'))
+        saveto = os.path.join(out_dir, "qt_space.png")
+        plt.savefig(saveto, dpi=300)
+        plt.close()
+        tqdm.write(f"Saved value plot to {saveto}")

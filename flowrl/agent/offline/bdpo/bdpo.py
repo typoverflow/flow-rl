@@ -1,10 +1,15 @@
 from functools import partial
 from typing import List
+import os
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
+import numpy as np
+from matplotlib import pyplot as plt
+from tqdm import tqdm
+import scipy
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.offline.d4rl.algo.bdpo import (
@@ -20,6 +25,8 @@ from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
 from flowrl.types import *
+from flowrl.utils.plot_toy2d import energy_sample, SAMPLE_GRAPH_SIZE
+from flowrl.dataset.toy2d import Toy2dDataset
 
 EPS = 1e-6
 
@@ -536,3 +543,132 @@ class BDPOAgent(BaseAgent):
             temperature=temperature,
         )
         return action, {}
+
+    def plot_toy2d(self, save_dir: str, task: str) -> Metric:
+        """
+        Plot BDPO-specific visualizations for toy2d tasks.
+        This includes value functions at different timesteps and value function error metrics.
+        """
+        metrics = {}
+        os.makedirs(save_dir, exist_ok=True)
+        self._plot_value(save_dir, task)
+        metrics.update(self._test_value(task, from_dataset=True))
+        metrics.update(self._test_value(task, from_dataset=False))
+        return metrics
+
+    def _plot_value(self, out_dir: str, task: str):
+        """Plot value function over the action space at different timesteps."""
+        plt.rc('font', family='Times New Roman', size=16)
+        
+        x_range = np.linspace(-4.5, 4.5, 90)
+        y_range = np.linspace(-4.5, 4.5, 90)
+        a, b = np.meshgrid(x_range, y_range, indexing='ij')
+        id_matrix = np.stack([b, a], axis=-1).reshape(-1, 2)
+        zero = np.zeros((90*90, 1))
+        
+        # Get vmin and vmax for color scale
+        data, e = energy_sample(task, 0, sample_per_state=SAMPLE_GRAPH_SIZE)
+        vmin = e.min()
+        vmax = e.max()
+        
+        # BDPO agent has q0 (value at t=0) and vt (value at t=T)
+        tt = [0, 1, 3, 5, 10, 20, 30, 40, 50]
+        
+        plt.figure(figsize=(42, 3.0))
+        axes = []
+        
+        for i, t in enumerate(tt):
+            plt.subplot(1, len(tt), i+1)
+            
+            if t == 0:
+                # Use q0 (value function at t=0)
+                critic_model = self.q0_target
+                c = critic_model(zero, id_matrix).mean(0).reshape(90, 90)
+            else:
+                # Use vt (critic at different timesteps)
+                critic_model = self.vt_target
+                t_input = np.ones((90*90, 1)) * t
+                c = critic_model(zero, id_matrix, t_input).mean(0).reshape(90, 90)
+            
+            plt.gca().set_aspect('equal', adjustable='box')
+            plt.xlim(0, 89)
+            plt.ylim(0, 89)
+            
+            if i == 0:
+                mappable = plt.imshow(
+                    c, origin='lower', vmin=vmin, vmax=vmax, 
+                    cmap="winter", rasterized=True
+                )
+                plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+            else:
+                plt.imshow(
+                    c, origin='lower', vmin=vmin, vmax=vmax, 
+                    cmap="winter", rasterized=True
+                )
+                plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[None, None, None, None, None])
+            
+            axes.append(plt.gca())
+            plt.xticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+            plt.title(f't={t}')
+            
+        plt.tight_layout()
+        cbar = plt.gcf().colorbar(mappable, ax=axes, fraction=0.1, pad=0.02, aspect=12)
+        import matplotlib
+        plt.gcf().axes[-1].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.1f'))
+        saveto = os.path.join(out_dir, "qt_space.png")
+        plt.savefig(saveto, dpi=300)
+        plt.close()
+        tqdm.write(f"Saved value plot to {saveto}")
+
+    def _test_value(self, task: str, from_dataset: bool) -> tuple:
+        """
+        Compute the logmeanexp of value of dataset or actor generated samples,
+        compare it to the target value.
+        """
+        datanum = 10000
+        
+        if from_dataset:
+            # Get values from dataset
+            dataset = Toy2dDataset(task=task, data_size=datanum, scan=False)
+            batch = dataset.sample(batch_size=datanum)
+            values = batch.reward.flatten()
+        else:
+            # Get values from actor samples
+            samples, _ = self.sample_actions(
+                obs=np.zeros((datanum, 1)),
+                deterministic=False,
+                num_samples=10,
+            )
+            
+            # Compute value using the appropriate value function
+            values = self.q0_target(
+                np.zeros((datanum, 1)),
+                samples,
+            ).mean(0)
+        eta = self.cfg.critic.eta
+        T = self.cfg.critic.steps
+
+        # Compute target as logsumexp
+        target = jax.scipy.special.logsumexp(
+            values / (eta / T), 
+            b=(1 / datanum)
+        ) * (eta / T)
+        
+        # Compute value at T using random samples
+        N = 1000
+        random_actions = jax.random.normal(jax.random.PRNGKey(0), shape=(N, 2))
+        value_at_T = self.vt_target(
+            np.zeros((N, 1)),
+            random_actions,
+            np.ones((N, 1)) * T,
+        ).mean()
+        abs_error = np.abs(target - value_at_T)
+        rel_error = abs_error / (np.abs(target) + 1e-8)
+        
+        prefix = "dataset" if from_dataset else "actor"
+        return {
+            f"{prefix}_abs_error": float(abs_error),
+            f"{prefix}_rel_error": float(rel_error),
+            f"{prefix}_value_at_T": float(value_at_T),
+            f"{prefix}_target": float(target)
+        }
