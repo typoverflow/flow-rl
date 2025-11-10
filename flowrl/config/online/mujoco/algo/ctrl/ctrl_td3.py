@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List
 
-from .base import BaseAlgoConfig
+from ..base import BaseAlgoConfig
 
 
 @dataclass

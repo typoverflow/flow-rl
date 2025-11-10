@@ -1,0 +1,41 @@
+# @package _global_
+
+algo:
+  name: aca
+  target_update_freq: 1
+  feature_dim: 512
+  rff_dim: 1024
+  critic_hidden_dims: [512, 512]
+  reward_hidden_dims: [512, 512]
+  phi_hidden_dims: [512, 512]
+  mu_hidden_dims: [512, 512]
+  ctrl_coef: 1.0
+  reward_coef: 1.0
+  critic_coef: 1.0
+  critic_activation: elu  # not used
+  back_critic_grad: false
+  feature_lr: 0.0001
+  critic_lr: 0.0003
+  discount: 0.99
+  num_samples: 10
+  ema: 0.005
+  feature_ema: 0.005
+  clip_grad_norm: null
+  temp: 0.1
+  diffusion:
+    time_dim: 64
+    mlp_hidden_dims: [512, 512, 512]
+    lr: 0.0003
+    end_lr: null
+    lr_decay_steps: null
+    lr_decay_begin: null
+    steps: 20
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+    solver: ddpm
+  num_noises: 25
+  linear: false
+  ranking: true
+
+norm_obs: true
