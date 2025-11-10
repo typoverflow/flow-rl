@@ -1,0 +1,48 @@
+# @package _global_
+
+eval:
+  interval: 10000
+
+train_steps: 100_000
+
+algo:
+  name: dac
+  temperature: 0.0
+  start_actor_ema: 1000
+  eta: 0.05
+  eta_min: 0.001
+  eta_max: 100.0
+  eta_lr: 0.0
+  eta_threshold: 1.0
+  diffusion:
+    noise_schedule: vp
+    resnet: false
+    dropout: 0.0
+    layer_norm: false
+    time_dim: 64
+    mlp_hidden_dims: [256, 256, 256]
+    resnet_hidden_dims: [256, 256]
+    solver: ddpm
+    steps: 50
+    clip_sampler: false
+    x_min: -1.0
+    x_max: 1.0
+    lr: 0.0003
+    lr_decay_steps: ${train_steps}
+    clip_grad_norm: 1.0
+    ema: 0.005
+    ema_every: 5
+  critic:
+    discount: 0.99
+    q_target: lcb
+    maxQ: false
+    ensemble_size: 10
+    rho: 0.0
+    hidden_dims: [256, 256, 256]
+    lr: 0.0003
+    lr_decay_steps: ${train_steps}
+    clip_grad_norm: 1.0
+    layer_norm: false
+    ema: 0.005
+    ema_every: 1
+    num_samples: 10

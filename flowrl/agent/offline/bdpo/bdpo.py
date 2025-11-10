@@ -151,7 +151,6 @@ def jit_update_critic(
         next_action
     )
     rng, q0_target_value = get_target(rng, q0_target_value, maxQ, q_target, rho)
-    q0_target_value = batch.reward + discount * (1-batch.terminal) * q0_target_value
 
     q0_xt, q0_actor_eps = history
     q0_t = jnp.arange(T, 0, -1).repeat(B*num_q_samples, axis=0).reshape(T, B, num_q_samples, 1)
@@ -164,6 +163,7 @@ def jit_update_critic(
     q0_penalty = q0_penalty.sum(axis=0).mean(axis=-2).sum(axis=-1, keepdims=True)
 
     q0_target_value = q0_target_value - eta * q0_penalty
+    q0_target_value = batch.reward + discount * (1-batch.terminal) * q0_target_value
 
     # vt target
     obs_repeat = batch.obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
