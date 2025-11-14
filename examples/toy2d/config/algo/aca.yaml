@@ -21,7 +21,7 @@ algo:
   ema: 0.005
   feature_ema: 0.005
   clip_grad_norm: null
-  temp: 0.1
+  temp: 0.2
   diffusion:
     time_dim: 64
     mlp_hidden_dims: [512, 512, 512]
@@ -31,11 +31,10 @@ algo:
     lr_decay_begin: null
     steps: 20
     clip_sampler: true
-    x_min: -1.0
-    x_max: 1.0
+    x_min: -5.0
+    x_max: 5.0
+    # solver: ddpm
     solver: ddpm
   num_noises: 25
   linear: false
   ranking: true
-
-# norm_obs: true

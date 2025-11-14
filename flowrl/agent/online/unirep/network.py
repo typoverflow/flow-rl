@@ -9,13 +9,142 @@ from flowrl.flow.continuous_ddpm import cosine_noise_schedule
 from flowrl.flow.ddpm import get_noise_schedule
 from flowrl.functional.activation import l2_normalize, mish
 from flowrl.module.critic import Critic
-from flowrl.module.mlp import ResidualMLP
+from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.rff import RffReward
 from flowrl.module.time_embedding import LearnableFourierEmbedding
 from flowrl.types import *
 from flowrl.types import Sequence
 
+
+class ResidualCritic(nn.Module):
+    time_embedding: nn.Module
+    hidden_dims: Sequence[int]
+    activation: Callable = nn.relu
+
+    @nn.compact
+    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray, t: jnp.ndarray, training: bool=False):
+        t_ff = self.time_embedding()(t)
+        t_ff = MLP(
+            hidden_dims=[t_ff.shape[-1], t_ff.shape[-1]],
+            activation=mish,
+        )(t_ff)
+        x = jnp.concatenate([item for item in [obs, action, t_ff] if item is not None], axis=-1)
+        x = ResidualMLP(
+            hidden_dims=self.hidden_dims,
+            output_dim=1,
+            multiplier=1,
+            activation=self.activation,
+            layer_norm=True,
+        )(x, training)
+        return x
+
+class EnsembleResidualCritic(nn.Module):
+    time_embedding: nn.Module
+    hidden_dims: Sequence[int]
+    activation: Callable = nn.relu
+    ensemble_size: int = 2
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: Optional[jnp.ndarray] = None,
+        action: Optional[jnp.ndarray] = None,
+        t: Optional[jnp.ndarray] = None,
+        training: bool = False,
+    ) -> jnp.ndarray:
+        vmap_critic = nn.vmap(
+            ResidualCritic,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.ensemble_size
+        )
+        x = vmap_critic(
+            time_embedding=self.time_embedding,
+            hidden_dims=self.hidden_dims,
+            activation=self.activation,
+        )(obs, action, t, training)
+        return x
+
+from flowrl.module.time_embedding import PositionalEmbedding
+
+
+class ACACritic(nn.Module):
+    time_dim: int
+    hidden_dims: Sequence[int]
+    activation: Callable
+
+    @nn.compact
+    def __call__(self, obs, action, t, training=False):
+        t_ff = PositionalEmbedding(self.time_dim)(t)
+        t_ff = nn.Dense(2*self.time_dim)(t_ff)
+        t_ff = self.activation(t_ff)
+        t_ff = nn.Dense(self.time_dim)(t_ff)
+        x = jnp.concatenate([obs, action, t_ff], axis=-1)
+        return MLP(
+            hidden_dims=self.hidden_dims,
+            output_dim=1,
+            activation=self.activation,
+            layer_norm=False
+        )(x, training)
+
+class EnsembleACACritic(nn.Module):
+    time_dim: int
+    hidden_dims: Sequence[int]
+    activation: Callable
+    ensemble_size: int
+
+    @nn.compact
+    def __call__(self, obs, action, t, training=False):
+        vmap_critic = nn.vmap(
+            ACACritic,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.ensemble_size
+        )
+        return vmap_critic(
+            time_dim=self.time_dim,
+            hidden_dims=self.hidden_dims,
+            activation=self.activation,
+        )(obs, action, t, training)
+
+
+class SeparateCritic(nn.Module):
+    hidden_dims: Sequence[int]
+    activation: Callable
+    ensemble_size: int
+
+    @nn.compact
+    def __call__(self, obs, action, t, training=False):
+        vmap_critic = nn.vmap(
+            MLP,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=-1,
+            axis_size=self.ensemble_size
+        )
+        x = jnp.concatenate([obs, action], axis=-1)
+        out = vmap_critic(
+            hidden_dims=self.hidden_dims,
+            output_dim=1,
+            activation=self.activation,
+            layer_norm=False
+        )(x, training)
+        out = out.reshape(*out.shape[:-2], -1)
+        # Using jnp.take_along_axis for batched index selection (broadcasting as needed)
+        # out: (E, B, T, 1), need to select on axis=2 using t_indices[b] for each batch
+        # We assume batch dim is axis=1, time axis=2
+        out = jnp.take_along_axis(
+            out,
+            t.astype(jnp.int32),
+            axis=-1
+        )
+        return out
 
 class FactorizedNCE(nn.Module):
     obs_dim: int
