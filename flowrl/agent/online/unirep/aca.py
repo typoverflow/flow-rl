@@ -10,11 +10,12 @@ from flowrl.agent.online.unirep.network import FactorizedNCE, update_factorized_
 from flowrl.config.online.mujoco.algo.unirep.aca import ACAConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.flow.ddpm import DDPM, DDPMBackbone
-from flowrl.functional.activation import atanh, l2_normalize, mish, tanh
+from flowrl.functional.activation import l2_normalize, mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic, EnsembleCriticT
+from flowrl.module.critic import Critic, EnsembleCritic, EnsembleCriticT
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
+from flowrl.module.rff import RffEnsembleCritic
 from flowrl.module.time_embedding import LearnableFourierEmbedding, PositionalEmbedding
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
@@ -43,12 +44,14 @@ def jit_sample_actions(
     else:
         # t0 = jnp.zeros((obs_repeat.shape[0], num_samples, 1))
         # f0 = nce_target(obs_repeat, actions, t0, method="forward_phi")
-        qs = critic(obs_repeat, actions)
-        qs = qs.min(axis=0).reshape(B, num_samples)
+        # qs = critic(obs_repeat, actions)
+        t1 = jnp.ones((obs_repeat.shape[0], num_samples, 1), dtype=jnp.int32)
+        f1 = nce_target(obs_repeat, actions, t1, method="forward_phi")
+        qs = critic(f1).min(axis=0).reshape(B, num_samples)
+        # qs = qs.min(axis=0).reshape(B, num_samples)
         best_idx = qs.argmax(axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions
-
 
 @partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
 def jit_td3_sample_action(
@@ -81,26 +84,28 @@ def jit_update_critic(
 ) -> Tuple[PRNGKey, Model, Metric]:
     # q0 target
     B = batch.obs.shape[0]
-    t0 = jnp.ones((batch.obs.shape[0], 1))
+    A = batch.action.shape[-1]
+    t1 = jnp.ones((batch.obs.shape[0], 1), dtype=jnp.int32)
+    a0 = batch.action
+
+
     rng, next_aT_rng = jax.random.split(rng)
-    next_aT = jax.random.normal(next_aT_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
+    next_a0 = backup(batch.next_obs, training=False)
+    # next_aT = jax.random.normal(next_aT_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
     # rng, next_a0, _ = actor.sample(rng, next_aT, batch.next_obs, training=False, solver=solver)
-    next_a0 = backup(batch.next_obs)
     # next_f0 = nce_target(batch.next_obs, next_a0, t0, method="forward_phi")
     # q0_target = critic_target(next_f0)
-    q0_target = critic_target(batch.next_obs, next_a0)
+    next_f1 = nce_target(batch.next_obs, next_a0, t1, method="forward_phi")
+    f1 = nce_target(batch.obs, a0, t1, method="forward_phi")
+    # q0_target = critic_target(batch.next_obs, next_a0)
+    q0_target = critic_target(next_f1)
     q0_target = batch.reward + discount * (1 - batch.terminal) * q0_target.min(axis=0)
 
-    # qt target
-    a0 = batch.action
-    # f0 = nce_target(batch.obs, a0, t0, method="forward_phi")
-    qt_target = critic_target(batch.obs, a0).mean(axis=0)
-    # qt_target = critic(batch.obs, a0).mean(axis=0)
 
     # features
     # rng, at, t, eps = actor.add_noise(rng, a0)
     # weight_t = actor.alpha_hats[t] / (1-actor.alpha_hats[t])
-    weight_t = 1.0
+    # weight_t = 1.0
     # ft = nce_target(batch.obs, at, t, method="forward_phi")
     # rng, t_rng, noise_rng = jax.random.split(rng, 3)
     # t = jax.random.randint(t_rng, (*a0.shape[:-1], 1), 0, actor.steps+1)
@@ -109,105 +114,44 @@ def jit_update_critic(
     # at = jnp.sqrt(actor.alpha_hats[t]) * a0 + jnp.sqrt(1 - actor.alpha_hats[t]) * eps
 
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
+        # f0 = nce_target(batch.obs, a0, t0, method="forward_phi")
         q0_pred = critic.apply(
             {"params": critic_params},
-            batch.obs,
-            a0,
-            # t0,
-            # training=True,
-            rngs={"dropout": dropout_rng},
+            f1,
+            # batch.obs,
+            # a0,
         )
-        # qt_pred = value.apply(
-        #     {"params": critic_params},
-        #     batch.obs,
-        #     at,
-        #     t,
-        #     # training=True,
-        #     rngs={"dropout": dropout_rng},
-        # )
         critic_loss = (
             ((q0_pred - q0_target[jnp.newaxis, :])**2).mean()
-            # + ((qt_pred - qt_target[jnp.newaxis, :])**2).mean()
         )
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q0_mean": q0_pred.mean(),
-            # "misc/qt_mean": qt_pred.mean(),
             "misc/reward": batch.reward.mean(),
             "misc/next_action_l1": jnp.abs(next_a0).mean(),
+            "misc/q0_target": q0_target.mean(),
         }
 
     new_critic, critic_metrics = critic.apply_gradient(critic_loss_fn)
 
+    # rng, at, t, eps = actor.add_noise(rng, a0)
+    rng, t_rng, noise_rng = jax.random.split(rng, 3)
+    t1 = jnp.ones((batch.obs.shape[0], 1), dtype=jnp.int32)
+    eps = jax.random.normal(noise_rng, a0.shape)
+    at = jnp.sqrt(actor.alpha_hats[t1]) * a0 + jnp.sqrt(1 - actor.alpha_hats[t1]) * eps
+    ft = nce_target(batch.obs, at, t1, method="forward_phi")
+
     def value_loss_fn(value_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        value_loss = 0
-        for t in range(0, actor.steps+1):
-            t_input = jnp.ones((B, 1)) * t
-            noise_rng, dropout_rng = jax.random.split(dropout_rng)
-            eps = jax.random.normal(noise_rng, a0.shape)
-            at = jnp.sqrt(actor.alpha_hats[t]) * a0 + jnp.sqrt(1 - actor.alpha_hats[t]) * eps
-            qt_pred = value.apply(
-                {"params": value_params},
-                batch.obs,
-                at,
-                t_input,
-                training=True,
-                rngs={"dropout": dropout_rng},
-            )
-            value_loss += ((qt_pred - q0_target[:])**2).mean()
+        qt_pred = value.apply(
+            {"params": value_params},
+            ft,
+        )
+        value_loss = ((qt_pred - q0_target)**2).mean()
         return value_loss, {
             "loss/value_loss": value_loss,
             "misc/qt_mean": qt_pred.mean(),
         }
     new_value, value_metrics = value.apply_gradient(value_loss_fn)
-
-    # t_zero = jnp.zeros((B, 1))
-    # v0_target = value_target(batch.next_obs, next_a0, t_zero)
-    # v0_target = v0_target.min(axis=0)
-    # v0_target = batch.reward + discount * (1-batch.terminal) * v0_target
-
-    # def td_loss_fn(value_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-    #     v0_pred = value.apply(
-    #         {"params": value_params},
-    #         batch.obs,
-    #         batch.action,
-    #         t_zero,
-    #         training=True,
-    #         rngs={"dropout": dropout_rng},
-    #     )
-    #     td_loss = ((v0_pred - v0_target[jnp.newaxis, :])**2).mean()
-    #     return td_loss, {
-    #         "loss/td_loss": td_loss,
-    #     }
-    # # value, td_metrics = value.apply_gradient(td_loss_fn)
-    # td_metrics = {}
-
-    # rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
-    # t = jax.random.randint(rng1, (B, 1), 0, actor.steps)
-    # eps = jax.random.normal(rng2, batch.action.shape)
-    # at = jnp.sqrt(actor.alpha_hats[t]) * batch.action + jnp.sqrt(1 - actor.alpha_hats[t]) * eps
-    # vt_target = value(batch.obs, batch.action, t_zero).mean(axis=0)
-    # def nontd_loss_fn(value_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-    #     vt_pred = value.apply(
-    #         {"params": value_params},
-    #         batch.obs,
-    #         at,
-    #         t,
-    #         training=True,
-    #         rngs={"dropout": dropout_rng},
-    #     )
-    #     nontd_loss = ((vt_pred - q0_target[jnp.newaxis, :])**2).mean()
-    #     return nontd_loss, {
-    #         "loss/nontd_loss": nontd_loss,
-    #     }
-    # new_value, nontd_metrics = value.apply_gradient(nontd_loss_fn)
-
-    # return rng, new_critic, new_value, {
-    #     **critic_metrics,
-    #     # **value_metrics,
-    #     **td_metrics,
-    #     **nontd_metrics,
-    # }
 
     return rng, new_critic, new_value, {
         **critic_metrics,
@@ -219,6 +163,7 @@ def jit_compute_metrics(
     actor: Model,
     critic: Model,
     value: Model,
+    nce_target: Model,
     batch: Batch,
 ) -> Tuple[PRNGKey, Metric]:
     B, S = batch.obs.shape
@@ -231,7 +176,9 @@ def jit_compute_metrics(
     action_repeat = jax.random.uniform(action_rng, (B, num_actions, A), minval=-1.0, maxval=1.0)
 
     def get_critic(at, obs):
-        q = critic(obs, at)
+        t1 = jnp.ones((1, ), dtype=jnp.int32)
+        f1 = nce_target(obs, at, t1, method="forward_phi")
+        q = critic(f1)
         return q.mean()
     all_critic, all_critic_grad = jax.vmap(jax.value_and_grad(get_critic))(
         action_repeat.reshape(-1, A),
@@ -240,13 +187,13 @@ def jit_compute_metrics(
     all_critic = all_critic.reshape(B, num_actions, 1)
     all_critic_grad = all_critic_grad.reshape(B, num_actions, -1)
     metrics.update({
-        f"q_mean/critic": all_critic.mean(),
         f"q_std/critic": all_critic.std(axis=1).mean(),
         f"q_grad/critic": jnp.abs(all_critic_grad).mean(),
     })
 
     def get_value(at, obs, t):
-        q = value(obs, at, t)
+        ft = nce_target(obs, at, t, method="forward_phi")
+        q = value(ft)
         return q.mean()
 
     for t in [0] + list(range(1, actor.steps+1, actor.steps//5)):
@@ -259,7 +206,6 @@ def jit_compute_metrics(
         all_value = all_value.reshape(B, num_actions, 1)
         all_value_grad = all_value_grad.reshape(B, num_actions, -1)
         metrics.update({
-            f"q_mean/value_{t}": all_value.mean(),
             f"q_std/value_{t}": all_value.std(axis=1).mean(),
             f"q_grad/value_{t}": jnp.abs(all_value_grad).mean(),
         })
@@ -278,16 +224,17 @@ def jit_update_actor(
     temp: float,
 ) -> Tuple[PRNGKey, Model, Metric]:
     a0 = batch.action
+    t1 = jnp.ones((batch.obs.shape[0], 1), dtype=jnp.int32)
     rng, at, t, eps = actor.add_noise(rng, a0)
-    # alpha, sigma = actor.noise_schedule_func(t)
     sigma = jnp.sqrt(1 - actor.alpha_hats[t])
     def get_q_value(at: jnp.ndarray, obs: jnp.ndarray, t: jnp.ndarray) -> jnp.ndarray:
-        # ft = nce_target(obs, at, t, method="forward_phi")
-        q = value_target(obs, at, t)
-        # q = critic_target(obs, at)
-        return q.mean(axis=0).mean()
+        t1 = jnp.ones(t.shape, dtype=jnp.int32)
+        ft = nce_target(obs, at, t1, method="forward_phi")
+        q = value_target(ft)
+        return q.mean()
     q_grad_fn = jax.vmap(jax.grad(get_q_value))
     q_grad = q_grad_fn(at, batch.obs, t)
+    q_grad_l1 = jnp.abs(q_grad).mean()
     eps_estimation = - sigma * q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
     # eps_estimation = -sigma * l2_normalize(q_grad) / temp
 
@@ -304,6 +251,7 @@ def jit_update_actor(
         return loss, {
             "loss/actor_loss": loss,
             "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
+            "misc/q_grad_l1": q_grad_l1,
         }
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
 
@@ -314,11 +262,18 @@ def jit_update_actor(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        q = critic_target(batch.obs, new_action)
-        backup_loss = - q.mean()
-        return backup_loss, {}
+        f1 = nce_target(batch.obs, new_action, t1, method="forward_phi")
+        q = critic_target(f1)
+        loss = - q.mean()
+        return loss, {
+            "loss/backup_loss": loss,
+        }
     new_backup, backup_metrics = backup.apply_gradient(backup_loss_fn)
-    return rng, new_actor, new_backup, actor_metrics
+
+    return rng, new_actor, new_backup, {
+        **actor_metrics,
+        **backup_metrics,
+    }
 
 
 class ACAAgent(BaseAgent):
@@ -440,58 +395,53 @@ class ACAAgent(BaseAgent):
             "relu": jax.nn.relu,
             "elu": jax.nn.elu,
         }[cfg.critic_activation]
-        # critic_def = nn.Sequential([
-        #     nn.LayerNorm(),
-        #     EnsembleCritic(
-        #         hidden_dims=cfg.critic_hidden_dims,
-        #         activation=critic_activation,
-        #         layer_norm=True,
-        #         dropout=None,
-        #         ensemble_size=2,
-        #     )
-        # ])
-        # self.critic = Model.create(
-        #     critic_def,
-        #     critic_rng,
-        #     inputs=(jnp.ones((1, self.feature_dim))),
-        #     optimizer=optax.adam(learning_rate=cfg.critic_lr),
+        # critic_def = EnsembleCritic(
+        #     hidden_dims=[512, 512],
+        #     activation=critic_activation,
+        #     ensemble_size=2,
+        #     layer_norm=True,
         # )
-        # self.critic_target = Model.create(
-        #     critic_def,
-        #     critic_rng,
-        #     inputs=(jnp.ones((1, self.feature_dim))),
-        # )
-        critic_def = EnsembleCritic(
-            # time_embedding=time_embedding,
-            hidden_dims=[512, 512, 512],
-            activation=critic_activation,
+        critic_def = RffEnsembleCritic(
+            feature_dim=self.feature_dim,
+            hidden_dims=[512,],
+            rff_dim=cfg.rff_dim,
             ensemble_size=2,
-            layer_norm=False,
         )
         self.critic = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=(jnp.ones((1, self.feature_dim))),
             optimizer=optax.adam(learning_rate=cfg.critic_lr),
         )
         self.critic_target = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=(jnp.ones((1, self.feature_dim))),
         )
-        # value_def = EnsembleCriticT(
-        #     time_embedding=time_embedding,
-        #     hidden_dims=[512, 512, 512],
-        #     activation=critic_activation,
-        #     ensemble_size=2,
-        #     layer_norm=True,
+
+        value_def = Critic(
+            hidden_dims=[512, 512],
+            activation=critic_activation,
+            layer_norm=True,
+        )
+        self.value = Model.create(
+            value_def,
+            value_rng,
+            inputs=(jnp.ones((1, self.feature_dim))),
+            optimizer=optax.adam(learning_rate=cfg.critic_lr),
+        )
+        self.value_target = Model.create(
+            value_def,
+            value_rng,
+            inputs=(jnp.ones((1, self.feature_dim))),
+        )
+
+        # from flowrl.agent.online.unirep.network import (
+        #     EnsembleACACritic,
+        #     EnsembleResidualCritic,
+        #     ResidualCritic,
+        #     SeparateCritic,
         # )
-        from flowrl.agent.online.unirep.network import (
-            EnsembleACACritic,
-            EnsembleResidualCritic,
-            ResidualCritic,
-            SeparateCritic,
-        )
 
         # value_def = EnsembleACACritic(
         #     time_dim=16,
@@ -504,44 +454,36 @@ class ACAAgent(BaseAgent):
         #     hidden_dims=[512, 512, 512],
         #     activation=jax.nn.mish,
         # )
-        value_def = SeparateCritic(
-            hidden_dims=[512, 512, 512],
-            activation=jax.nn.mish,
-            ensemble_size=cfg.diffusion.steps+1,
-        )
-        self.value = Model.create(
-            value_def,
-            value_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
-            optimizer=optax.adam(learning_rate=cfg.critic_lr),
-        )
-        self.value_target = Model.create(
-            value_def,
-            value_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
-        )
+        # value_def = SeparateCritic(
+        #     hidden_dims=[512, 512, 512],
+        #     activation=jax.nn.mish,
+        #     ensemble_size=cfg.diffusion.steps+1,
+        # )
+        # self.value = Model.create(
+        #     value_def,
+        #     value_rng,
+        #     inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
+        #     optimizer=optax.adam(learning_rate=cfg.critic_lr),
+        # )
+        # self.value_target = Model.create(
+        #     value_def,
+        #     value_rng,
+        #     inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
+        # )
         # define tracking variables
         self._n_training_steps = 0
 
     def train_step(self, batch: Batch, step: int) -> Metric:
         metrics = {}
-        # batch = Batch(
-        #     obs=batch.obs,
-        #     action=atanh(batch.action, scale=5.0),
-        #     next_obs=batch.next_obs,
-        #     reward=batch.reward,
-        #     terminal=batch.terminal,
-        #     next_action=atanh(batch.next_action, scale=5.0),
-        # )
 
-        # self.rng, self.nce, nce_metrics = update_factorized_nce(
-        #     self.rng,
-        #     self.nce,
-        #     batch,
-        #     self.ranking,
-        #     self.reward_coef,
-        # )
-        # metrics.update(nce_metrics)
+        self.rng, self.nce, nce_metrics = update_factorized_nce(
+            self.rng,
+            self.nce,
+            batch,
+            self.ranking,
+            self.reward_coef,
+        )
+        metrics.update(nce_metrics)
         self.rng, self.critic, self.value, critic_metrics = jit_update_critic(
             self.rng,
             self.critic,
@@ -578,6 +520,7 @@ class ACAAgent(BaseAgent):
                 self.actor,
                 self.critic,
                 self.value,
+                self.nce_target,
                 batch,
             )
 
@@ -607,7 +550,7 @@ class ACAAgent(BaseAgent):
         else:
             self.rng, action_rng = jax.random.split(self.rng)
             action = jit_td3_sample_action(
-                self.rng,
+                action_rng,
                 self.backup,
                 obs,
                 deterministic,

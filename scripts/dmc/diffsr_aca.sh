@@ -1,7 +1,7 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3)  # Modify this array to specify which GPUs to use
-SEEDS=(0)
-NUM_EACH_GPU=2
+SEEDS=(0 1)
+NUM_EACH_GPU=3
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
@@ -37,10 +37,8 @@ TASKS=(
 )
 
 SHARED_ARGS=(
-    "algo=aca"
-    "algo.temp=0.1"
-    # "algo.critic_activation=relu"
-    "log.tag=backup_repr_rff-tanh-nonorm-rep_multi-rl_onlyuse0-512x4"
+    "algo=diffsr_aca"
+    "log.tag=new-critic_only_1-actor_only_1-temp0.1-normal_critic"
     "log.project=flow-rl"
     "log.entity=lambda-rl"
 )

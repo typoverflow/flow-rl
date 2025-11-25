@@ -12,7 +12,7 @@ from flowrl.module.critic import Critic
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.rff import RffReward
-from flowrl.module.time_embedding import LearnableFourierEmbedding
+from flowrl.module.time_embedding import LearnableFourierEmbedding, PositionalEmbedding
 from flowrl.types import *
 from flowrl.types import Sequence
 
@@ -23,13 +23,13 @@ class ResidualCritic(nn.Module):
     activation: Callable = nn.relu
 
     @nn.compact
-    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray, t: jnp.ndarray, training: bool=False):
+    def __call__(self, ft: jnp.ndarray, t: jnp.ndarray, training: bool=False):
         t_ff = self.time_embedding()(t)
         t_ff = MLP(
             hidden_dims=[t_ff.shape[-1], t_ff.shape[-1]],
             activation=mish,
         )(t_ff)
-        x = jnp.concatenate([item for item in [obs, action, t_ff] if item is not None], axis=-1)
+        x = jnp.concatenate([item for item in [ft, t_ff] if item is not None], axis=-1)
         x = ResidualMLP(
             hidden_dims=self.hidden_dims,
             output_dim=1,
@@ -67,9 +67,6 @@ class EnsembleResidualCritic(nn.Module):
             activation=self.activation,
         )(obs, action, t, training)
         return x
-
-from flowrl.module.time_embedding import PositionalEmbedding
-
 
 class ACACritic(nn.Module):
     time_dim: int
@@ -158,8 +155,11 @@ class FactorizedNCE(nn.Module):
     ranking: bool = False
 
     def setup(self):
-        self.mlp_t = nn.Sequential(
-            [LearnableFourierEmbedding(128), nn.Dense(256), mish, nn.Dense(128)]
+        self.mlp_t1 = nn.Sequential(
+            [PositionalEmbedding(128), nn.Dense(256), mish, nn.Dense(128)]
+        )
+        self.mlp_t2 = nn.Sequential(
+            [PositionalEmbedding(128), nn.Dense(256), mish, nn.Dense(128)]
         )
         self.mlp_phi = ResidualMLP(
             self.phi_hidden_dims,
@@ -177,20 +177,24 @@ class FactorizedNCE(nn.Module):
             layer_norm=True,
             dropout=None,
         )
-        # self.reward = RffReward(
-        #     self.feature_dim,
-        #     self.reward_hidden_dims,
-        #     rff_dim=self.rff_dim,
-        # )
-        self.reward = Critic(
-            hidden_dims=self.reward_hidden_dims,
-            activation=nn.elu,
-            layer_norm=True,
-            dropout=None,
+        self.reward = RffReward(
+            self.feature_dim,
+            [512,],
+            rff_dim=self.rff_dim,
         )
+        # self.reward = Critic(
+        #     hidden_dims=self.reward_hidden_dims,
+        #     activation=nn.elu,
+        #     layer_norm=True,
+        #     dropout=None,
+        # )
         if self.num_noises > 0:
             self.use_noise_perturbation = True
-            self.noise_schedule_fn = cosine_noise_schedule
+            from flowrl.flow.ddpm import cosine_beta_schedule
+            betas = cosine_beta_schedule(T=self.num_noises)
+            betas = jnp.concatenate([jnp.zeros((1,)), betas])
+            alphas = 1 - betas
+            self.alpha_hats = jnp.cumprod(alphas)
         else:
             self.use_noise_perturbation = False
         self.N = max(self.num_noises, 1)
@@ -201,15 +205,18 @@ class FactorizedNCE(nn.Module):
 
     def forward_phi(self, s, at, t):
         x = jnp.concat([s, at], axis=-1)
-        if t is not None:
-            t_ff = self.mlp_t(t)
-            x = jnp.concat([x, t_ff], axis=-1)
+        t_ff = self.mlp_t1(t)
+        x = jnp.concat([x, t_ff], axis=-1)
         x = self.mlp_phi(x)
         x = l2_normalize(x, group_size=None)
+        # x = jnp.tanh(x)
         return x
 
-    def forward_mu(self, sp):
+    def forward_mu(self, sp, t):
+        t_ff = self.mlp_t2(t)
+        sp = jnp.concat([sp, t_ff], axis=-1)
         sp = self.mlp_mu(sp)
+        sp = jnp.tanh(sp)
         return sp
 
     def forward_reward(self, x: jnp.ndarray):  # for z_phi
@@ -221,27 +228,38 @@ class FactorizedNCE(nn.Module):
         s: jnp.ndarray,
         a: jnp.ndarray,
         sp: jnp.ndarray,
-        z_mu: jnp.ndarray | None=None
     ):
         B, D = sp.shape
-        rng, t_rng, eps_rng = jax.random.split(rng, 3)
-        if z_mu is None:
-            z_mu = self.forward_mu(sp)
+        rng, t_rng, eps1_rng, eps2_rng = jax.random.split(rng, 4)
         if self.use_noise_perturbation:
-            s = jnp.broadcast_to(s, (self.N, B, s.shape[-1]))
-            a0 = jnp.broadcast_to(a, (self.N, B, a.shape[-1]))
-            t = jax.random.uniform(t_rng, (self.N,), dtype=jnp.float32) # check removing min val and max val is valid
-            t = jnp.repeat(t, B).reshape(self.N, B, 1)
-            eps = jax.random.normal(eps_rng, a0.shape)
-            alpha, sigma = self.noise_schedule_fn(t)
-            at = alpha * a0 + sigma * eps
+
+            # perturb sp, (N, B, D) with the noise level shared in each N
+            sp0 = jnp.broadcast_to(sp, (self.N, B, sp.shape[-1]))
+            t_sp = jnp.arange(1, self.num_noises+1)
+            t_sp = jnp.repeat(t_sp, B).reshape(self.N, B, 1)
+            eps_sp = jax.random.normal(eps1_rng, sp0.shape)
+            alpha, sigma = jnp.sqrt(self.alpha_hats[t_sp]), jnp.sqrt(1 - self.alpha_hats[t_sp])
+            spt = alpha * sp0 + sigma * eps_sp
+
+            # perturb a, (N, B, D) with noise level independent across N
+            a0 = a
+            t_a = jax.random.randint(t_rng, (B, 1), 1, self.num_noises+1)
+            # t_a = jnp.ones((B, 1), dtype=jnp.int32)
+            eps_a = jax.random.normal(eps2_rng, a0.shape)
+            alpha, sigma = jnp.sqrt(self.alpha_hats[t_a]), jnp.sqrt(1 - self.alpha_hats[t_a])
+            at = alpha * a0 + sigma * eps_a
+            # at = jnp.broadcast_to(at, (self.N, B, at.shape[-1]))
+            # t_a = jnp.broadcast_to(t_a, (self.N, B, 1))
         else:
             s = jnp.expand_dims(s, 0)
             at = jnp.expand_dims(a, 0)
             t = None
-        z_phi = self.forward_phi(s, at, t)
-        z_mu = jnp.broadcast_to(z_mu, (self.N, B, self.feature_dim))
-        logits = jax.lax.batch_matmul(z_phi, jnp.swapaxes(z_mu, -1, -2))
+        z_phi = self.forward_phi(s, at, t_a)
+        z_mu = self.forward_mu(spt, t_sp)
+        logits = jax.lax.batch_matmul(
+            jnp.broadcast_to(z_phi, (self.N, B, z_phi.shape[-1])),
+            jnp.swapaxes(z_mu, -1, -2)
+        )
         logits = logits / jnp.exp(self.normalizer[:, None, None])
         rewards = self.forward_reward(z_phi)
         return logits, rewards
@@ -278,14 +296,12 @@ def update_factorized_nce(
         labels = jnp.eye(B)
 
     def loss_fn(nce_params: Param, dropout_rng: PRNGKey):
-        z_mu = nce.apply({"params": nce_params}, batch.next_obs, method="forward_mu")
         logits, rewards = nce.apply(
             {"params": nce_params},
             logits_rng,
             batch.obs,
             batch.action,
             batch.next_obs,
-            z_mu,
             method="forward_logits",
         )
 

@@ -5,7 +5,7 @@ from ..base import BaseAlgoConfig
 
 
 @dataclass
-class CtrlTD3Config(BaseAlgoConfig):
+class CtrlSRTD3Config(BaseAlgoConfig):
     name: str
     actor_update_freq: int
     target_update_freq: int

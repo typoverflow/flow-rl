@@ -5,9 +5,10 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from flowrl.agent.online.ctrl.network import FactorizedNCE, update_factorized_nce
+import flowrl.module.initialization as init
+from flowrl.agent.online.diffsr.network import FactorizedDDPM, update_factorized_ddpm
 from flowrl.agent.online.td3 import TD3Agent
-from flowrl.config.online.mujoco.algo.ctrl.ctrl_td3 import CtrlTD3Config
+from flowrl.config.online.mujoco.algo.diffsr import DiffSRTD3Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.mlp import MLP
@@ -22,7 +23,7 @@ def update_critic(
     critic: Model,
     critic_target: Model,
     actor_target: Model,
-    nce_target: Model,
+    ddpm_target: Model,
     batch: Batch,
     discount: float,
     target_policy_noise: float,
@@ -34,7 +35,7 @@ def update_critic(
     noise = jnp.clip(noise, -noise_clip, noise_clip)
     next_action = jnp.clip(actor_target(batch.next_obs) + noise, -1.0, 1.0)
 
-    next_feature = nce_target(batch.next_obs, next_action, method="forward_phi")
+    next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
     q_target = critic_target(next_feature).min(0)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
@@ -42,7 +43,7 @@ def update_critic(
     if back_critic_grad:
         raise NotImplementedError("no back critic grad exists")
 
-    feature = nce_target(batch.obs, batch.action, method="forward_phi")
+    feature = ddpm_target(batch.obs, batch.action, method="forward_phi")
 
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         q_pred = critic.apply(
@@ -65,7 +66,7 @@ def update_critic(
 def update_actor(
     rng: PRNGKey,
     actor: Model,
-    nce_target: Model,
+    ddpm_target: Model,
     critic: Model,
     batch: Batch,
 ) -> Tuple[PRNGKey, Model, Metric]:
@@ -78,7 +79,7 @@ def update_actor(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        new_feature = nce_target(batch.obs, new_action, method="forward_phi")
+        new_feature = ddpm_target(batch.obs, new_action, method="forward_phi")
         q = critic(new_feature)
         actor_loss = - q.mean()
 
@@ -90,49 +91,42 @@ def update_actor(
     return rng, new_actor, metrics
 
 
-class CtrlTD3Agent(TD3Agent):
+class DiffSRTD3Agent(TD3Agent):
     """
-    CTRL with Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
+    Diff-SR with Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
     """
 
-    name = "CtrlTD3Agent"
-    model_names = ["nce", "nce_target", "actor", "actor_target", "critic", "critic_target"]
+    name = "DiffSRTD3Agent"
+    model_names = ["ddpm", "ddpm_target", "actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: CtrlTD3Config, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: DiffSRTD3Config, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
 
-        self.ctrl_coef = cfg.ctrl_coef
+        self.ddpm_coef = cfg.ddpm_coef
         self.critic_coef = cfg.critic_coef
-
-        self.linear = cfg.linear
-        self.ranking = cfg.ranking
-        self.feature_dim = cfg.feature_dim
-        self.num_noises = cfg.num_noises
         self.reward_coef = cfg.reward_coef
-        self.rff_dim = cfg.rff_dim
-
-        # sanity checks for the hyper-parameters
-        assert not self.linear, "linear mode is not supported yet"
+        self.num_noises = cfg.num_noises
+        self.feature_dim = cfg.feature_dim
 
         # networks
-        self.rng, nce_rng, nce_init_rng, actor_rng, critic_rng = jax.random.split(self.rng, 5)
-        nce_def = FactorizedNCE(
+        self.rng, ddpm_rng, ddpm_init_rng, actor_rng, critic_rng = jax.random.split(self.rng, 5)
+        ddpm_def = FactorizedDDPM(
             self.obs_dim,
             self.act_dim,
             self.feature_dim,
+            cfg.embed_dim,
             cfg.phi_hidden_dims,
             cfg.mu_hidden_dims,
             cfg.reward_hidden_dims,
             cfg.rff_dim,
             cfg.num_noises,
-            self.ranking,
         )
-        self.nce = Model.create(
-            nce_def,
-            nce_rng,
+        self.ddpm = Model.create(
+            ddpm_def,
+            ddpm_rng,
             inputs=(
-                nce_init_rng,
+                ddpm_init_rng,
                 jnp.ones((1, self.obs_dim)),
                 jnp.ones((1, self.act_dim)),
                 jnp.ones((1, self.obs_dim)),
@@ -140,11 +134,11 @@ class CtrlTD3Agent(TD3Agent):
             optimizer=optax.adam(learning_rate=cfg.feature_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
-        self.nce_target = Model.create(
-            nce_def,
-            nce_rng,
+        self.ddpm_target = Model.create(
+            ddpm_def,
+            ddpm_rng,
             inputs=(
-                nce_init_rng,
+                ddpm_init_rng,
                 jnp.ones((1, self.obs_dim)),
                 jnp.ones((1, self.act_dim)),
                 jnp.ones((1, self.obs_dim)),
@@ -156,6 +150,8 @@ class CtrlTD3Agent(TD3Agent):
                 hidden_dims=cfg.actor_hidden_dims,
                 layer_norm=cfg.layer_norm,
                 dropout=None,
+                kernel_init=init.pytorch_kernel_init,
+                bias_init=init.pytorch_bias_init,
             ),
             obs_dim=self.obs_dim,
             action_dim=self.act_dim,
@@ -165,6 +161,8 @@ class CtrlTD3Agent(TD3Agent):
             hidden_dims=cfg.critic_hidden_dims,
             rff_dim=cfg.rff_dim,
             ensemble_size=2,
+            kernel_init=init.pytorch_kernel_init,
+            bias_init=init.pytorch_bias_init,
         )
         self.actor = Model.create(
             actor_def,
@@ -196,21 +194,20 @@ class CtrlTD3Agent(TD3Agent):
     def train_step(self, batch: Batch, step: int) -> Metric:
         metrics = {}
 
-        self.rng, self.nce, nce_metrics = update_factorized_nce(
+        self.rng, self.ddpm, ddpm_metrics = update_factorized_ddpm(
             self.rng,
-            self.nce,
+            self.ddpm,
             batch,
-            self.ranking,
             self.reward_coef,
         )
-        metrics.update(nce_metrics)
+        metrics.update(ddpm_metrics)
 
         self.rng, self.critic, critic_metrics = update_critic(
             self.rng,
             self.critic,
             self.critic_target,
             self.actor_target,
-            self.nce_target,
+            self.ddpm_target,
             batch,
             discount=self.cfg.discount,
             target_policy_noise=self.target_policy_noise,
@@ -223,7 +220,7 @@ class CtrlTD3Agent(TD3Agent):
             self.rng, self.actor, actor_metrics = update_actor(
                 self.rng,
                 self.actor,
-                self.nce_target,
+                self.ddpm_target,
                 self.critic,
                 batch,
             )
@@ -237,4 +234,4 @@ class CtrlTD3Agent(TD3Agent):
 
     def sync_target(self):
         super().sync_target()
-        self.nce_target = ema_update(self.nce, self.nce_target, self.cfg.feature_ema)
+        self.ddpm_target = ema_update(self.ddpm, self.ddpm_target, self.cfg.feature_ema)

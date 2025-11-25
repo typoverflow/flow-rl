@@ -1,0 +1,47 @@
+# @package _global_
+
+algo:
+  name: diffsr_qsm
+  actor_update_freq: 1
+  target_update_freq: 1
+  discount: 0.99
+  ema: 0.005
+  # critic_hidden_dims: [512, 512, 512] # not used
+  critic_activation: elu  # not used
+  critic_ensemble_size: 2
+  layer_norm: true
+  critic_lr: 0.0003
+  clip_grad_norm: null
+
+  # below are params specific to ctrl_td3
+  num_noises: 50
+  feature_dim: 512
+  feature_lr: 0.0001
+  feature_ema: 0.005
+  embed_dim: 256
+  phi_hidden_dims: [512, 512, 512]
+  mu_hidden_dims: [512, 512, 512]
+  critic_hidden_dims: [512, ]
+  reward_hidden_dims: [512, ]
+  rff_dim: 1024
+  ddpm_coef: 1.0
+  reward_coef: 0.1
+  back_critic_grad: false
+  critic_coef: 1.0
+
+  num_samples: 10
+  temp: 0.1
+  diffusion:
+    time_dim: 64
+    mlp_hidden_dims: [512, 512, 512]
+    lr: 0.0003
+    end_lr: null
+    lr_decay_steps: null
+    lr_decay_begin: null
+    steps: 20
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+    solver: ddpm
+
+norm_obs: true

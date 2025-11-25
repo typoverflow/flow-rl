@@ -1,44 +1,44 @@
 # Specify which GPUs to use
-GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
-SEEDS=(0 1 2 3 4)
+GPUS=(0 1 2 3)  # Modify this array to specify which GPUs to use
+SEEDS=(0 1)
 NUM_EACH_GPU=3
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
-    "acrobot-swingup"
-    "ball_in_cup-catch"
-    "cartpole-balance"
-    "cartpole-balance_sparse"
-    "cartpole-swingup"
-    "cartpole-swingup_sparse"
+    # "acrobot-swingup"
+    # "ball_in_cup-catch"
+    # "cartpole-balance"
+    # "cartpole-balance_sparse"
+    # "cartpole-swingup"
+    # "cartpole-swingup_sparse"
     "cheetah-run"
-    "dog-run"
+    # "dog-run"
     "dog-stand"
-    "dog-trot"
-    "dog-walk"
-    "finger-spin"
-    "finger-turn_easy"
-    "finger-turn_hard"
-    "fish-swim"
-    "hopper-hop"
-    "hopper-stand"
-    "humanoid-run"
-    "humanoid-stand"
-    "humanoid-walk"
-    "pendulum-swingup"
+    # "dog-trot"
+    # "dog-walk"
+    # "finger-spin"
+    # "finger-turn_easy"
+    # "finger-turn_hard"
+    # "fish-swim"
+    # "hopper-hop"
+    # "hopper-stand"
+    # "humanoid-run"
+    # "humanoid-stand"
+    # "humanoid-walk"
+    # "pendulum-swingup"
     "quadruped-run"
-    "quadruped-walk"
-    "reacher-easy"
-    "reacher-hard"
+    # "quadruped-walk"
+    # "reacher-easy"
+    # "reacher-hard"
     "walker-run"
-    "walker-stand"
-    "walker-walk"
+    # "walker-stand"
+    # "walker-walk"
 )
 
 SHARED_ARGS=(
-    "algo=ctrl_td3"
-    "log.tag=default"
+    "algo=diffsr_aca_sep"
+    "log.tag=sep-normeps-temp0.2"
     "log.project=flow-rl"
     "log.entity=lambda-rl"
 )

@@ -34,8 +34,8 @@ algo:
     x_min: -1.0
     x_max: 1.0
     solver: ddpm
-  num_noises: 25
+  num_noises: 20
   linear: false
   ranking: true
 
-# norm_obs: true
+norm_obs: true

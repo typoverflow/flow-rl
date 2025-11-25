@@ -1,6 +1,6 @@
 # Specify which GPUs to use
-GPUS=(0 1 2 3)  # Modify this array to specify which GPUs to use
-SEEDS=(0)
+GPUS=(0 1 2 3 4 5)  # Modify this array to specify which GPUs to use
+SEEDS=(0 1 2 3)
 NUM_EACH_GPU=2
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
@@ -12,9 +12,9 @@ TASKS=(
     # "cartpole-balance_sparse"
     # "cartpole-swingup"
     # "cartpole-swingup_sparse"
-    "cheetah-run"
+    # "cheetah-run"
     # "dog-run"
-    "dog-stand"
+    # "dog-stand"
     # "dog-trot"
     # "dog-walk"
     # "finger-spin"
@@ -28,22 +28,22 @@ TASKS=(
     # "humanoid-walk"
     # "pendulum-swingup"
     "quadruped-run"
-    # "quadruped-walk"
-    # "reacher-easy"
+    "quadruped-walk"
+    "reacher-easy"
     # "reacher-hard"
-    "walker-run"
+    # "walker-run"
     # "walker-stand"
     # "walker-walk"
 )
 
 SHARED_ARGS=(
-    "algo=aca"
-    "algo.temp=0.1"
-    # "algo.critic_activation=relu"
-    "log.tag=backup_repr_rff-tanh-nonorm-rep_multi-rl_onlyuse0-512x4"
+    "algo=sdac"
+    "algo.temp=0.01"
+    "log.tag=fix_temp-0.01"
     "log.project=flow-rl"
-    "log.entity=lambda-rl"
+    "log.entity=lamda-rl"
 )
+
 
 run_task() {
     task=$1

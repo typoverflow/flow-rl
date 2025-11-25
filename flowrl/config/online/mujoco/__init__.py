@@ -2,7 +2,8 @@ from hydra.core.config_store import ConfigStore
 
 from .algo.alac import ALACConfig
 from .algo.base import BaseAlgoConfig
-from .algo.ctrl import *
+from .algo.ctrlsr import *
+from .algo.diffsr import *
 from .algo.dpmd import DPMDConfig
 from .algo.idem import IDEMConfig
 from .algo.qsm import QSMConfig
@@ -30,9 +31,10 @@ _CONFIGS = {
     "qsm": QSMConfig,
     "alac": ALACConfig,
     "idem": IDEMConfig,
-    "ctrl_td3": CtrlTD3Config,
-    "ctrl_qsm": CtrlQSMConfig,
+    "ctrlsr_td3": CtrlSRTD3Config,
     "aca": ACAConfig,
+    "diffsr_td3": DiffSRTD3Config,
+    "diffsr_qsm": DiffSRQSMConfig,
 }
 
 for name, cfg in _CONFIGS.items():
