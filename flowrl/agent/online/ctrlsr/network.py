@@ -69,10 +69,12 @@ class FactorizedNCE(nn.Module):
         else:
             self.use_noise_perturbation = False
         self.N = max(self.num_noises, 1)
+        self.normalizer = self.param("normalizer", lambda key: jnp.zeros((self.N,), jnp.float32))
 
     def forward_phi(self, s, a):
         x = jnp.concat([s, a], axis=-1)
         x = self.mlp_phi(x)
+        x = l2_normalize(x)
         return x
 
     def forward_mu(self, sp, t=None):
@@ -80,7 +82,7 @@ class FactorizedNCE(nn.Module):
             t_ff = self.mlp_t(t)
             sp = jnp.concat([sp, t_ff], axis=-1)
         sp = self.mlp_mu(sp)
-        sp = jnp.tanh(sp)
+        # sp = jnp.tanh(sp)
         return sp
 
     def forward_reward(self, x: jnp.ndarray):  # for z_phi
@@ -105,6 +107,7 @@ class FactorizedNCE(nn.Module):
             jnp.broadcast_to(z_phi, (self.N, B, self.feature_dim)),
             jnp.swapaxes(z_mu, -1, -2)
         )
+        logits = logits / jnp.exp(self.normalizer[:, None, None])
         r_pred = self.forward_reward(z_phi)
         return logits, r_pred, z_phi
 

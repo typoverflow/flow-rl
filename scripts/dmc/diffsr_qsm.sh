@@ -23,10 +23,10 @@ TASKS=(
     # "fish-swim"
     # "hopper-hop"
     # "hopper-stand"
-    "humanoid-run"
+    # "humanoid-run"
     "humanoid-stand"
     "humanoid-walk"
-    # "pendulum-swingup"
+    # # "pendulum-swingup"
     # "quadruped-run"
     # "quadruped-walk"
     # "reacher-easy"
@@ -37,8 +37,13 @@ TASKS=(
 )
 
 SHARED_ARGS=(
-    "algo=ctrlsr_td3"
-    "log.tag=default"
+    # "algo.diffusion.lr=0.00003"
+    # "batch_size=1024"
+    # "algo.diffusion.solver=ddim"
+    # "algo.num_samples=1"
+    "algo.temp=0.05"
+    "algo=diffsr_qsm"
+    "log.tag=enoise0.2-temp0.05"
     "log.project=flow-rl"
     "log.entity=lambda-rl"
 )

@@ -31,6 +31,8 @@ algo:
 
   num_samples: 10
   temp: 0.1
+  exploration_noise: 0.2
+  decay: false
   diffusion:
     time_dim: 64
     mlp_hidden_dims: [512, 512, 512]

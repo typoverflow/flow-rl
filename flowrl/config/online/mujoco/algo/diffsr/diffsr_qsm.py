@@ -34,6 +34,7 @@ class DiffSRQSMConfig(BaseAlgoConfig):
     back_critic_grad: bool
     critic_coef: float
 
+    exploration_noise: float
     num_samples: int
     temp: float
     diffusion: QSMDiffusionConfig

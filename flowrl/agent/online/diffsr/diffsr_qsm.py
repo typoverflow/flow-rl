@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+import flowrl.module.initialization as init
 from flowrl.agent.online.diffsr.network import FactorizedDDPM, update_factorized_ddpm
 from flowrl.agent.online.qsm import QSMAgent
 from flowrl.config.online.mujoco.algo.diffsr import DiffSRQSMConfig
@@ -27,7 +28,7 @@ def jit_sample_actions(
     training: bool,
     num_samples: int,
     solver: str,
-) -> Tuple[PRNGKey, jnp.ndarray]:
+) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray]:
     assert len(obs.shape) == 2
     B = obs.shape[0]
     rng, xT_rng = jax.random.split(rng)
@@ -35,7 +36,7 @@ def jit_sample_actions(
     # sample
     obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
     xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
-    rng, actions, _ = actor.sample(rng, xT, obs_repeat, training, solver)
+    rng, actions, history = actor.sample(rng, xT, obs_repeat, training, solver)
     if num_samples == 1:
         actions = actions[:, 0]
     else:
@@ -44,7 +45,7 @@ def jit_sample_actions(
         qs = qs.min(axis=0).reshape(B, num_samples)
         best_idx = qs.argmax(axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
-    return rng, actions
+    return rng, actions, history
 
 @partial(jax.jit, static_argnames=("discount", "solver"))
 def update_critic(
@@ -90,7 +91,7 @@ def update_critic(
     return rng, new_critic, metrics
 
 
-@partial(jax.jit, static_argnames=("temp"))
+@partial(jax.jit, static_argnames=("temp", "decay"))
 def update_actor(
     rng: PRNGKey,
     actor: Model,
@@ -98,6 +99,7 @@ def update_actor(
     critic_target: Model,
     batch: Batch,
     temp: float,
+    decay: bool,
 ) -> Tuple[PRNGKey, Model, Metric]:
 
     a0 = batch.action
@@ -110,6 +112,8 @@ def update_actor(
         return q.min(axis=0).mean()
     q_grad_fn = jax.vmap(jax.grad(get_q_value))
     q_grad = q_grad_fn(at, batch.obs)
+    if decay:
+        q_grad = alpha1 * q_grad - alpha2 * at
     eps_estimation = - alpha2 * q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
 
     def loss_fn(diffusion_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
@@ -126,6 +130,7 @@ def update_actor(
             "loss/actor_loss": loss,
             "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
             "misc/eps_estimation_std": jnp.std(eps_estimation, axis=0).mean(),
+            "misc/q_grad": jnp.std(q_grad, axis=0).mean(),
         }
 
     new_actor, actor_metrics = actor.apply_gradient(loss_fn)
@@ -134,53 +139,28 @@ def update_actor(
 # @jax.jit
 # def jit_compute_metrics(
 #     rng: PRNGKey,
-#     critic: Model,
+#     actor: Model,
 #     ddpm_target: Model,
-#     diffusion_value: Model,
-#     diffusion_actor: Model,
+#     critic_target: Model,
 #     batch: Batch,
 # ) -> Tuple[PRNGKey, Metric]:
 #     B, S = batch.obs.shape
 #     A = batch.action.shape[-1]
-#     num_actions = 50
-#     metrics = {}
-#     rng, action_rng = jax.random.split(rng)
-#     obs_repeat = batch.obs[..., jnp.newaxis, :].repeat(num_actions, axis=-2)
-#     action_repeat = jax.random.uniform(action_rng, (B, num_actions, A), minval=-1.0, maxval=1.0)
-
+#     a0 = batch.action
+#     rng, at, t, eps = actor.add_noise(rng, a0)
 #     def get_critic(at, obs):
-#         t1 = jnp.ones((1, ), dtype=jnp.int32)
-#         ft = ddpm_target(obs, at, t1, method="forward_phi")
-#         q = critic(ft)
-#         return q.mean()
+#         ft = ddpm_target(obs, at, method="forward_phi")
+#         q = critic_target(ft)
+#         return q.min(axis=0).mean()
 #     all_critic, all_critic_grad = jax.vmap(jax.value_and_grad(get_critic))(
-#         action_repeat.reshape(-1, A),
-#         obs_repeat.reshape(-1, S),
+#         at,
+#         batch.obs,
 #     )
-#     all_critic = all_critic.reshape(B, num_actions, 1)
-#     all_critic_grad = all_critic_grad.reshape(B, num_actions, -1)
+#     metrics = {}
 #     metrics.update({
 #         f"q_std/critic": all_critic.std(axis=1).mean(),
 #         f"q_grad/critic": jnp.abs(all_critic_grad).mean(),
 #     })
-
-#     def get_value(at, obs, t):
-#         ft = ddpm_target(obs, at, t, method="forward_phi")
-#         q = diffusion_value(ft)
-#         return q.mean()
-#     for t in [0] + list(range(1, diffusion_actor.steps+1, diffusion_actor.steps//5)):
-#         t_input = jnp.ones((B, num_actions, 1)) * t
-#         all_value, all_value_grad = jax.vmap(jax.value_and_grad(get_value))(
-#             action_repeat.reshape(-1, A),
-#             obs_repeat.reshape(-1, S),
-#             t_input.reshape(-1, 1),
-#         )
-#         all_value = all_value.reshape(B, num_actions, 1)
-#         all_value_grad = all_value_grad.reshape(B, num_actions, -1)
-#         metrics.update({
-#             f"q_std/value_{t}": all_value.std(axis=1).mean(),
-#             f"q_grad/value_{t}": jnp.abs(all_value_grad).mean(),
-#         })
 #     return rng, metrics
 
 class DiffSRQSMAgent(QSMAgent):
@@ -246,6 +226,8 @@ class DiffSRQSMAgent(QSMAgent):
             hidden_dims=cfg.critic_hidden_dims,
             rff_dim=cfg.rff_dim,
             ensemble_size=2,
+            kernel_init=init.pytorch_kernel_init,
+            bias_init=init.pytorch_bias_init,
         )
         self.critic = Model.create(
             critic_def,
@@ -294,6 +276,7 @@ class DiffSRQSMAgent(QSMAgent):
                 self.critic_target,
                 batch,
                 temp=self.temp,
+                decay=self.cfg.decay,
             )
             metrics.update(actor_metrics)
 
@@ -303,10 +286,9 @@ class DiffSRQSMAgent(QSMAgent):
         # if self._n_training_steps % 2000 == 0:
         #     self.rng, metrics = jit_compute_metrics(
         #         self.rng,
-        #         self.critic,
+        #         self.actor,
         #         self.ddpm_target,
-        #         self.diffusion_value,
-        #         self.diffusion_actor,
+        #         self.critic_target,
         #         batch,
         #     )
         #     metrics.update(metrics)
@@ -323,7 +305,7 @@ class DiffSRQSMAgent(QSMAgent):
             num_samples = self.cfg.num_samples
         else:
             num_samples = 1
-        self.rng, action = jit_sample_actions(
+        self.rng, action, history = jit_sample_actions(
             self.rng,
             self.actor,
             self.critic,
@@ -334,7 +316,18 @@ class DiffSRQSMAgent(QSMAgent):
             solver=self.cfg.diffusion.solver,
         )
         if not deterministic:
-            action = action + 0.1 * jax.random.normal(self.rng, action.shape)
+            action = action + self.cfg.exploration_noise * jax.random.normal(self.rng, action.shape)
+            action = jnp.clip(action, -1.0, 1.0)
+
+        # # save actions
+        # if deterministic:
+        #     xt, eps = history
+        #     xt = xt[:, :, 0, :]
+        #     eps = eps[:, :, 0, :]
+        #     if self._n_training_steps % 100000 == 0:
+        #         import numpy as np
+        #         np.save(f"xt.npy", xt)
+        #         np.save(f"eps.npy", eps)
         return action, {}
 
     def sync_target(self):
