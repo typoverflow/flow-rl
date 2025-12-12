@@ -23,7 +23,7 @@ TASKS=(
     # "fish-swim"
     # "hopper-hop"
     # "hopper-stand"
-    # "humanoid-run"
+    "humanoid-run"
     "humanoid-stand"
     "humanoid-walk"
     # # "pendulum-swingup"
