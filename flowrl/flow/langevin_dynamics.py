@@ -291,3 +291,70 @@ class AnnealedLangevinDynamics(LangevinDynamics):
         output, history = jax.lax.scan(fn, (rng, x_init), jnp.arange(steps, 0, -1), unroll=True)
         rng, action = output
         return rng, action, history
+
+
+from flowrl.flow.continuous_ddpm import ContinuousDDPM, quad_t_schedule
+
+
+@dataclass
+class ContinuousDDPMLD(ContinuousDDPM):
+    state: TrainState
+    dropout_rng: PRNGKey = field(pytree_node=True)
+    x_dim: int = field(pytree_node=False, default=None)
+    steps: int = field(pytree_node=False, default=None)
+    clip_sampler: bool = field(pytree_node=False, default=None)
+    x_min: float = field(pytree_node=False, default=None)
+    x_max: float = field(pytree_node=False, default=None)
+    t_schedule_n: float = field(pytree_node=False, default=None)
+    t_diffusion: Tuple[float, float] = field(pytree_node=False, default=None)
+    noise_schedule_func: Callable = field(pytree_node=False, default=None)
+
+    @partial(jax.jit, static_argnames=("model_fn", "training", "solver", "steps", "t_schedule_n"))
+    def sample(
+        self,
+        rng: PRNGKey,
+        model_fn: Callable,
+        xT: jnp.ndarray,
+        condition: Optional[jnp.ndarray] = None,
+        training: bool = False,
+        solver: str = "ddpm",
+        steps: Optional[int] = None,
+        t_schedule_n: Optional[float] = None,
+        params: Optional[Param] = None,
+    ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+        steps = steps or self.steps
+        t_schedule_n = t_schedule_n or self.t_schedule_n
+
+        ts = quad_t_schedule(steps, n=t_schedule_n, tmin=self.t_diffusion[0], tmax=self.t_diffusion[1])
+        alpha_hats = self.noise_schedule_func(ts)[0] ** 2
+        alphas = alpha_hats[1:] / alpha_hats[:-1]
+        alphas = jnp.concat([jnp.ones((1, )), alphas], axis=0)
+        betas = 1 - alphas
+        sigmas = self.noise_schedule_func(ts)[1]
+
+        t_proto = jnp.ones((*xT.shape[:-1], 1), dtype=jnp.int32)
+
+        def fn(input_tuple, i):
+            rng_, xt = input_tuple
+            rng_, dropout_rng_, key_ = jax.random.split(rng_, 3)
+            input_t = t_proto * ts[i]
+
+            energy, q_grad = model_fn(xt, input_t, condition=condition)
+
+            if solver == "ddpm":
+                eps_theta = - sigmas[i] * q_grad
+                x0_hat = (xt - jnp.sqrt(1 - alpha_hats[i]) * eps_theta) / jnp.sqrt(alpha_hats[i])
+                x0_hat = jnp.clip(x0_hat, self.x_min, self.x_max) if self.clip_sampler else x0_hat
+
+                mean_coef1 = jnp.sqrt(alpha_hats[i-1]) * betas[i] / (1 - alpha_hats[i])
+                mean_coef2 = jnp.sqrt(alphas[i]) * (1 - alpha_hats[i-1]) / (1 - alpha_hats[i])
+                xt_1 = mean_coef1 * x0_hat + mean_coef2 * xt
+                xt_1 += (i>1) * jnp.sqrt(betas[i]) * jax.random.normal(key_, xt_1.shape)
+            else:
+                raise NotImplementedError(f"Unsupported solver: {solver}")
+
+            return (rng_, xt_1), q_grad
+
+        output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(steps, 0, -1), unroll=True)
+        rng, action = output
+        return rng, action, history

@@ -47,6 +47,65 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions, history
 
+@partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temp"))
+def jit_sample_actions_ld(
+    rng: PRNGKey,
+    ld: Model,
+    actor: Model,
+    critic_target: Model,
+    ddpm_target: Model,
+    scaler: jnp.ndarray,
+    obs: jnp.ndarray,
+    training: bool,
+    temp: float,
+    num_samples: int,
+    solver: str,
+) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray]:
+    assert len(obs.shape) == 2
+    B = obs.shape[0]
+    rng, xT_rng = jax.random.split(rng)
+
+    # sample
+    obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
+    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
+
+    def model_fn(xt, input_t, condition):
+        original_shape = xt.shape[:-1]
+        xt = xt.reshape(-1, xt.shape[-1])
+        input_t = input_t.reshape(-1, 1)
+        condition = condition.reshape(-1, condition.shape[-1])
+        energy_and_grad_fn = jax.vmap(jax.value_and_grad(
+            lambda xt, t, condition: critic_target(ddpm_target(condition, xt, method="forward_phi")).mean()
+        ))
+        energy, grad = energy_and_grad_fn(xt, input_t, condition)
+        energy = energy.reshape(*original_shape, 1)
+        grad = grad.reshape(*original_shape, -1)
+        grad = grad / temp / (scaler + 1e-8)
+        return energy, grad
+
+    rng, actions, history = ld.sample(
+        rng,
+        model_fn,
+        xT,
+        obs_repeat,
+        training,
+        solver,
+    )
+    if num_samples == 1:
+        actions = actions[:, 0]
+    else:
+        feature = ddpm_target(obs_repeat, actions, method="forward_phi")
+        qs = critic_target(feature)
+        qs = qs.min(axis=0).reshape(B, num_samples)
+        best_idx = qs.argmax(axis=-1)
+        actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
+
+    # update the scaler
+    q_grads = history * temp * scaler
+    new_scaler = 0.995 * scaler + 0.005 * jnp.abs(q_grads).mean()
+    return rng, actions, history, new_scaler
+
+
 @partial(jax.jit, static_argnames=("discount", "solver"))
 def update_critic(
     rng: PRNGKey,
@@ -97,6 +156,7 @@ def update_actor(
     actor: Model,
     ddpm_target: ContinuousDDPM,
     critic_target: Model,
+    scaler: jnp.ndarray,
     batch: Batch,
     temp: float,
     decay: bool,
@@ -109,9 +169,11 @@ def update_actor(
     def get_q_value(action: jnp.ndarray, obs: jnp.ndarray) -> jnp.ndarray:
         feature = ddpm_target(obs, action, method="forward_phi")
         q = critic_target(feature)
-        return q.min(axis=0).mean()
+        return q.mean()
     q_grad_fn = jax.vmap(jax.grad(get_q_value))
     q_grad = q_grad_fn(at, batch.obs)
+    q_grad_l1 = jnp.abs(q_grad).mean()
+    new_scaler = 0.995 * scaler + 0.005 * q_grad_l1
     q_grad = q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
     if decay:
         q_grad = alpha1 * q_grad - alpha2 * at
@@ -132,10 +194,12 @@ def update_actor(
             "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
             "misc/eps_estimation_std": jnp.std(eps_estimation, axis=0).mean(),
             "misc/q_grad": jnp.std(q_grad, axis=0).mean(),
+            "misc_ld/q_grad_l1": q_grad_l1,
+            "misc_ld/scaler": scaler.mean(),
         }
 
     new_actor, actor_metrics = actor.apply_gradient(loss_fn)
-    return rng, new_actor, actor_metrics
+    return rng, new_actor, new_scaler, actor_metrics
 
 # @jax.jit
 # def jit_compute_metrics(
@@ -243,6 +307,26 @@ class DiffSRQSMAgent(QSMAgent):
             inputs=(jnp.ones((1, self.feature_dim)),),
         )
 
+        # define the langevin dynamics and the scaler
+        import flax.linen as nn
+
+        from flowrl.flow.langevin_dynamics import ContinuousDDPMLD
+        self.rng, ld_rng = jax.random.split(self.rng)
+        self.scaler = jnp.ones((1, ), dtype=jnp.float32)
+        self.ld = ContinuousDDPMLD.create(
+            network=nn.Dense(1),
+            rng=ld_rng,
+            inputs=(jnp.ones((1, 1))),
+            x_dim=self.act_dim,
+            steps=cfg.diffusion.steps,
+            noise_schedule="cosine",
+            noise_schedule_params={},
+            clip_sampler=cfg.diffusion.clip_sampler,
+            x_min=cfg.diffusion.x_min,
+            x_max=cfg.diffusion.x_max,
+            t_schedule_n=1.0,
+        )
+
         self._n_training_steps = 0
 
     def train_step(self, batch: Batch, step: int) -> Metric:
@@ -270,11 +354,12 @@ class DiffSRQSMAgent(QSMAgent):
         metrics.update(critic_metrics)
 
         if self._n_training_steps % self.actor_update_freq == 0:
-            self.rng, self.actor, actor_metrics = update_actor(
+            self.rng, self.actor, self.scaler, actor_metrics = update_actor(
                 self.rng,
                 self.actor,
                 self.ddpm_target,
                 self.critic_target,
+                self.scaler,
                 batch,
                 temp=self.temp,
                 decay=self.cfg.decay,
@@ -304,31 +389,35 @@ class DiffSRQSMAgent(QSMAgent):
     ) -> Tuple[jnp.ndarray, Metric]:
         if deterministic:
             num_samples = self.cfg.num_samples
+            self.rng, action, history, new_scaler = jit_sample_actions_ld(
+                self.rng,
+                self.ld,
+                self.actor,
+                self.critic_target,
+                self.ddpm_target,
+                self.scaler,
+                obs,
+                training=False,
+                temp=self.cfg.temp,
+                num_samples=num_samples,
+                solver=self.cfg.diffusion.solver,
+            )
+            # self.scaler = new_scaler
         else:
             num_samples = 1
-        self.rng, action, history = jit_sample_actions(
-            self.rng,
-            self.actor,
-            self.critic,
-            self.ddpm_target,
-            obs,
-            training=False,
-            num_samples=num_samples,
-            solver=self.cfg.diffusion.solver,
-        )
-        if not deterministic:
-            action = action + self.cfg.exploration_noise * jax.random.normal(self.rng, action.shape)
-            action = jnp.clip(action, -1.0, 1.0)
-
-        # # save actions
-        # if deterministic:
-        #     xt, eps = history
-        #     xt = xt[:, :, 0, :]
-        #     eps = eps[:, :, 0, :]
-        #     if self._n_training_steps % 100000 == 0:
-        #         import numpy as np
-        #         np.save(f"xt.npy", xt)
-        #         np.save(f"eps.npy", eps)
+            self.rng, action, history = jit_sample_actions(
+                self.rng,
+                self.actor,
+                self.critic,
+                self.ddpm_target,
+                obs,
+                training=False,
+                num_samples=num_samples,
+                solver=self.cfg.diffusion.solver,
+            )
+            if not deterministic:
+                action = action + self.cfg.exploration_noise * jax.random.normal(self.rng, action.shape)
+                action = jnp.clip(action, -1.0, 1.0)
         return action, {}
 
     def sync_target(self):
