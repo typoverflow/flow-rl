@@ -353,7 +353,7 @@ class ContinuousDDPMLD(ContinuousDDPM):
             else:
                 raise NotImplementedError(f"Unsupported solver: {solver}")
 
-            return (rng_, xt_1), q_grad
+            return (rng_, xt_1), (eps_theta, q_grad)
 
         output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(steps, 0, -1), unroll=True)
         rng, action = output

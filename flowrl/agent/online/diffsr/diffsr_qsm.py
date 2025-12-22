@@ -101,7 +101,7 @@ def jit_sample_actions_ld(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
 
     # update the scaler
-    q_grads = history * temp * scaler
+    q_grads = history[1] * temp * scaler
     new_scaler = 0.995 * scaler + 0.005 * jnp.abs(q_grads).mean()
     return rng, actions, history, new_scaler
 
