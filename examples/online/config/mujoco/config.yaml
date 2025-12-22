@@ -27,7 +27,6 @@ random_frames: 5_000
 eval_frames: 10_000
 log_frames: 1_000
 lap_reset_frames: 250
-eval_episodes: 10
 log:
   dir: logs
   tag: debug

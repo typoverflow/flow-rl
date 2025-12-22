@@ -1,0 +1,24 @@
+# @package _global_
+
+algo:
+  name: sdac
+  critic_hidden_dims: [512, 512, 512]
+  critic_activation: elu
+  critic_lr: 0.0003
+  discount: 0.99
+  num_samples: 10
+  num_reverse_samples: 500
+  ema: 0.005
+  temp: 0.05
+  diffusion:
+    time_dim: 64
+    mlp_hidden_dims: [512, 512, 512]
+    lr: 0.0003
+    end_lr: null
+    lr_decay_steps: null
+    lr_decay_begin: null
+    steps: 20
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+    solver: ddpm

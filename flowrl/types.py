@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, NewType, Optional, Sequence, Tuple, Unio
 import flax
 import jax
 import jax.numpy as jnp
+from flax.linen.initializers import Initializer
 from flax.training.train_state import TrainState
 
 PRNGKey = NewType("PRNGKey", jax.Array)
@@ -15,4 +16,4 @@ Batch = collections.namedtuple(
     ['obs', 'action', 'reward', 'terminal', 'next_obs', 'next_action'],
 )
 
-__all__ = ["Batch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple"]
+__all__ = ["Batch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple", "Initializer"]

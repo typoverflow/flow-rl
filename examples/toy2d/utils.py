@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from flowrl.agent.base import BaseAgent
 from flowrl.agent.offline import *
+from flowrl.agent.online import *
 from flowrl.dataset.toy2d import Toy2dDataset, inf_train_gen
 
 SAMPLE_GRAPH_SIZE = 2000
@@ -108,6 +109,9 @@ def plot_energy(out_dir, task: str, agent: BaseAgent):
     vmin = e.min()
     vmax = e.max()
 
+    def default_plot():
+        pass
+
     def bdpo_plot():
         tt = [0, 1, 3, 5, 10, 20, 30, 40, 50]
         plt.figure(figsize=(30, 3.0))
@@ -168,12 +172,54 @@ def plot_energy(out_dir, task: str, agent: BaseAgent):
         plt.close()
         tqdm.write(f"Saved value plot to {saveto}")
 
+    def aca_plot():
+        tt = [0, 1, 3, 5, 10, 20]
+        plt.figure(figsize=(20, 3.0))
+        axes = []
+        for i, t in enumerate(tt):
+            plt.subplot(1, len(tt), i+1)
+            if t == 0:
+                model = agent.critic_target
+                c = model(zero, id_matrix).mean(axis=0).reshape(90, 90)
+            else:
+                model = agent.value_target
+                t_input = np.ones((90*90, 1)) * t
+                c = model(zero, id_matrix, t_input).mean(axis=0).reshape(90, 90)
+            plt.gca().set_aspect("equal", adjustable="box")
+            plt.xlim(0, 89)
+            plt.ylim(0, 89)
+            if i == 0:
+                mappable = plt.imshow(
+                    c, origin="lower", vmin=vmin, vmax=vmax,
+                    cmap="viridis", rasterized=True
+                )
+                plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+            else:
+                plt.imshow(
+                    c, origin="lower", vmin=vmin, vmax=vmax,
+                    cmap="viridis", rasterized=True
+                )
+                plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[None, None, None, None, None])
+
+            axes.append(plt.gca())
+            plt.xticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+            plt.title(f't={t}')
+        plt.tight_layout()
+        cbar = plt.gcf().colorbar(mappable, ax=axes, fraction=0.1, pad=0.02, aspect=12)
+        plt.gcf().axes[-1].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.1f'))
+        saveto = os.path.join(out_dir, "qt_space.png")
+        plt.savefig(saveto, dpi=300)
+        plt.close()
+        tqdm.write(f"Saved value plot to {saveto}")
+
     if isinstance(agent, BDPOAgent):
         bdpo_plot()
     elif isinstance(agent, DACAgent):
         dac_plot()
+    elif isinstance(agent, ACAAgent):
+        aca_plot()
     else:
-        raise NotImplementedError(f"Plotting for {type(agent)} is not implemented")
+        default_plot()
 
 
 

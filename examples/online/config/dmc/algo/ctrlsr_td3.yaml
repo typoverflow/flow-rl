@@ -1,0 +1,39 @@
+# @package _global_
+
+algo:
+  name: ctrlsr_td3
+  actor_update_freq: 1
+  target_update_freq: 1
+  discount: 0.99
+  ema: 0.005
+  actor_hidden_dims: [512, 512, 512]
+  # critic_hidden_dims: [512, 512, 512] # not used
+  activation: elu  # not used
+  critic_ensemble_size: 2
+  layer_norm: true
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  clip_grad_norm: null
+  target_policy_noise: 0.2
+  noise_clip: 0.3
+  exploration_noise: 0.2
+
+  # below are params specific to ctrl_td3
+  feature_dim: 512
+  feature_lr: 0.0001
+  feature_ema: 0.005
+  phi_hidden_dims: [512, 512]
+  mu_hidden_dims: [512, 512]
+  critic_hidden_dims: [512, ]
+  reward_hidden_dims: [512, ]
+  rff_dim: 1024
+  ctrl_coef: 1.0
+  reward_coef: 1.0
+  back_critic_grad: false
+  critic_coef: 1.0
+
+  num_noises: 25
+  linear: false
+  ranking: true
+
+norm_obs: true
