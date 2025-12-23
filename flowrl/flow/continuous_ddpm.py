@@ -146,6 +146,9 @@ class ContinuousDDPM(Model):
             else:
                 eps_theta = self(xt, input_t, condition=condition, training=training)
 
+            q_grad = eps_theta
+            eps_theta = - jnp.sqrt(1 - alpha_hats[i]) * eps_theta
+
             if solver == "ddpm":
                 x0_hat = (xt - jnp.sqrt(1 - alpha_hats[i]) * eps_theta) / jnp.sqrt(alpha_hats[i])
                 x0_hat = jnp.clip(x0_hat, self.x_min, self.x_max) if self.clip_sampler else x0_hat
@@ -157,7 +160,7 @@ class ContinuousDDPM(Model):
             else:
                 raise NotImplementedError(f"Unsupported solver: {solver}")
 
-            return (rng_, xt_1), (xt, eps_theta)
+            return (rng_, xt_1), (xt, q_grad)
 
         output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(steps, 0, -1), unroll=True)
         rng, action = output

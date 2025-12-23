@@ -115,7 +115,8 @@ def update_actor(
     q_grad = q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
     if decay:
         q_grad = alpha1 * q_grad - alpha2 * at
-    eps_estimation = - alpha2 * q_grad
+    # eps_estimation = - alpha2 * q_grad
+    eps_estimation = q_grad
 
     def loss_fn(diffusion_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         eps_pred = actor.apply(
@@ -321,8 +322,8 @@ class DiffSRQSMAgent(QSMAgent):
             action = jnp.clip(action, -1.0, 1.0)
 
         # # save actions
-        # if deterministic:
-        #     xt, eps = history
+        if deterministic:
+            xt, eps = history
         #     xt = xt[:, :, 0, :]
         #     eps = eps[:, :, 0, :]
         #     if self._n_training_steps % 100000 == 0:
