@@ -398,7 +398,7 @@ class DiffSRQSMAgent(QSMAgent):
                 self.scaler,
                 obs,
                 training=False,
-                temp=self.cfg.temp,
+                temp=self.cfg.ld_temp,
                 num_samples=num_samples,
                 solver=self.cfg.diffusion.solver,
             )

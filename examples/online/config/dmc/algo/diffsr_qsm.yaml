@@ -30,7 +30,8 @@ algo:
   critic_coef: 1.0
 
   num_samples: 10
-  temp: 0.1
+  temp: 0.05
+  ld_temp: 0.05
   exploration_noise: 0.2
   decay: false
   diffusion:
