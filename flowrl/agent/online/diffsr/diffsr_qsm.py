@@ -80,7 +80,9 @@ def jit_sample_actions_ld(
         energy, grad = energy_and_grad_fn(xt, input_t, condition)
         energy = energy.reshape(*original_shape, 1)
         grad = grad.reshape(*original_shape, -1)
-        grad = grad / temp / (scaler + 1e-8)
+        # grad = grad / temp / (scaler + 1e-8)
+        from flowrl.functional.activation import l2_normalize
+        grad = l2_normalize(grad) * jnp.sqrt(grad.shape[-1]) / temp
         return energy, grad
 
     rng, actions, history = ld.sample(
