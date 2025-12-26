@@ -330,7 +330,7 @@ class ContinuousDDPMLD(ContinuousDDPM):
         alphas = alpha_hats[1:] / alpha_hats[:-1]
         alphas = jnp.concat([jnp.ones((1, )), alphas], axis=0)
         betas = 1 - alphas
-        sigmas = self.noise_schedule_func(ts)[1]
+        alpha1, alpha2 = self.noise_schedule_func(ts)
 
         t_proto = jnp.ones((*xT.shape[:-1], 1), dtype=jnp.int32)
 
@@ -340,9 +340,10 @@ class ContinuousDDPMLD(ContinuousDDPM):
             input_t = t_proto * ts[i]
 
             energy, q_grad = model_fn(xt, input_t, condition=condition)
+            # q_grad = alpha1[i] * q_grad - alpha2[i] * xt
 
             if solver == "ddpm":
-                eps_theta = - sigmas[i] * q_grad
+                eps_theta = - alpha2[i] * q_grad
                 x0_hat = (xt - jnp.sqrt(1 - alpha_hats[i]) * eps_theta) / jnp.sqrt(alpha_hats[i])
                 x0_hat = jnp.clip(x0_hat, self.x_min, self.x_max) if self.clip_sampler else x0_hat
 
@@ -358,3 +359,143 @@ class ContinuousDDPMLD(ContinuousDDPM):
         output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(steps, 0, -1), unroll=True)
         rng, action = output
         return rng, action, history
+
+
+@dataclass
+class IBCLangevinDynamics(Model):
+    state: TrainState
+    dropout_rng: PRNGKey = field(pytree_node=True)
+    x_dim: int = field(pytree_node=False, default=None)
+    steps: int = field(pytree_node=False, default=None)
+    schedule: str = field(pytree_node=False, default=None)
+    stepsize_init: float = field(pytree_node=False, default=None)
+    stepsize_final: float = field(pytree_node=False, default=None)
+    stepsize_decay: float = field(pytree_node=False, default=None)
+    stepsize_power: float = field(pytree_node=False, default=None)
+    noise_scale: float = field(pytree_node=False, default=None)
+    grad_clip: float | None = field(pytree_node=False, default=None)
+    drift_clip: float | None = field(pytree_node=False, default=None)
+    margin_clip: float | None = field(pytree_node=False, default=None)
+    x_min: float = field(pytree_node=False, default=None)
+    x_max: float = field(pytree_node=False, default=None)
+
+    @classmethod
+    def create(
+        cls,
+        network: nn.Module,
+        rng: PRNGKey,
+        inputs: Sequence[jnp.ndarray],
+        x_dim: int,
+        steps: int = 100,
+        schedule: str = "polynomial",
+        stepsize_init: float = 1e-1,
+        stepsize_final: float = 1e-5,
+        stepsize_decay: float = 0.8,
+        stepsize_power: float = 2.0,
+        noise_scale: float = 1.0,
+        grad_clip: float | None = None,
+        drift_clip: float | None = None,
+        margin_clip: float | None = None,
+        optimizer: Optional[optax.GradientTransformation] = None,
+        clip_grad_norm: float = None
+    ) -> 'LangevinDynamics':
+        ret = super().create(network, rng, inputs, optimizer, clip_grad_norm)
+
+        return ret.replace(
+            x_dim=x_dim,
+            steps=steps,
+            schedule=schedule,
+            stepsize_init=stepsize_init,
+            stepsize_final=stepsize_final,
+            stepsize_decay=stepsize_decay,
+            stepsize_power=stepsize_power,
+            noise_scale=noise_scale,
+            grad_clip=grad_clip,
+            drift_clip=drift_clip,
+            margin_clip=margin_clip,
+        )
+
+    @partial(jax.jit, static_argnames=("model_fn", "training"))
+    def sample(
+        self,
+        rng: PRNGKey,
+        model_fn: Callable,
+        xT: jnp.ndarray,
+        condition: Optional[jnp.ndarray] = None,
+        training: bool = False,
+    ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+        if self.schedule == "polynomial":
+            stepsizes = polynomial_schedule(
+                self.stepsize_init,
+                self.stepsize_final,
+                self.stepsize_power,
+                self.steps,
+            )
+        else:
+            stepsizes = exponential_schedule(
+                self.stepsize_init,
+                self.stepsize_decay,
+                self.steps,
+            )
+
+        def fn(input_tuple, i):
+            rng_, xt = input_tuple
+            rng_, dropout_rng_, key_ = jax.random.split(rng_, 3)
+
+            energy, q_grad = model_fn(xt, i, condition=condition)
+            if self.grad_clip is not None:
+                q_grad = jnp.clip(q_grad, -self.grad_clip, self.grad_clip)
+
+            drift = stepsizes[i] * (
+                0.5 * q_grad +\
+                jax.random.normal(key_, xt.shape) * self.noise_scale
+            )
+            if self.drift_clip is not None:
+                drift = jnp.clip(drift, -self.drift_clip, self.drift_clip)
+            xt_1 = xt + drift
+            if self.margin_clip is not None:
+                xt_1 = jnp.clip(xt_1, self.margin_clip, 1 - self.margin_clip)
+            return (rng_, xt_1), (xt, drift, energy)
+
+        output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(self.steps), unroll=True)
+        rng, action = output
+        return rng, action, history
+
+
+def exponential_schedule(init, decay, steps):
+    return init * (decay ** jnp.arange(steps))
+
+def polynomial_schedule(init, final, power, steps):
+    return (init - final) * (1 - jnp.arange(steps) / (steps - 1)) ** power + final
+
+
+if __name__ == "__main__":
+    import flax
+    import flax.linen as nn
+
+    rng = jax.random.PRNGKey(0)
+    ld = IBCLangevinDynamics.create(
+        network=flax.linen.Dense(10),
+        rng=rng,
+        inputs=(jnp.ones((1, 10)),),
+        x_dim=10,
+        steps=20,
+        schedule="polynomial",
+        stepsize_init=1e-1,
+        stepsize_final=1e-5,
+        stepsize_decay=0.8,
+        stepsize_power=2.0,
+        grad_clip=1.0,
+        drift_clip=1.0,
+        margin_clip=1.0,
+    )
+    model_fn = lambda x, i, condition: (jnp.ones((*x.shape[:-1], 1)), jnp.ones(x.shape))
+    xT = jnp.ones((128, 10))
+    condition = jnp.ones((128, 5))
+    r1, r2 = ld.sample(
+        rng,
+        model_fn,
+        xT,
+        condition,
+        training=False,
+    )

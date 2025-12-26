@@ -69,7 +69,7 @@ class OffPolicyTrainer():
             obs_dim=self.train_env.observation_space.shape[-1],
             action_dim=self.train_env.action_space.shape[-1],
             max_size=cfg.buffer_size,
-            norm_obs=cfg.norm_obs,
+            norm_obs=True,
             norm_reward=cfg.norm_reward,
             lap_alpha=cfg.lap_alpha,
         )
@@ -92,58 +92,48 @@ class OffPolicyTrainer():
     def train(self):
         cfg = self.cfg
 
-        ep_length = ep_return = 0
-        obs, _ = self.train_env.reset()
-        with tqdm(total=cfg.train_frames, desc="training") as pbar:
-            while self.global_frame <= cfg.train_frames:
-                action, _ = self.agent.sample_actions(
-                    self.buffer.normalize_obs(obs[jnp.newaxis, ...]),
-                    deterministic=False,
-                    num_samples=1,
-                )
-                action = np.asarray(action[0])
-                if self.global_frame < cfg.random_frames:
-                    action = self.train_env.action_space.sample()
+        # load_dir = os.path.join(
+        #     "/localscratch/cgao304/save/diffsr_qsm/save",
+        #     self.cfg.task,
+        # )
+        # for seed in os.listdir(load_dir):
+        #     load_dir = os.path.join(load_dir, seed, "ckpt")
+        #     break
 
-                next_obs, reward, terminated, truncated, info = self.train_env.step(action)
-                ep_length += 1
-                ep_return += reward
+        load_dir = f"/nethome/cgao304/workspace/flow-rl/logs/diffsr_qsm/save/{self.cfg.task}/ckpt"
+        iters = os.listdir(load_dir)
+        iters = [int(i) for i in iters if i.isdigit()]
+        iters = sorted(iters)
+        ld_scores = []
+        scores = []
+        for iter in tqdm(iters):
+            ckpt_dir = os.path.join(load_dir, str(iter))
+            print(f"Loading checkpoint from {ckpt_dir}")
+            self.agent.load(ckpt_dir)
 
-                self.buffer.add(obs, action, next_obs, reward, terminated)
+            obs_mean = np.load(os.path.join(load_dir, "obs_rms_mean", f"{str(iter)}.npy"))
+            obs_mean_square = jnp.load(os.path.join(load_dir, "obs_rms_mean_square", f"{str(iter)}.npy"))
+            scaler = jnp.load(os.path.join(load_dir, "scaler", f"{str(iter)}.npy"))
+            print(f"Scaler: {scaler}")
+            self.buffer.obs_rms.mean = obs_mean
+            self.buffer.obs_rms.mean_square = obs_mean_square
+            self.agent.scaler = scaler
 
-                if terminated or truncated:
-                    next_obs, _ = self.train_env.reset()
-                    self.global_episode += 1
-                    self.logger.log_scalars("", {
-                        "rollout/episode_return": ep_return,
-                        "rollout/episode_length": ep_length
-                    }, step=self.global_frame)
-                    ep_length = ep_return = 0
+            ld_metrics = self.eval_and_save(deterministic=True)
+            metrics = self.eval_and_save(deterministic=False)
+            ld_scores.append(ld_metrics['mean'])
+            scores.append(metrics['mean'])
+            print(f"Iter {iter}: LD = {ld_metrics['mean']}, QSM = {metrics['mean']}")
 
-                if self.global_frame < cfg.warmup_frames:
-                    train_metrics = {}
-                else:
-                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
-                    train_metrics = self.agent.train_step(batch, step=self.global_frame)
-                    if self.use_lap_buffer:
-                        new_priorities = train_metrics.pop("priority")
-                        self.buffer.update(indices, new_priorities)
-                        train_metrics["misc/max_priority"] = self.buffer.max_priority
+        import matplotlib.pyplot as plt
+        plt.plot(iters, ld_scores, label="LD")
+        plt.plot(iters, scores, label="QSM")
+        plt.legend()
+        plt.title(f"{self.cfg.task}")
+        plt.savefig("ld_scores.png")
+        plt.close()
 
-                if self.use_lap_buffer and self.global_frame % cfg.lap_reset_frames == 0:
-                    self.buffer.reset_max_priority()
-
-                if self.global_frame % cfg.log_frames == 0:
-                    self.logger.log_scalars("", train_metrics, step=self.global_frame)
-
-                if self.global_frame % cfg.eval_frames == 0:
-                    self.eval_and_save()
-
-                self.global_step += 1
-                obs = next_obs
-                pbar.update(self.frame_skip)
-
-    def eval_and_save(self):
+    def eval_and_save(self, deterministic: bool = True):
         # initialize arrays to store results
         returns = np.zeros(self.cfg.eval.num_episodes)
         lengths = np.zeros(self.cfg.eval.num_episodes)
@@ -159,7 +149,7 @@ class OffPolicyTrainer():
             # get actions for all environments
             actions, _ = self.agent.sample_actions(
                 self.buffer.normalize_obs(obs),
-                deterministic=True,
+                deterministic=deterministic,
                 num_samples=self.cfg.eval.num_samples,
             )
             actions = np.asarray(actions)
@@ -184,19 +174,7 @@ class OffPolicyTrainer():
             "max": np.max(returns),
             "length": np.mean(lengths),
         }
-        self.logger.log_scalars("eval", eval_metrics, step=self.global_frame)
-        if self.cfg.log.save_ckpt:
-            self.agent.save(os.path.join(self.ckpt_save_dir, f"{self.global_frame}"))
-            if self.cfg.norm_obs:
-                jnp.save(
-                    os.path.join(self.ckpt_save_dir, f"{self.global_frame}", "obs_rms_mean.npy"),
-                    self.buffer.obs_rms.mean
-                )
-                jnp.save(
-                    os.path.join(self.ckpt_save_dir, f"{self.global_frame}", "obs_rms_mean_square.npy"),
-                    self.buffer.obs_rms.mean_square
-                )
-
+        return eval_metrics
 
 class OnPolicyTrainer():
     pass

@@ -42,7 +42,7 @@ def jit_sample_actions(
     else:
         feature = ddpm_target(obs_repeat, actions, method="forward_phi")
         qs = critic(feature)
-        qs = qs.min(axis=0).reshape(B, num_samples)
+        qs = qs.mean(axis=0).reshape(B, num_samples)
         best_idx = qs.argmax(axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions, history
@@ -96,7 +96,7 @@ def jit_sample_actions_ld(
     else:
         feature = ddpm_target(obs_repeat, actions, method="forward_phi")
         qs = critic_target(feature)
-        qs = qs.min(axis=0).reshape(B, num_samples)
+        qs = qs.mean(axis=0).reshape(B, num_samples)
         best_idx = qs.argmax(axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
 
@@ -118,7 +118,7 @@ def update_critic(
     solver: str,
     critic_coef: float
 ) -> Tuple[PRNGKey, Model, Metric]:
-    rng, sample_rng = jax.random.split(rng)
+    rng, sample_rng, q_rng = jax.random.split(rng, 3)
     next_xT = jax.random.normal(sample_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
     rng, next_action, _ = actor.sample(
         rng,
@@ -128,7 +128,8 @@ def update_critic(
         solver=solver,
     )
     next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
-    q_target = critic_target(next_feature).min(0)
+    q_index = jax.random.choice(q_rng, critic_target.ensemble_size, shape=(2,), replace=False)
+    q_target = critic_target(next_feature)[q_index].min(0)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
     feature = ddpm_target(batch.obs, batch.action, method="forward_phi")
@@ -201,32 +202,6 @@ def update_actor(
     new_actor, actor_metrics = actor.apply_gradient(loss_fn)
     return rng, new_actor, new_scaler, actor_metrics
 
-# @jax.jit
-# def jit_compute_metrics(
-#     rng: PRNGKey,
-#     actor: Model,
-#     ddpm_target: Model,
-#     critic_target: Model,
-#     batch: Batch,
-# ) -> Tuple[PRNGKey, Metric]:
-#     B, S = batch.obs.shape
-#     A = batch.action.shape[-1]
-#     a0 = batch.action
-#     rng, at, t, eps = actor.add_noise(rng, a0)
-#     def get_critic(at, obs):
-#         ft = ddpm_target(obs, at, method="forward_phi")
-#         q = critic_target(ft)
-#         return q.min(axis=0).mean()
-#     all_critic, all_critic_grad = jax.vmap(jax.value_and_grad(get_critic))(
-#         at,
-#         batch.obs,
-#     )
-#     metrics = {}
-#     metrics.update({
-#         f"q_std/critic": all_critic.std(axis=1).mean(),
-#         f"q_grad/critic": jnp.abs(all_critic_grad).mean(),
-#     })
-#     return rng, metrics
 
 class DiffSRQSMAgent(QSMAgent):
     """
@@ -272,7 +247,7 @@ class DiffSRQSMAgent(QSMAgent):
                 jnp.ones((1, self.act_dim)),
                 jnp.ones((1, self.obs_dim)),
             ),
-            optimizer=optax.adam(learning_rate=cfg.feature_lr),
+            optimizer=optax.adamw(learning_rate=cfg.feature_lr, weight_decay=cfg.wd),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.ddpm_target = Model.create(
@@ -290,7 +265,7 @@ class DiffSRQSMAgent(QSMAgent):
             feature_dim=self.feature_dim,
             hidden_dims=cfg.critic_hidden_dims,
             rff_dim=cfg.rff_dim,
-            ensemble_size=2,
+            ensemble_size=cfg.critic_ensemble_size,
             kernel_init=init.pytorch_kernel_init,
             bias_init=init.pytorch_bias_init,
         )
@@ -298,7 +273,7 @@ class DiffSRQSMAgent(QSMAgent):
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.feature_dim)),),
-            optimizer=optax.adam(learning_rate=cfg.critic_lr),
+            optimizer=optax.adamw(learning_rate=cfg.critic_lr, weight_decay=cfg.wd),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(
@@ -402,6 +377,7 @@ class DiffSRQSMAgent(QSMAgent):
                 num_samples=num_samples,
                 solver=self.cfg.diffusion.solver,
             )
+            pass
             # self.scaler = new_scaler
         else:
             num_samples = 1
