@@ -4,6 +4,7 @@ from typing import Tuple
 import jax
 import jax.numpy as jnp
 import optax
+from jax._src.pjit import JitWrapped
 
 import flowrl.module.initialization as init
 from flowrl.agent.online.diffsr.network import FactorizedDDPM, update_factorized_ddpm
@@ -18,42 +19,12 @@ from flowrl.module.rff import RffEnsembleCritic
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
 
-@partial(jax.jit, static_argnames=("training", "num_samples", "solver"))
-def jit_sample_actions(
-    rng: PRNGKey,
-    actor: Model,
-    critic: Model,
-    ddpm_target: Model,
-    obs: jnp.ndarray,
-    training: bool,
-    num_samples: int,
-    solver: str,
-) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray]:
-    assert len(obs.shape) == 2
-    B = obs.shape[0]
-    rng, xT_rng = jax.random.split(rng)
-
-    # sample
-    obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
-    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
-    rng, actions, history = actor.sample(rng, xT, obs_repeat, training, solver)
-    if num_samples == 1:
-        actions = actions[:, 0]
-    else:
-        feature = ddpm_target(obs_repeat, actions, method="forward_phi")
-        qs = critic(feature)
-        qs = qs.mean(axis=0).reshape(B, num_samples)
-        best_idx = qs.argmax(axis=-1)
-        actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
-    return rng, actions, history
-
 @partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temp"))
 def jit_sample_actions_ld(
     rng: PRNGKey,
     ld: Model,
-    actor: Model,
-    critic_target: Model,
     ddpm_target: Model,
+    critic_target: Model,
     scaler: jnp.ndarray,
     obs: jnp.ndarray,
     training: bool,
@@ -67,7 +38,7 @@ def jit_sample_actions_ld(
 
     # sample
     obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
-    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
+    xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], ld.x_dim))
 
     def model_fn(xt, input_t, condition):
         original_shape = xt.shape[:-1]
@@ -100,36 +71,38 @@ def jit_sample_actions_ld(
         best_idx = qs.argmax(axis=-1)
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
 
-    # update the scaler
-    q_grads = history[1] * temp * scaler
-    new_scaler = 0.995 * scaler + 0.005 * jnp.abs(q_grads).mean()
-    return rng, actions, history, new_scaler
+    return rng, actions, history
 
-
-@partial(jax.jit, static_argnames=("discount", "solver"))
+@partial(jax.jit, static_argnames=("discount", "solver", "temp"))
 def update_critic(
     rng: PRNGKey,
+    ld: Model,
     critic: Model,
     critic_target: Model,
-    actor: ContinuousDDPM,
     ddpm_target: Model,
+    scaler: jnp.ndarray,
     batch: Batch,
     discount: float,
+    temp: float,
     solver: str,
-    critic_coef: float
-) -> Tuple[PRNGKey, Model, Metric]:
+) -> Tuple[PRNGKey, Model, jnp.ndarray, Metric]:
     rng, sample_rng, q_rng = jax.random.split(rng, 3)
-    next_xT = jax.random.normal(sample_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
-    rng, next_action, _ = actor.sample(
+    rng, next_action, history = jit_sample_actions_ld(
         rng,
-        next_xT,
+        ld,
+        ddpm_target,
+        critic_target,
+        scaler,
         batch.next_obs,
         training=False,
+        temp=temp,
+        num_samples=1,
         solver=solver,
     )
     next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
-    q_index = jax.random.choice(q_rng, critic_target.ensemble_size, shape=(2,), replace=False)
-    q_target = critic_target(next_feature)[q_index].min(0)
+    q_target = critic_target(next_feature)
+    q_index = jax.random.choice(q_rng, q_target.shape[0], shape=(2,), replace=False)
+    q_target = q_target[q_index].min(0)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
     feature = ddpm_target(batch.obs, batch.action, method="forward_phi")
@@ -140,15 +113,23 @@ def update_critic(
             feature,
             rngs={"dropout": dropout_rng},
         )
-        critic_loss = critic_coef * ((q_pred - q_target[jnp.newaxis, :])**2).sum(0).mean()
+        critic_loss = ((q_pred - q_target[jnp.newaxis, :])**2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q_mean": q_pred.mean(),
             "misc/reward": batch.reward.mean(),
         }
 
+    # update scaler
+    q_grad = history[1] * temp * scaler
+    new_scaler = 0.995 * scaler + 0.005 * jnp.abs(q_grad).mean()
+
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
-    return rng, new_critic, metrics
+    metrics.update({
+        "misc_ld/scaler": new_scaler.mean(),
+        "misc_ld/q_grad_l1": jnp.abs(q_grad).mean(),
+    })
+    return rng, new_critic, new_scaler, metrics
 
 
 @partial(jax.jit, static_argnames=("temp", "decay"))
@@ -223,7 +204,6 @@ class DiffSRQSMAgent(QSMAgent):
         self.rff_dim = cfg.rff_dim
         self.actor_update_freq = cfg.actor_update_freq
         self.target_update_freq = cfg.target_update_freq
-        self.temp = cfg.temp
 
         # networks
         self.rng, ddpm_rng, ddpm_init_rng, actor_rng, critic_rng = jax.random.split(self.rng, 5)
@@ -315,44 +295,23 @@ class DiffSRQSMAgent(QSMAgent):
         )
         metrics.update(ddpm_metrics)
 
-        self.rng, self.critic, critic_metrics = update_critic(
+        self.rng, self.critic, self.scaler, critic_metrics = update_critic(
             self.rng,
+            self.ld,
             self.critic,
             self.critic_target,
-            self.actor,
             self.ddpm_target,
+            self.scaler,
             batch,
             discount=self.cfg.discount,
+            temp=self.cfg.ld_temp,
             solver=self.cfg.diffusion.solver,
-            critic_coef=self.critic_coef,
         )
         metrics.update(critic_metrics)
-
-        if self._n_training_steps % self.actor_update_freq == 0:
-            self.rng, self.actor, self.scaler, actor_metrics = update_actor(
-                self.rng,
-                self.actor,
-                self.ddpm_target,
-                self.critic_target,
-                self.scaler,
-                batch,
-                temp=self.temp,
-                decay=self.cfg.decay,
-            )
-            metrics.update(actor_metrics)
 
         if self._n_training_steps % self.target_update_freq == 0:
             self.sync_target()
 
-        # if self._n_training_steps % 2000 == 0:
-        #     self.rng, metrics = jit_compute_metrics(
-        #         self.rng,
-        #         self.actor,
-        #         self.ddpm_target,
-        #         self.critic_target,
-        #         batch,
-        #     )
-        #     metrics.update(metrics)
         self._n_training_steps += 1
         return metrics
 
@@ -364,12 +323,11 @@ class DiffSRQSMAgent(QSMAgent):
     ) -> Tuple[jnp.ndarray, Metric]:
         if deterministic:
             num_samples = self.cfg.num_samples
-            self.rng, action, history, new_scaler = jit_sample_actions_ld(
+            self.rng, action, history = jit_sample_actions_ld(
                 self.rng,
                 self.ld,
-                self.actor,
-                self.critic_target,
                 self.ddpm_target,
+                self.critic_target,
                 self.scaler,
                 obs,
                 training=False,
@@ -378,16 +336,17 @@ class DiffSRQSMAgent(QSMAgent):
                 solver=self.cfg.diffusion.solver,
             )
             pass
-            # self.scaler = new_scaler
         else:
             num_samples = 1
-            self.rng, action, history = jit_sample_actions(
+            self.rng, action, history = jit_sample_actions_ld(
                 self.rng,
-                self.actor,
-                self.critic,
+                self.ld,
                 self.ddpm_target,
+                self.critic_target,
+                self.scaler,
                 obs,
                 training=False,
+                temp=self.cfg.ld_temp,
                 num_samples=num_samples,
                 solver=self.cfg.diffusion.solver,
             )

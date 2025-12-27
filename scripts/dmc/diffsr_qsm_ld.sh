@@ -1,6 +1,6 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
-SEEDS=(0 1 2 3)
+SEEDS=(0)
 NUM_EACH_GPU=3
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
@@ -12,8 +12,8 @@ TASKS=(
     # "cartpole-balance_sparse"
     # "cartpole-swingup"
     # "cartpole-swingup_sparse"
-    # "cheetah-run"
-    # "dog-run"
+    "cheetah-run"
+    "dog-run"
     "dog-stand"
     "dog-trot"
     "dog-walk"
@@ -41,9 +41,14 @@ SHARED_ARGS=(
     # "batch_size=1024"
     # "algo.diffusion.solver=ddim"
     # "algo.num_samples=1"
-    "algo.temp=0.02"
     "algo=diffsr_qsm"
-    "log.tag=ld-temp0.02-meanq"
+    # "log.dir=/localscratch/cgao304/save/"
+    "algo.critic_ensemble_size=5"
+    "algo.ld_temp=0.02"
+    "algo.wd=0.0"
+    # "eval_frames=100000"
+    # "log.save_ckpt=true"
+    "log.tag=ldtemp0.02-qens5"
     "log.project=flow-rl"
     "log.entity=lambda-rl"
 )
