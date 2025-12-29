@@ -1,3 +1,4 @@
+import os
 from functools import partial
 from typing import Tuple
 
@@ -128,7 +129,7 @@ def update_critic(
         solver=solver,
     )
     next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
-    q_index = jax.random.choice(q_rng, critic_target.ensemble_size, shape=(2,), replace=False)
+    q_index = jax.random.choice(q_rng, 10, shape=(2,), replace=False)
     q_target = critic_target(next_feature)[q_index].min(0)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target
 
@@ -283,23 +284,44 @@ class DiffSRQSMAgent(QSMAgent):
         )
 
         # define the langevin dynamics and the scaler
+        # import flax.linen as nn
+        # from flowrl.flow.langevin_dynamics import ContinuousDDPMLD
+        # self.rng, ld_rng = jax.random.split(self.rng)
+        # self.scaler = jnp.ones((1, ), dtype=jnp.float32)
+        # self.ld = ContinuousDDPMLD.create(
+        #     network=nn.Dense(1),
+        #     rng=ld_rng,
+        #     inputs=(jnp.ones((1, 1))),
+        #     x_dim=self.act_dim,
+        #     steps=cfg.diffusion.steps,
+        #     noise_schedule="cosine",
+        #     noise_schedule_params={},
+        #     clip_sampler=cfg.diffusion.clip_sampler,
+        #     x_min=cfg.diffusion.x_min,
+        #     x_max=cfg.diffusion.x_max,
+        #     t_schedule_n=1.0,
+        # )
         import flax.linen as nn
 
-        from flowrl.flow.langevin_dynamics import ContinuousDDPMLD
+        from flowrl.flow.langevin_dynamics import IBCLangevinDynamics
         self.rng, ld_rng = jax.random.split(self.rng)
         self.scaler = jnp.ones((1, ), dtype=jnp.float32)
-        self.ld = ContinuousDDPMLD.create(
+        self.ld = IBCLangevinDynamics.create(
             network=nn.Dense(1),
             rng=ld_rng,
             inputs=(jnp.ones((1, 1))),
             x_dim=self.act_dim,
-            steps=cfg.diffusion.steps,
-            noise_schedule="cosine",
-            noise_schedule_params={},
-            clip_sampler=cfg.diffusion.clip_sampler,
-            x_min=cfg.diffusion.x_min,
-            x_max=cfg.diffusion.x_max,
-            t_schedule_n=1.0,
+            # steps=self.cfg.diffusion.steps,
+            steps=5,
+            schedule="polynomial",
+            stepsize_init=1e-1,
+            stepsize_final=1e-3,
+            stepsize_decay=0.8,
+            stepsize_power=2.0,
+            noise_scale=1.0,
+            # grad_clip=1.0,
+            drift_clip=2.0,
+            margin_clip=1.0,
         )
 
         self._n_training_steps = 0
@@ -399,3 +421,11 @@ class DiffSRQSMAgent(QSMAgent):
     def sync_target(self):
         self.critic_target = ema_update(self.critic, self.critic_target, self.cfg.ema)
         self.ddpm_target = ema_update(self.ddpm, self.ddpm_target, self.cfg.feature_ema)
+
+    def save(self, path: str):
+        super().save(path)
+        jnp.save(os.path.join(os.getcwd(), path, "scaler.npy"), self.scaler)
+
+    def load(self, path: str):
+        super().load(path)
+        self.scaler = jnp.load(os.path.join(os.getcwd(), path, "scaler.npy"))

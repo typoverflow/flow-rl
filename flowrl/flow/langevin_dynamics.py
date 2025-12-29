@@ -415,7 +415,7 @@ class IBCLangevinDynamics(Model):
             margin_clip=margin_clip,
         )
 
-    @partial(jax.jit, static_argnames=("model_fn", "training"))
+    @partial(jax.jit, static_argnames=("model_fn", "training", "solver"))
     def sample(
         self,
         rng: PRNGKey,
@@ -423,6 +423,7 @@ class IBCLangevinDynamics(Model):
         xT: jnp.ndarray,
         condition: Optional[jnp.ndarray] = None,
         training: bool = False,
+        solver: str = "ddpm",
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
         if self.schedule == "polynomial":
             stepsizes = polynomial_schedule(
@@ -437,12 +438,13 @@ class IBCLangevinDynamics(Model):
                 self.stepsize_decay,
                 self.steps,
             )
+        t_proto = jnp.ones((*xT.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input_tuple, i):
             rng_, xt = input_tuple
             rng_, dropout_rng_, key_ = jax.random.split(rng_, 3)
 
-            energy, q_grad = model_fn(xt, i, condition=condition)
+            energy, q_grad = model_fn(xt, t_proto * i, condition=condition)
             if self.grad_clip is not None:
                 q_grad = jnp.clip(q_grad, -self.grad_clip, self.grad_clip)
 
@@ -454,7 +456,7 @@ class IBCLangevinDynamics(Model):
                 drift = jnp.clip(drift, -self.drift_clip, self.drift_clip)
             xt_1 = xt + drift
             if self.margin_clip is not None:
-                xt_1 = jnp.clip(xt_1, self.margin_clip, 1 - self.margin_clip)
+                xt_1 = jnp.clip(xt_1, -self.margin_clip, self.margin_clip)
             return (rng_, xt_1), (xt, drift, energy)
 
         output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(self.steps), unroll=True)

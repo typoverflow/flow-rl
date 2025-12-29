@@ -92,15 +92,15 @@ class OffPolicyTrainer():
     def train(self):
         cfg = self.cfg
 
-        # load_dir = os.path.join(
-        #     "/localscratch/cgao304/save/diffsr_qsm/save",
-        #     self.cfg.task,
-        # )
-        # for seed in os.listdir(load_dir):
-        #     load_dir = os.path.join(load_dir, seed, "ckpt")
-        #     break
+        load_dir = os.path.join(
+            "/localscratch/cgao304/save/diffsr_qsm/save-qens10",
+            self.cfg.task,
+        )
+        for seed in os.listdir(load_dir):
+            load_dir = os.path.join(load_dir, seed, "ckpt")
+            break
 
-        load_dir = f"/nethome/cgao304/workspace/flow-rl/logs/diffsr_qsm/save/{self.cfg.task}/ckpt"
+        # load_dir = f"/nethome/cgao304/workspace/flow-rl/logs/diffsr_qsm/save-qens10/{self.cfg.task}/ckpt"
         iters = os.listdir(load_dir)
         iters = [int(i) for i in iters if i.isdigit()]
         iters = sorted(iters)
@@ -111,9 +111,9 @@ class OffPolicyTrainer():
             print(f"Loading checkpoint from {ckpt_dir}")
             self.agent.load(ckpt_dir)
 
-            obs_mean = np.load(os.path.join(load_dir, "obs_rms_mean", f"{str(iter)}.npy"))
-            obs_mean_square = jnp.load(os.path.join(load_dir, "obs_rms_mean_square", f"{str(iter)}.npy"))
-            scaler = jnp.load(os.path.join(load_dir, "scaler", f"{str(iter)}.npy"))
+            obs_mean = np.load(os.path.join(ckpt_dir, "obs_rms_mean.npy"))
+            obs_mean_square = jnp.load(os.path.join(ckpt_dir, "obs_rms_mean_square.npy"))
+            scaler = jnp.load(os.path.join(ckpt_dir, "scaler.npy"))
             print(f"Scaler: {scaler}")
             self.buffer.obs_rms.mean = obs_mean
             self.buffer.obs_rms.mean_square = obs_mean_square
