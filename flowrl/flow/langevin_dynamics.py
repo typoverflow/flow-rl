@@ -457,7 +457,7 @@ class IBCLangevinDynamics(Model):
             xt_1 = xt + drift
             if self.margin_clip is not None:
                 xt_1 = jnp.clip(xt_1, -self.margin_clip, self.margin_clip)
-            return (rng_, xt_1), (xt, drift, energy)
+            return (rng_, xt_1), (xt, q_grad, energy)
 
         output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(self.steps), unroll=True)
         rng, action = output
