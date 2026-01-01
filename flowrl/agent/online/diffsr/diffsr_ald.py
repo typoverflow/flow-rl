@@ -5,7 +5,6 @@ from typing import Tuple
 import jax
 import jax.numpy as jnp
 import optax
-from jax._src.pjit import JitWrapped
 
 import flowrl.module.initialization as init
 from flowrl.agent.online.diffsr.network import FactorizedDDPM, update_factorized_ddpm
@@ -13,8 +12,6 @@ from flowrl.agent.online.qsm import QSMAgent
 from flowrl.config.online.mujoco.algo.diffsr import DiffSRQSMConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM
 from flowrl.functional.ema import ema_update
-from flowrl.module.actor import SquashedDeterministicActor
-from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.rff import RffEnsembleCritic
 from flowrl.types import Batch, Metric, Param, PRNGKey
@@ -185,7 +182,7 @@ def update_actor(
     return rng, new_actor, new_scaler, actor_metrics
 
 
-class DiffSRQSMAgent(QSMAgent):
+class DiffSRALDAgent(QSMAgent):
     """
     Diff-SR with QSM agent.
     """
@@ -255,7 +252,6 @@ class DiffSRQSMAgent(QSMAgent):
             critic_rng,
             inputs=(jnp.ones((1, self.feature_dim)),),
             optimizer=optax.adamw(learning_rate=cfg.critic_lr, weight_decay=cfg.wd),
-            clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(
             critic_def,
@@ -281,7 +277,7 @@ class DiffSRQSMAgent(QSMAgent):
             stepsize_decay=0.8,
             stepsize_power=2.0,
             noise_scale=1.0,
-            # grad_clip=1.0,
+            grad_clip=None,
             drift_clip=2.0,
             margin_clip=1.0,
         )
