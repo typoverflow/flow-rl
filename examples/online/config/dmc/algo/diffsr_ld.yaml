@@ -1,30 +1,24 @@
 # @package _global_
 
 algo:
-  name: diffsr_aca_sep
+  name: diffsr_ld
   actor_update_freq: 1
   target_update_freq: 1
   discount: 0.99
   ema: 0.005
-  actor_hidden_dims: [512, 512, 512]
   # critic_hidden_dims: [512, 512, 512] # not used
-  activation: elu  # not used
+  critic_activation: elu  # not used
   critic_ensemble_size: 2
   layer_norm: true
-  actor_lr: 0.0003
   critic_lr: 0.0003
   clip_grad_norm: null
-  target_policy_noise: 0.2
-  noise_clip: 0.3
-  exploration_noise: 0.2
 
-  # below are params specific to diffsr_td3
-  num_noises: 20
-  num_samples: 10
+  # below are params specific to ctrl_td3
+  num_noises: 50
   feature_dim: 512
   feature_lr: 0.0001
   feature_ema: 0.005
-  embed_dim: 128
+  embed_dim: 256
   phi_hidden_dims: [512, 512, 512]
   mu_hidden_dims: [512, 512, 512]
   critic_hidden_dims: [512, ]
@@ -35,17 +29,20 @@ algo:
   back_critic_grad: false
   critic_coef: 1.0
 
-  diffusion:
-    time_dim: 64
-    mlp_hidden_dims: [512, 512, 512]
-    lr: 0.0003
-    end_lr: null
-    lr_decay_steps: null
-    lr_decay_begin: null
-    steps: 20
-    clip_sampler: true
-    x_min: -1.0
-    x_max: 1.0
-    solver: ddpm
+  num_samples: 10
+  ld_temp: 0.05
+  wd: 0
+  exploration_noise: 0.2
+  ld:
+    steps: 5
+    schedule: "polynomial"
+    stepsize_init: 1e-1
+    stepsize_final: 1e-3
+    stepsize_decay: 0.8
+    stepsize_power: 2.0
+    noise_scale: 1.0
+    grad_clip: null
+    drift_clip: 2.0
+    margin_clip: 1.0
 
 norm_obs: true

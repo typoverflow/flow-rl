@@ -31,8 +31,6 @@ algo:
 
   num_samples: 10
   temp: 0.05
-  ld_temp: 0.05
-  wd: 0
   exploration_noise: 0.2
   decay: false
   diffusion:

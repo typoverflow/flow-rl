@@ -31,19 +31,15 @@ TASKS=(
     # "quadruped-walk"
     # "reacher-easy"
     # "reacher-hard"
-    # "walker-run"
+    "walker-run"
     # "walker-stand"
     # "walker-walk"
 )
 
 SHARED_ARGS=(
-    # "algo.diffusion.lr=0.00003"
-    # "batch_size=1024"
-    # "algo.diffusion.solver=ddim"
-    # "algo.num_samples=1"
     "algo.temp=0.05"
     "algo=diffsr_qsm"
-    "log.tag=enoise0.2-temp0.05"
+    "log.tag=temp0.05"
     "log.project=flow-rl"
     "log.entity=lambda-rl"
 )

@@ -2,11 +2,24 @@ from dataclasses import dataclass
 from typing import List
 
 from ..base import BaseAlgoConfig
-from ..qsm import QSMDiffusionConfig
 
 
 @dataclass
-class DiffSRQSMConfig(BaseAlgoConfig):
+class LDConfig:
+    steps: int
+    schedule: str
+    stepsize_init: float
+    stepsize_final: float
+    stepsize_decay: float
+    stepsize_power: float
+    noise_scale: float
+    grad_clip: float | None
+    drift_clip: float | None
+    margin_clip: float | None
+
+
+@dataclass
+class DiffSRLDConfig(BaseAlgoConfig):
     name: str
     actor_update_freq: int
     target_update_freq: int
@@ -37,5 +50,4 @@ class DiffSRQSMConfig(BaseAlgoConfig):
     exploration_noise: float
     num_samples: int
     temp: float
-    decay: bool
-    diffusion: QSMDiffusionConfig
+    ld: LDConfig

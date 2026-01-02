@@ -1,6 +1,5 @@
 from hydra.core.config_store import ConfigStore
 
-from .algo.alac import ALACConfig
 from .algo.base import BaseAlgoConfig
 from .algo.ctrlsr import *
 from .algo.diffsr import *
@@ -11,7 +10,6 @@ from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
 from .algo.td7 import TD7Config
-from .algo.unirep import *
 from .config import Config, LogConfig
 
 _DEF_SUFFIX = "_cfg_def"
@@ -29,11 +27,10 @@ _CONFIGS = {
     "td7": TD7Config,
     "dpmd": DPMDConfig,
     "qsm": QSMConfig,
-    "alac": ALACConfig,
     "idem": IDEMConfig,
     "ctrlsr_td3": CtrlSRTD3Config,
-    "aca": ACAConfig,
     "diffsr_td3": DiffSRTD3Config,
+    "diffsr_ld": DiffSRLDConfig,
     "diffsr_qsm": DiffSRQSMConfig,
 }
 
