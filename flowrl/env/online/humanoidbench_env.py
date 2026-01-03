@@ -12,7 +12,7 @@ def make_env(env_name, rank, render_mode=None, seed=0):
     Utility function for multiprocessed env.
 
     :param rank: (int) index of the subprocess
-    :param seed: (int) the inital seed for RNG
+    :param seed: (int) the initial seed for RNG
     """
 
     if env_name in [
