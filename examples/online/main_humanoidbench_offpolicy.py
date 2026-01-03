@@ -54,19 +54,19 @@ class OffPolicyTrainer():
         print("="*80)
         print(f"\nSave results to: {self.logger.log_dir}\n")
 
-        # create env
+        # create env # TODO switch to parallel environments
         self.frame_skip = cfg.frame_skip
 
         # TODO: what to do with seed, frame_skip, frame_stack?
         print(f"Creating train and eval environments for task: {cfg.task}")
-        self.train_env = HumanoidBenchEnv(cfg.task)
-        self.eval_env = [HumanoidBenchEnv(cfg.task) for i in range(cfg.eval.num_episodes)]
+        self.train_env = HumanoidBenchEnv(cfg.task, cfg.seed, cfg.frame_skip, cfg.frame_stack, cfg.horizon)
+        self.eval_env = [HumanoidBenchEnv(cfg.task, cfg.seed + i*100, cfg.frame_skip, cfg.frame_stack, cfg.horizon) for i in range(cfg.eval.num_episodes)]
 
         # create buffer
         self.use_lap_buffer = cfg.lap_alpha > 0
         self.buffer = ReplayBuffer(
-            obs_dim=self.train_env.num_obs,
-            action_dim=self.train_env.num_actions,
+            obs_dim=self.train_env.observation_space.shape[-1],
+            action_dim=self.train_env.action_space.shape[-1],
             max_size=cfg.buffer_size,
             norm_obs=cfg.norm_obs,
             norm_reward=cfg.norm_reward,
@@ -75,8 +75,8 @@ class OffPolicyTrainer():
 
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
-            obs_dim=self.train_env.num_obs,
-            act_dim=self.train_env.num_actions,
+            obs_dim=self.train_env.observation_space.shape[-1],
+            act_dim=self.train_env.action_space.shape[-1],
             cfg=cfg.algo,
             seed=cfg.seed,
         )

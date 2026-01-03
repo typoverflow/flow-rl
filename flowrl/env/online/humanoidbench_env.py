@@ -1,75 +1,51 @@
 from __future__ import annotations
 
+from collections import deque
+
 import gymnasium as gym
 import humanoid_bench
-
-from gymnasium.wrappers import TimeLimit
 import numpy as np
-
-
-def make_env(env_name, rank, render_mode=None, seed=0):
-    """
-    Utility function for multiprocessed env.
-
-    :param rank: (int) index of the subprocess
-    :param seed: (int) the initial seed for RNG
-    """
-
-    if env_name in [
-        "h1hand-push-v0",
-        "h1-push-v0",
-        "h1hand-cube-v0",
-        "h1cube-v0",
-        "h1hand-basketball-v0",
-        "h1-basketball-v0",
-        "h1hand-kitchen-v0",
-        "h1-kitchen-v0",
-    ]:
-        max_episode_steps = 500
-    else:
-        max_episode_steps = 1000
-
-    def _init():
-        env = gym.make(env_name, render_mode=render_mode)
-        env = TimeLimit(env, max_episode_steps=max_episode_steps)
-        env.unwrapped.seed(seed + rank)
-
-        return env, max_episode_steps
-
-    return _init
+from humanoid_bench.env import ROBOTS, TASKS
 
 
 class HumanoidBenchEnv:
-    """Wraps HumanoidBench environment to support parallel environments."""
+    def __init__(
+        self,
+        task: str,
+        seed: int,
+        frame_skip: int,
+        frame_stack: int,
+        horizon: int | None = None,
+    ) -> None:
+        super().__init__()
+        self.task = task
+        self.seed = seed
+        self.frame_skip = frame_skip
+        self.frame_stack = frame_stack
+        self.horizon = horizon
 
-    def __init__(self, env_name, num_envs=1, render_mode=None): #, device=None
-        # NOTE: HumanoidBench action space is already normalized to [-1, 1]
-        self.num_envs = num_envs
-
-        # Create the base environment
-        self.env, self.max_episode_steps = make_env(env_name, 0, render_mode=render_mode)()
-        self.action_space = self.env.action_space
+        self.env = gym.make(task, max_episode_steps=horizon)
+        self.env.seed(seed)
         self.observation_space = self.env.observation_space
-
-        # For compatibility with MuJoCo Playground
-        self.asymmetric_obs = False  # For compatibility with MuJoCo Playground
-        self.num_obs = self.observation_space.shape[-1]
-        self.num_actions = self.action_space.shape[-1]
+        self.action_space = self.env.action_space
+        self.max_ep_timesteps = (horizon + frame_skip - 1) // frame_skip
+        self.queue = deque(maxlen=self.frame_stack)
 
     def reset(self):
-        """Reset the environment."""
+        self.t = 0
         obs, info = self.env.reset()
-        return obs.astype(np.float32), info
+        for _ in range(self.frame_stack):
+            self.queue.append(obs)
+        return np.concatenate(self.queue), info
 
-    def render(self):
-        assert (
-            self.num_envs == 1
-        ), "Currently only supports single environment rendering"
-        return self.env.render()
-
-    def step(self, actions):
-        actions = actions.astype(np.float32)
-
-        obs, reward, terminated, truncated, raw_info = self.env.step(actions)
-
-        return obs, reward, terminated, truncated, raw_info
+    def step(self, action):
+        self.t += 1
+        action = action.astype(np.float32)
+        reward = 0.0
+        for _ in range(self.frame_skip):
+            obs, reward, terminated, truncated, info = self.env.step(action)
+            reward += reward
+            if terminated or truncated:
+                break
+        self.queue.append(obs)
+        return np.concatenate(self.queue), reward, terminated, truncated, info
