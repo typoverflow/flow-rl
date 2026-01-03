@@ -52,7 +52,7 @@ class HumanoidBenchEnv:
         self.observation_space = self.env.observation_space
 
         # For compatibility with MuJoCo Playground
-        self.asymmetric_obs = False  # For comptatibility with MuJoCo Playground
+        self.asymmetric_obs = False  # For compatibility with MuJoCo Playground
         self.num_obs = self.observation_space.shape[-1]
         self.num_actions = self.action_space.shape[-1]
 
