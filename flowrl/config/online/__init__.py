@@ -7,12 +7,16 @@ from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
 from .algo.td7 import TD7Config
-from .config import Config, LogConfig
+from .mujoco_config import Config as MUJOCOConfig
+from .hb_config import Config as HBConfig
+from .dmc_config import Config as DMCCONFIG
 
 _DEF_SUFFIX = "_cfg_def"
 
 cs = ConfigStore.instance()
-cs.store(name="config" + _DEF_SUFFIX, node=Config)
+cs.store(name="mujoco_config" + _DEF_SUFFIX, node=MUJOCOConfig)
+cs.store(name="hb_config" + _DEF_SUFFIX, node=HBConfig)
+cs.store(name="dmc_config" + _DEF_SUFFIX, node=DMCCONFIG)
 
 # raise error if algo is not specified
 cs.store(group="algo", name="base", node=BaseAlgoConfig)

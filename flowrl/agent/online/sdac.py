@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.online.mujoco.algo.sdac import SDACConfig
+from flowrl.config.online.algo.sdac import SDACConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update

@@ -11,8 +11,8 @@ from tqdm import tqdm, trange
 
 import wandb
 from flowrl.agent.online import *
-from flowrl.config.online.mujoco import Config
-from flowrl.dataset.buffer.state import ReplayBuffer
+from flowrl.config.online.dmc_config import Config
+from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer, RewardNormalizer
 from flowrl.env.online.dmc_env import DMControlEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
@@ -66,11 +66,13 @@ class OffPolicyTrainer():
             obs_dim=self.train_env.observation_space.shape[-1],
             action_dim=self.train_env.action_space.shape[-1],
             max_size=cfg.buffer_size,
-            norm_obs=cfg.norm_obs,
-            norm_reward=cfg.norm_reward,
             lap_alpha=cfg.lap_alpha,
         )
-
+        if cfg.norm_obs:
+            self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
+        if cfg.norm_reward:
+            self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
+        
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.train_env.observation_space.shape[-1],
@@ -94,8 +96,7 @@ class OffPolicyTrainer():
         with tqdm(total=cfg.train_frames, desc="training") as pbar:
             while self.global_frame <= cfg.train_frames:
                 action, _ = self.agent.sample_actions(
-                    self.buffer.normalize_obs(obs[jnp.newaxis, ...]),
-                    deterministic=False,
+                    self.obs_normalizer.normalize(obs[jnp.newaxis, ...]) if self.cfg.norm_obs else obs[jnp.newaxis, ...],                    deterministic=False,
                     num_samples=1,
                 )
                 action = np.asarray(action[0])
@@ -107,6 +108,14 @@ class OffPolicyTrainer():
                 ep_return += reward
 
                 self.buffer.add(obs, action, next_obs, reward, terminated)
+                if self.cfg.norm_obs: 
+                    self.obs_normalizer.update(obs)
+                if self.cfg.norm_reward: 
+                    self.reward_normalizer.update(
+                        reward, 
+                        terminated, 
+                        truncated,
+                    )
 
                 if terminated or truncated:
                     next_obs, _ = self.train_env.reset()
@@ -121,6 +130,11 @@ class OffPolicyTrainer():
                     train_metrics = {}
                 else:
                     batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                    if self.cfg.norm_obs:
+                        batch.obs = self.obs_normalizer.normalize(batch.obs)
+                        batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
+                    if self.cfg.norm_reward:
+                        batch.reward = self.reward_normalizer.normalize(batch.reward)
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")
@@ -155,8 +169,7 @@ class OffPolicyTrainer():
         while not np.all(dones):
             # get actions for all environments
             actions, _ = self.agent.sample_actions(
-                self.buffer.normalize_obs(obs),
-                deterministic=True,
+                self.obs_normalizer.normalize(obs) if self.cfg.norm_obs else obs,                deterministic=True,
                 num_samples=self.cfg.eval.num_samples,
             )
             actions = np.asarray(actions)

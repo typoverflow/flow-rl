@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from flowrl.agent.online.sdac import SDACAgent
-from flowrl.config.online.mujoco.algo.dpmd import DPMDConfig
+from flowrl.config.online.algo.dpmd import DPMDConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM
 from flowrl.functional.ema import ema_update
 from flowrl.module.model import Model

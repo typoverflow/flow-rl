@@ -15,7 +15,7 @@ class HumanoidBenchEnv:
         seed: int,
         frame_skip: int,
         frame_stack: int,
-        horizon: int | None = None,
+        horizon: int = 1000,
     ) -> None:
         super().__init__()
         self.task = task
@@ -24,7 +24,7 @@ class HumanoidBenchEnv:
         self.frame_stack = frame_stack
         self.horizon = horizon
 
-        self.env = gym.make(task, max_episode_steps=horizon)
+        self.env = gym.make(task, max_episode_steps=horizon, autoreset=False)
         self.env.seed(seed)
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space

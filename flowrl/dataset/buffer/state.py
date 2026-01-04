@@ -1,9 +1,12 @@
+from typing import Any
+
+
 import numpy as np
 
 from flowrl.types import Batch
 
 
-class RunningMeanStdNormalizer():
+class RMSNormalizer():
     def __init__(self, epsilon=1e-8, shape=(), dtype=np.float32):
         super().__init__()
         self.mean = np.zeros(shape, dtype=dtype)
@@ -25,14 +28,83 @@ class RunningMeanStdNormalizer():
         return (x - self.mean) / std
 
 
+class RewardNormalizer():
+    def __init__(self, discount: float, horizon: int=None):
+        self.returns_min_norm = np.zeros((1, ), dtype=np.float32) + np.inf
+        self.returns_max_norm = np.zeros((1, ), dtype=np.float32) - np.inf
+        self.effective_horizon = 1 / (1 - discount)
+        self.discount = discount
+        self.horizon = horizon
+        self.step = 0
+        if horizon is None:
+            self.reward_trajectory = []
+        else:
+            self.reward_trajectory = np.zeros((horizon, ), dtype=np.float32)
+
+    def update(self, rewards, terminated, truncated):
+        if self.horizon is not None:
+            self._update_fixed_length_trajectory(rewards, terminated, truncated)
+        else:
+            self._update_variable_length_trajectory(rewards, terminated, truncated)
+
+    def normalize(self, reward):
+        denominator = np.where(
+            self.returns_max_norm > np.abs(self.returns_min_norm), 
+            self.returns_max_norm, 
+            np.abs(self.returns_min_norm), 
+        )
+        reward = reward / denominator
+        return reward
+        
+    def _update_fixed_length_trajectory(self, reward, terminated, truncated):
+        self.reward_trajectory[self.step] = reward
+        done = terminated or truncated
+        if self.step == self.horizon - 1:
+            assert truncated
+            v_min, v_max = self._calculate_fixed_length_trajectory_returns()
+            self.returns_min_norm = min(v_min, self.returns_min_norm)
+            self.returns_max_norm = max(v_max, self.returns_max_norm)
+            self.step = 0
+        else:
+            self.step += 1
+
+    def _calculate_fixed_length_trajectory_returns(self):
+        values = np.zeros_like(self.reward_trajectory, dtype=np.float32)
+        bootstrap = self.reward_trajectory.mean(-1) * self.effective_horizon
+        for i in reversed(range(values.shape[-1])):
+            values[i] = self.reward_trajectory[i] + self.discount * bootstrap
+            bootstrap = values[i]
+        return values.min(axis=-1), values.max(axis=-1)
+    
+    def _update_variable_length_trajectory(self, reward, terminated, truncated):
+        self.reward_trajectory.append(reward)
+        done = terminated or truncated
+        if done:
+            v_min, v_max = self._calculate_variable_length_trajectory_returns(
+                self.reward_trajectory, 
+                truncated
+            )
+            self.returns_min_norm = min(v_min, self.returns_min_norm) 
+            self.returns_max_norm = max(v_max, self.returns_max_norm) 
+            self.reward_trajectory = []
+
+    def _calculate_variable_length_trajectory_returns(self, rewards, truncated):
+        rewards = np.array(rewards) # convert list to array
+        values = np.zeros_like(rewards, dtype=np.float32)
+        bootstrap = rewards.mean() * self.effective_horizon if truncated else 0.0
+        for i in reversed(range(rewards.shape[0])):
+            values[i] = rewards[i] + self.discount * bootstrap
+            bootstrap = values[i]
+        return values.min(axis=-1), values.max(axis=-1)
+        
+
+
 class ReplayBuffer(object):
     def __init__(
         self,
         obs_dim: int,
         action_dim: int,
         max_size: int=int(1e6),
-        norm_obs: bool=False,
-        norm_reward: bool=False,
         lap_alpha: float=0.0,
     ):
         self.max_size = max_size
@@ -44,13 +116,6 @@ class ReplayBuffer(object):
         self.next_state = np.zeros((max_size, obs_dim), dtype=np.float32)
         self.reward = np.zeros((max_size, 1), dtype=np.float32)
         self.done = np.zeros((max_size, 1), dtype=np.float32)
-
-        self.norm_obs = norm_obs
-        self.norm_reward = norm_reward
-        if norm_obs:
-            self.obs_rms = RunningMeanStdNormalizer(shape=[obs_dim, ])
-        if norm_reward:
-            self.reward_rms = RunningMeanStdNormalizer(shape=[1, ])
 
         if lap_alpha > 0:
             from flowrl.data_structure import MinTree, SumTree
@@ -72,11 +137,6 @@ class ReplayBuffer(object):
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
-        if self.norm_obs:
-            self.obs_rms.update(state)
-        if self.norm_reward:
-            self.reward_rms.update(reward)
-
         if self.lap:
             self.sum_tree.add(self.max_priority)
             self.min_tree.add(-self.max_priority)
@@ -90,11 +150,11 @@ class ReplayBuffer(object):
             indices = np.random.choice(self.size, size=batch_size, replace=False)
 
         return Batch(
-            obs=self.state[indices] if not self.norm_obs else self.obs_rms.normalize(self.state[indices]),
+            obs=self.state[indices],
             action=self.action[indices],
-            reward=self.reward[indices] if not self.norm_reward else self.reward_rms.normalize(self.reward[indices]),
+            reward=self.reward[indices],
             terminal=self.done[indices],
-            next_obs=self.next_state[indices] if not self.norm_obs else self.obs_rms.normalize(self.next_state[indices]),
+            next_obs=self.next_state[indices],
             next_action=None,
         ), indices
 
@@ -113,7 +173,3 @@ class ReplayBuffer(object):
         else:
             raise ValueError("Only LAP buffer can reset max priority")
 
-    def normalize_obs(self, obs):
-        if self.norm_obs:
-            return self.obs_rms.normalize(obs)
-        return obs

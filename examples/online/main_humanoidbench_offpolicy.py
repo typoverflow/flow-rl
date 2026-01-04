@@ -1,5 +1,7 @@
 import os
 
+os.environ["MUJOCO_GL"] = "egl"
+
 import hydra
 import jax
 import jax.numpy as jnp
@@ -10,12 +12,12 @@ from tqdm import tqdm, trange
 
 import wandb
 from flowrl.agent.online import *
-from flowrl.config.online.mujoco import Config
-from flowrl.dataset.buffer.state import ReplayBuffer
+from flowrl.config.online.hb_config import Config 
 from flowrl.env.online.humanoidbench_env import HumanoidBenchEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
+from flowrl.dataset.buffer.state import RMSNormalizer, RewardNormalizer, ReplayBuffer
 
 jax.config.update("jax_default_matmul_precision", "float32")
 
@@ -59,24 +61,28 @@ class OffPolicyTrainer():
 
         # TODO: what to do with seed, frame_skip, frame_stack?
         print(f"Creating train and eval environments for task: {cfg.task}")
-        self.train_env = HumanoidBenchEnv(cfg.task, cfg.seed, cfg.frame_skip, cfg.frame_stack, cfg.horizon)
-        self.eval_env = [HumanoidBenchEnv(cfg.task, cfg.seed + i*100, cfg.frame_skip, cfg.frame_stack, cfg.horizon) for i in range(cfg.eval.num_episodes)]
+        self.train_env = HumanoidBenchEnv(cfg.task, cfg.seed, cfg.frame_skip, cfg.frame_stack)
+        self.eval_env = [HumanoidBenchEnv(cfg.task, cfg.seed + i*100, cfg.frame_skip, cfg.frame_stack) for i in range(cfg.eval.num_episodes)]
 
         # create buffer
         self.use_lap_buffer = cfg.lap_alpha > 0
+        self.obs_dim = self.train_env.observation_space.shape[-1]
+        self.action_dim = self.train_env.action_space.shape[-1]
         self.buffer = ReplayBuffer(
-            obs_dim=self.train_env.observation_space.shape[-1],
-            action_dim=self.train_env.action_space.shape[-1],
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
             max_size=cfg.buffer_size,
-            norm_obs=cfg.norm_obs,
-            norm_reward=cfg.norm_reward,
             lap_alpha=cfg.lap_alpha,
         )
-
+        if cfg.norm_obs:
+            self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
+        if cfg.norm_reward:
+            self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
+            
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
-            obs_dim=self.train_env.observation_space.shape[-1],
-            act_dim=self.train_env.action_space.shape[-1],
+            obs_dim=self.obs_dim,
+            act_dim=self.action_dim,
             cfg=cfg.algo,
             seed=cfg.seed,
         )
@@ -96,7 +102,7 @@ class OffPolicyTrainer():
         with tqdm(total=cfg.train_frames, desc="training") as pbar:
             while self.global_frame <= cfg.train_frames:
                 action, _ = self.agent.sample_actions(
-                    self.buffer.normalize_obs(obs[jnp.newaxis, ...]),
+                    self.obs_normalizer.normalize(obs[jnp.newaxis, ...]) if self.cfg.norm_obs else obs[jnp.newaxis, ...],
                     deterministic=False,
                     num_samples=1,
                 )
@@ -109,6 +115,14 @@ class OffPolicyTrainer():
                 ep_return += reward
 
                 self.buffer.add(obs, action, next_obs, reward, terminated)
+                if self.cfg.norm_obs: 
+                    self.obs_normalizer.update(obs)
+                if self.cfg.norm_reward: 
+                    self.reward_normalizer.update(
+                        reward, 
+                        terminated, 
+                        truncated,
+                    )
 
                 if terminated or truncated:
                     next_obs, _ = self.train_env.reset()
@@ -123,6 +137,11 @@ class OffPolicyTrainer():
                     train_metrics = {}
                 else:
                     batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                    if self.cfg.norm_obs:
+                        batch.obs = self.obs_normalizer.normalize(batch.obs)
+                        batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
+                    if self.cfg.norm_reward:
+                        batch.reward = self.reward_normalizer.normalize(batch.reward)
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")
@@ -157,7 +176,7 @@ class OffPolicyTrainer():
         while not np.all(dones):
             # get actions for all environments
             actions, _ = self.agent.sample_actions(
-                self.buffer.normalize_obs(obs),
+                self.obs_normalizer.normalize(obs) if self.cfg.norm_obs else obs,
                 deterministic=True,
                 num_samples=self.cfg.eval.num_samples,
             )
@@ -186,10 +205,6 @@ class OffPolicyTrainer():
         self.logger.log_scalars("eval", eval_metrics, step=self.global_frame)
         if self.cfg.log.save_ckpt:
             self.agent.save(os.path.join(self.ckpt_save_dir, f"{self.global_frame}"))
-
-
-class OnPolicyTrainer():
-    pass
 
 
 @hydra.main(config_path="./config/humanoidbench", config_name="config", version_base=None)

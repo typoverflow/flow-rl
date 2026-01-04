@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.online.mujoco.algo.sac import SACConfig
+from flowrl.config.online.algo.sac import SACConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedGaussianActor
 from flowrl.module.critic import EnsembleCritic

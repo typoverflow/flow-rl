@@ -2,7 +2,7 @@ from hydra.core.config_store import ConfigStore
 
 from flowrl.config.offline.d4rl.algo.base import BaseAlgoConfig
 from flowrl.config.offline.d4rl.algo.bdpo import BDPOConfig
-from flowrl.config.online.mujoco.algo.sac import SACConfig
+from flowrl.config.online.algo.sac import SACConfig
 
 from .config import Config, LogConfig
 

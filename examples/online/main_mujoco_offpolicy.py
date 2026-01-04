@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from flowrl.agent.online import *
-from flowrl.config.online.mujoco import Config
+from flowrl.config.online.mujoco_config import Config
 from flowrl.dataset.buffer.state import ReplayBuffer
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
