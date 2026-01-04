@@ -45,8 +45,8 @@ def get_extras_require():
             "mujoco==3.2.7",
         ],
         "humanoidbench": [
-            "dm_control==1.0.20", 
-            "mujoco==3.1.6", 
+            "dm_control==1.0.20",
+            "mujoco==3.1.6",
             # commented out because it undortunately depends on torch (see https://github.com/carlosferrazza/humanoid-bench/issues/65)
             # "humanoid-bench @ git+https://github.com/carlosferrazza/humanoid-bench.git",
         ]

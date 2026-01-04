@@ -1,6 +1,5 @@
 from typing import Any
 
-
 import numpy as np
 
 from flowrl.types import Batch
@@ -49,13 +48,13 @@ class RewardNormalizer():
 
     def normalize(self, reward):
         denominator = np.where(
-            self.returns_max_norm > np.abs(self.returns_min_norm), 
-            self.returns_max_norm, 
-            np.abs(self.returns_min_norm), 
+            self.returns_max_norm > np.abs(self.returns_min_norm),
+            self.returns_max_norm,
+            np.abs(self.returns_min_norm),
         )
         reward = reward / denominator
         return reward
-        
+
     def _update_fixed_length_trajectory(self, reward, terminated, truncated):
         self.reward_trajectory[self.step] = reward
         done = terminated or truncated
@@ -75,17 +74,17 @@ class RewardNormalizer():
             values[i] = self.reward_trajectory[i] + self.discount * bootstrap
             bootstrap = values[i]
         return values.min(axis=-1), values.max(axis=-1)
-    
+
     def _update_variable_length_trajectory(self, reward, terminated, truncated):
         self.reward_trajectory.append(reward)
         done = terminated or truncated
         if done:
             v_min, v_max = self._calculate_variable_length_trajectory_returns(
-                self.reward_trajectory, 
+                self.reward_trajectory,
                 truncated
             )
-            self.returns_min_norm = min(v_min, self.returns_min_norm) 
-            self.returns_max_norm = max(v_max, self.returns_max_norm) 
+            self.returns_min_norm = min(v_min, self.returns_min_norm)
+            self.returns_max_norm = max(v_max, self.returns_max_norm)
             self.reward_trajectory = []
 
     def _calculate_variable_length_trajectory_returns(self, rewards, truncated):
@@ -96,7 +95,7 @@ class RewardNormalizer():
             values[i] = rewards[i] + self.discount * bootstrap
             bootstrap = values[i]
         return values.min(axis=-1), values.max(axis=-1)
-        
+
 
 
 class ReplayBuffer(object):
@@ -172,4 +171,3 @@ class ReplayBuffer(object):
             self.max_priority = - self.min_tree.min()
         else:
             raise ValueError("Only LAP buffer can reset max priority")
-

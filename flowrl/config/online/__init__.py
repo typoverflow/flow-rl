@@ -7,9 +7,9 @@ from .algo.sac import SACConfig
 from .algo.sdac import SDACConfig
 from .algo.td3 import TD3Config
 from .algo.td7 import TD7Config
-from .mujoco_config import Config as MUJOCOConfig
-from .hb_config import Config as HBConfig
 from .dmc_config import Config as DMCCONFIG
+from .hb_config import Config as HBConfig
+from .mujoco_config import Config as MUJOCOConfig
 
 _DEF_SUFFIX = "_cfg_def"
 

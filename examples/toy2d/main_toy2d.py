@@ -3,10 +3,10 @@ from typing import Type
 
 import hydra
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import trange
 
+import wandb
 from examples.toy2d.utils import compute_metrics, plot_data, plot_energy, plot_sample
 from flowrl.agent.offline import *
 from flowrl.agent.online import *

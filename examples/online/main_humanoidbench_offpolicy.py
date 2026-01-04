@@ -12,12 +12,12 @@ from tqdm import tqdm, trange
 
 import wandb
 from flowrl.agent.online import *
-from flowrl.config.online.hb_config import Config 
+from flowrl.config.online.hb_config import Config
+from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
 from flowrl.env.online.humanoidbench_env import HumanoidBenchEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
-from flowrl.dataset.buffer.state import RMSNormalizer, RewardNormalizer, ReplayBuffer
 
 jax.config.update("jax_default_matmul_precision", "float32")
 
@@ -78,7 +78,7 @@ class OffPolicyTrainer():
             self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
         if cfg.norm_reward:
             self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
-            
+
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.obs_dim,
@@ -115,12 +115,12 @@ class OffPolicyTrainer():
                 ep_return += reward
 
                 self.buffer.add(obs, action, next_obs, reward, terminated)
-                if self.cfg.norm_obs: 
+                if self.cfg.norm_obs:
                     self.obs_normalizer.update(obs)
-                if self.cfg.norm_reward: 
+                if self.cfg.norm_reward:
                     self.reward_normalizer.update(
-                        reward, 
-                        terminated, 
+                        reward,
+                        terminated,
                         truncated,
                     )
 

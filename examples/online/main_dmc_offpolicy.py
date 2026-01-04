@@ -12,7 +12,7 @@ from tqdm import tqdm, trange
 import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.dmc_config import Config
-from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer, RewardNormalizer
+from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
 from flowrl.env.online.dmc_env import DMControlEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
@@ -72,7 +72,7 @@ class OffPolicyTrainer():
             self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
         if cfg.norm_reward:
             self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
-        
+
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
             obs_dim=self.train_env.observation_space.shape[-1],
@@ -108,12 +108,12 @@ class OffPolicyTrainer():
                 ep_return += reward
 
                 self.buffer.add(obs, action, next_obs, reward, terminated)
-                if self.cfg.norm_obs: 
+                if self.cfg.norm_obs:
                     self.obs_normalizer.update(obs)
-                if self.cfg.norm_reward: 
+                if self.cfg.norm_reward:
                     self.reward_normalizer.update(
-                        reward, 
-                        terminated, 
+                        reward,
+                        terminated,
                         truncated,
                     )
 
