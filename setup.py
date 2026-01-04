@@ -19,10 +19,7 @@ def get_base_requirements():
         "flax==0.10.5",
         "orbax-checkpoint==0.11.23",
         "gymnasium",
-        "gymnasium_robotics",
         'shimmy==1.3.0',
-        "gym==0.23.1",
-        "mujoco_py==2.1.2.14",
         'Cython<3',
         'six==1.17.0',
         "tqdm",
@@ -39,13 +36,25 @@ def get_install_requires():
 
 def get_extras_require():
     return {
-        'offline': [
+        'mujoco_offline': [
             "dm_control<=1.0.20",
             "mujoco<=3.1.6",
         ],
-        'online': [
+        'mujoco_online': [
             "dm_control==1.0.27",
             "mujoco==3.2.7",
+        ],
+        'humanoidbench': [
+            "torch",
+            "stable-baselines3==2.3.2",
+            "mujoco<=3.1.6",
+            "humanoid-bench @ git+https://github.com/carlosferrazza/humanoid-bench.git",
+        ],
+        'legacy_mujoco': [
+            "mujoco_py==2.1.2.14",
+        ],
+        'robotics': [
+            "gymnasium_robotics",
         ],
     }
 
