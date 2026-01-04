@@ -6,7 +6,7 @@ from ..qsm import QSMDiffusionConfig
 
 
 @dataclass
-class CtrlQSMConfig(BaseAlgoConfig):
+class CtrlSRQSMConfig(BaseAlgoConfig):
     name: str
     actor_update_freq: int
     target_update_freq: int

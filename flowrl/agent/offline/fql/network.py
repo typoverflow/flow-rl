@@ -3,7 +3,7 @@ from dataclasses import field
 import flax.linen as nn
 import jax.numpy as jnp
 
-from flowrl.module.initialization import default_init
+from flowrl.module.initialization import default_bias_init, default_kernel_init
 from flowrl.types import *
 
 
@@ -24,14 +24,14 @@ class MLP(nn.Module):
         training: bool = False,
     ) -> jnp.ndarray:
         for i, size in enumerate(self.hidden_dims):
-            x = nn.Dense(size, kernel_init=default_init())(x)
+            x = nn.Dense(size, kernel_init=default_kernel_init(), bias_init=default_bias_init())(x)
             x = self.activation(x)
             if self.layer_norm:
                 x = nn.LayerNorm()(x)
             if self.dropout and self.dropout > 0:
                 x = nn.Dropout(rate=self.dropout)(x, deterministic=not training)
         if self.output_dim > 0:
-            x = nn.Dense(self.output_dim, kernel_init=default_init())(x)
+            x = nn.Dense(self.output_dim, kernel_init=default_kernel_init(), bias_init=default_bias_init())(x)
         return x
 
 class Critic(nn.Module):

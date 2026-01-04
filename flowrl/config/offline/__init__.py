@@ -8,12 +8,12 @@ from .algo.dtql import DTQLConfig
 from .algo.fql import FQLConfig
 from .algo.iql import IQLConfig
 from .algo.ivr import IVRConfig
-from .config import Config, DataConfig, EvalConfig, LogConfig
+from .d4rl_config import Config as D4RLConfig
 
 _DEF_SUFFIX = "_cfg_def"
 
 cs = ConfigStore.instance()
-cs.store(name="config"+_DEF_SUFFIX, node=Config)
+cs.store(name="d4rl_config"+_DEF_SUFFIX, node=D4RLConfig)
 
 # raise error if algo is not specified
 cs.store(group="algo", name="base", node=BaseAlgoConfig)

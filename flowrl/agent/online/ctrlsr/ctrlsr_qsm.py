@@ -5,9 +5,9 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from flowrl.agent.online.ctrl.network import FactorizedNCE, update_factorized_nce
+from flowrl.agent.online.ctrlsr.network import FactorizedNCE, update_factorized_nce
 from flowrl.agent.online.qsm import QSMAgent
-from flowrl.config.online.mujoco.algo.ctrl.ctrl_qsm import CtrlQSMConfig
+from flowrl.config.online.algo.ctrlsr.ctrlsr_qsm import CtrlSRQSMConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM
 from flowrl.functional.ema import ema_update
 from flowrl.module.model import Model
@@ -129,15 +129,15 @@ def update_actor(
     return rng, new_actor, actor_metrics
 
 
-class CtrlQSMAgent(QSMAgent):
+class CtrlSRQSMAgent(QSMAgent):
     """
     CTRL with Q Score Matching (QSM) agent.
     """
 
-    name = "CtrlQSMAgent"
+    name = "CtrlSRQSMAgent"
     model_names = ["nce", "nce_target", "actor", "actor_target", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: CtrlQSMConfig, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: CtrlSRQSMConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
 

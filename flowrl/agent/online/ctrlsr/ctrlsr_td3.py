@@ -8,7 +8,7 @@ import optax
 import flowrl.module.initialization as init
 from flowrl.agent.online.ctrlsr.network import FactorizedNCE, update_factorized_nce
 from flowrl.agent.online.td3 import TD3Agent
-from flowrl.config.online.mujoco.algo.ctrlsr.ctrlsr_td3 import CtrlSRTD3Config
+from flowrl.config.online.algo.ctrlsr.ctrlsr_td3 import CtrlSRTD3Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.mlp import MLP

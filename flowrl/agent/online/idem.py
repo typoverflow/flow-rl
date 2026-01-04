@@ -7,7 +7,7 @@ import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.qsm import QSMAgent, jit_update_qsm_critic
-from flowrl.config.online.mujoco.algo.idem import IDEMConfig
+from flowrl.config.online.algo.idem import IDEMConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update

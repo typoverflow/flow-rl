@@ -2,7 +2,7 @@
 
 algo:
   name: td3
-  discount: 0.99
+  discount: ${discount}
   ema: 0.005
   actor_hidden_dims: [256, 256]
   critic_hidden_dims: [256, 256]

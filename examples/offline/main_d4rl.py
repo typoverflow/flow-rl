@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from tqdm import trange
 
 from flowrl.agent.offline import *
-from flowrl.config.offline.d4rl import Config
+from flowrl.config.offline.d4rl_config import Config
 from flowrl.dataset.d4rl import D4RLDataset
 from flowrl.env.offline.d4rl import make_env
 from flowrl.types import *

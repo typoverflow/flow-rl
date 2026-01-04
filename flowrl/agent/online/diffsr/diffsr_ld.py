@@ -10,7 +10,7 @@ import optax
 import flowrl.module.initialization as init
 from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.diffsr.network import FactorizedDDPM, update_factorized_ddpm
-from flowrl.config.online.mujoco.algo.diffsr import DiffSRLDConfig
+from flowrl.config.online.algo.diffsr import DiffSRLDConfig
 from flowrl.flow.langevin_dynamics import IBCLangevinDynamics
 from flowrl.functional.ema import ema_update
 from flowrl.module.model import Model

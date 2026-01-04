@@ -3,7 +3,6 @@ from .ctrlsr import *
 from .diffsr import *
 from .dpmd import DPMDAgent
 from .idem import IDEMAgent
-from .ppo import PPOAgent
 from .qsm import QSMAgent
 from .sac import SACAgent
 from .sdac import SDACAgent

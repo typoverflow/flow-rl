@@ -6,13 +6,13 @@ import hydra
 import jax
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online import *
-from flowrl.config.online.mujoco import Config
-from flowrl.dataset.buffer.state import ReplayBuffer
+from flowrl.config.online.mujoco_config import Config
+from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
@@ -27,7 +27,6 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "dpmd": DPMDAgent,
     "qsm": QSMAgent,
     "idem": IDEMAgent,
-    "alac": ALACAgent,
 }
 
 class OffPolicyTrainer():
@@ -72,19 +71,23 @@ class OffPolicyTrainer():
 
         # create buffer
         self.use_lap_buffer = cfg.lap_alpha > 0
+        self.obs_dim = self.train_env.observation_space.shape[-1]
+        self.action_dim = self.train_env.action_space.shape[-1]
         self.buffer = ReplayBuffer(
-            obs_dim=self.train_env.observation_space.shape[-1],
-            action_dim=self.train_env.action_space.shape[-1],
+            obs_dim=self.obs_dim,
+            action_dim=self.action_dim,
             max_size=cfg.buffer_size,
-            norm_obs=cfg.norm_obs,
-            norm_reward=cfg.norm_reward,
             lap_alpha=cfg.lap_alpha,
         )
+        if cfg.norm_obs:
+            self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
+        if cfg.norm_reward:
+            self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
 
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
-            obs_dim=self.train_env.observation_space.shape[-1],
-            act_dim=self.train_env.action_space.shape[-1],
+            obs_dim=self.obs_dim,
+            act_dim=self.action_dim,
             cfg=cfg.algo,
             seed=cfg.seed,
         )
@@ -102,7 +105,7 @@ class OffPolicyTrainer():
             with tqdm(total=cfg.train_frames, desc="training") as pbar:
                 while self.global_frame < cfg.train_frames:
                     actions, _ = self.agent.sample_actions(
-                        self.buffer.normalize_obs(obs),
+                        self.obs_normalizer.normalize(obs) if self.cfg.norm_obs else obs,
                         deterministic=False,
                         num_samples=1
                     )
@@ -124,6 +127,11 @@ class OffPolicyTrainer():
                     else:
                         for _ in range(self.update_per_iter):
                             batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                            if self.cfg.norm_obs:
+                                batch.obs = self.obs_normalizer.normalize(batch.obs)
+                                batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
+                            if self.cfg.norm_reward:
+                                batch.reward = self.reward_normalizer.normalize(batch.reward)
                             train_metrics = self.agent.train_step(batch, step=self.global_frame)
                             if self.use_lap_buffer:
                                 new_priorities = train_metrics.pop("priority")
@@ -165,10 +173,11 @@ class OffPolicyTrainer():
         while not np.all(dones):
             # get actions for all environments
             actions, _ = self.agent.sample_actions(
-                obs,
+                self.obs_normalizer.normalize(obs) if self.cfg.norm_obs else obs,
                 deterministic=True,
                 num_samples=self.cfg.eval.num_samples,
             )
+            actions = np.asarray(actions)
 
             # step all environments
             obs, rewards, terminated, truncated, infos = self.eval_env.step(actions)

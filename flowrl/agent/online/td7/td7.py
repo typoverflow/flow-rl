@@ -8,7 +8,7 @@ import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.td7.network import TD7Actor, TD7Encoder, TD7EnsembleCritic
-from flowrl.config.online.mujoco.algo.td7 import TD7Config
+from flowrl.config.online.algo.td7 import TD7Config
 from flowrl.functional.ema import ema_update
 from flowrl.functional.misc import sg
 from flowrl.module.model import Model

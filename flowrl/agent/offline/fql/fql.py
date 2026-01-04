@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.offline.d4rl.algo.fql import FQLConfig
+from flowrl.config.offline.algo.fql import FQLConfig
 from flowrl.flow.cnf import (
     ContinuousNormalizingFlow,
     FlowBackbone,

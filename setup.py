@@ -36,26 +36,20 @@ def get_install_requires():
 
 def get_extras_require():
     return {
-        'mujoco_offline': [
+        'offline': [
             "dm_control<=1.0.20",
             "mujoco<=3.1.6",
         ],
-        'mujoco_online': [
+        'online': [
             "dm_control==1.0.27",
             "mujoco==3.2.7",
         ],
-        'humanoidbench': [
-            "torch",
-            "stable-baselines3==2.3.2",
-            "mujoco<=3.1.6",
-            "humanoid-bench @ git+https://github.com/carlosferrazza/humanoid-bench.git",
-        ],
-        'legacy_mujoco': [
-            "mujoco_py==2.1.2.14",
-        ],
-        'robotics': [
-            "gymnasium_robotics",
-        ],
+        "humanoidbench": [
+            "dm_control==1.0.20",
+            "mujoco==3.1.6",
+            # commented out because it undortunately depends on torch (see https://github.com/carlosferrazza/humanoid-bench/issues/65)
+            # "humanoid-bench @ git+https://github.com/carlosferrazza/humanoid-bench.git",
+        ]
     }
 
 def get_ext_modules():

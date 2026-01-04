@@ -8,7 +8,7 @@ import optax
 import flowrl.module.initialization as init
 from flowrl.agent.online.diffsr.network import FactorizedDDPM, update_factorized_ddpm
 from flowrl.agent.online.td3 import TD3Agent
-from flowrl.config.online.mujoco.algo.diffsr import DiffSRTD3Config
+from flowrl.config.online.algo.diffsr import DiffSRTD3Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.mlp import MLP
