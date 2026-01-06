@@ -13,7 +13,7 @@ hydra:
 seed: 0
 device: '0'
 task: ???
-frame_skip: 2
+frame_skip: 1
 frame_stack: 1
 batch_size: 512
 buffer_size: 1_000_000

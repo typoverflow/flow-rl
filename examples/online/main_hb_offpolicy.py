@@ -7,10 +7,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm, trange
 
+import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.hb_config import Config
 from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
@@ -23,6 +23,8 @@ jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td3": TD3Agent,
+    "diffsr_td3": DiffSRTD3Agent,
+    "brc": BRCAgent,
 }
 
 class OffPolicyTrainer():

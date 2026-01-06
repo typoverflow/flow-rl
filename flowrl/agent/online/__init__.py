@@ -1,4 +1,5 @@
 from ..base import BaseAgent
+from .brc.brc import BRCAgent
 from .ctrlsr import *
 from .diffsr import *
 from .dpmd import DPMDAgent

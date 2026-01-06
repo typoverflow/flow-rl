@@ -76,6 +76,7 @@ class SquashedGaussianActor(GaussianActor):
     obs_dim: int
     action_dim: int
     conditional_logstd: bool = False
+    logstd_softclip: bool = False
     logstd_min: float = -20.0
     logstd_max: float = 2.0
     kernel_init: Initializer = init.default_kernel_init
@@ -94,7 +95,10 @@ class SquashedGaussianActor(GaussianActor):
         else:
             mean = MLP(output_dim=self.action_dim, kernel_init=self.kernel_init, bias_init=self.bias_init)(x)
             logstd = self.param("logstd", nn.initializers.zeros, (self.action_dim,))
-        logstd = jnp.clip(logstd, self.logstd_min, self.logstd_max)
+        if self.logstd_softclip:
+            logstd = self.logstd_min + (self.logstd_max - self.logstd_min) * 0.5 * (1 + nn.tanh(logstd))
+        else:
+            logstd = jnp.clip(logstd, self.logstd_min, self.logstd_max)
         distribution = TanhMultivariateNormalDiag(mean, jnp.exp(logstd))
         return distribution
 

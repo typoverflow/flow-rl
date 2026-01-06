@@ -2,18 +2,18 @@
 
 algo:
   name: td3
-  discount: ${discount}
+  actor_update_freq: 1
+  target_update_freq: 1
+  discount: 0.99
   ema: 0.005
-  actor_hidden_dims: [256, 256]
-  critic_hidden_dims: [256, 256]
-  activation: relu
+  actor_hidden_dims: [512, 512, 512]
+  critic_hidden_dims: [512, 512, 512]
+  activation: elu
   critic_ensemble_size: 2
-  layer_norm: false
+  layer_norm: true
   actor_lr: 0.0003
   critic_lr: 0.0003
   clip_grad_norm: null
-  actor_update_freq: 2
-  target_update_freq: 2
   target_policy_noise: 0.2
-  noise_clip: 0.5
-  exploration_noise: 0.1
+  noise_clip: 0.3
+  exploration_noise: 0.2
