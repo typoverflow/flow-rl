@@ -28,12 +28,14 @@ class RMSNormalizer():
 
 
 class RewardNormalizer():
-    def __init__(self, discount: float, horizon: int=None):
+    def __init__(self, discount: float, horizon: int=None, v_max: float=10.0, target_entropy: float=-9.5):
         self.returns_min_norm = np.zeros((1, ), dtype=np.float32) + np.inf
         self.returns_max_norm = np.zeros((1, ), dtype=np.float32) - np.inf
         self.effective_horizon = 1 / (1 - discount)
         self.discount = discount
         self.horizon = horizon
+        self.v_max = v_max
+        self.target_entropy = target_entropy
         self.step = 0
         if horizon is None:
             self.reward_trajectory = []
@@ -46,12 +48,13 @@ class RewardNormalizer():
         else:
             self._update_variable_length_trajectory(rewards, terminated, truncated)
 
-    def normalize(self, reward):
+    def normalize(self, reward, temperature):
         denominator = np.where(
             self.returns_max_norm > np.abs(self.returns_min_norm),
             self.returns_max_norm,
             np.abs(self.returns_min_norm),
         )
+        denominator = (denominator - temperature * self.effective_horizon * self.target_entropy / 2) / self.v_max
         reward = reward / denominator
         return reward
 

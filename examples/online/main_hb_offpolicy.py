@@ -74,7 +74,11 @@ class OffPolicyTrainer():
         if cfg.norm_obs:
             self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
         if cfg.norm_reward:
-            self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
+            self.reward_normalizer = RewardNormalizer(
+                discount=cfg.discount,
+                v_max=10.0,
+                target_entropy=-self.action_dim / 2,
+            )
 
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
@@ -138,7 +142,7 @@ class OffPolicyTrainer():
                         batch.obs = self.obs_normalizer.normalize(batch.obs)
                         batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
                     if self.cfg.norm_reward:
-                        batch.reward = self.reward_normalizer.normalize(batch.reward)
+                        batch.reward = self.reward_normalizer.normalize(batch.reward, temperature=jnp.exp(self.agent.log_alpha()))
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")

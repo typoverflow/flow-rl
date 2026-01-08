@@ -16,3 +16,4 @@ algo:
   clip_grad_norm: null
 
 norm_reward: true
+batch_size: 512

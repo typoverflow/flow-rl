@@ -19,7 +19,6 @@ class BroNetBlock(nn.Module):
         res = self.activation(res)
         res = nn.Dense(self.hidden_dim, kernel_init=default_init())(res)
         res = nn.LayerNorm()(res)
-        res = self.activation(res)
         return res + x
 
 class BroNet(nn.Module):

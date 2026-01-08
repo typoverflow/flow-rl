@@ -77,6 +77,8 @@ def update_q(
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q_mean": q_value_target.mean(),
+            "misc/q_min": q_value_target.min(),
+            "misc/q_max": q_value_target.max(),
             "misc/reward": batch.reward.mean(),
         }
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
@@ -173,6 +175,8 @@ def multiple_update_brc(
     num_bins: int,
     v_max: float,
 ):
+    mini_batch_size = batch.obs.shape[0] // num_updates
+    batch = jax.tree.map(lambda x: x.reshape((num_updates, mini_batch_size, -1)) if x is not None else None, batch)
     def one_update(i, state):
         rng, actor, critic, critic_target, log_alpha, metrics = state
         new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_metrics = update_brc(
@@ -181,7 +185,7 @@ def multiple_update_brc(
             critic,
             critic_target,
             log_alpha,
-            batch,
+            jax.tree.map(lambda x: jnp.take(x, i, axis=0) if x is not None else None, batch),
             discount,
             ema,
             target_entropy,
@@ -230,14 +234,14 @@ class BRCAgent(BaseAgent):
             actor_def,
             actor_rng,
             inputs=(jnp.ones((1, self.obs_dim)),),
-            optimizer=optax.adam(learning_rate=cfg.actor_lr),
+            optimizer=optax.adamw(learning_rate=cfg.actor_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic = Model.create(
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
-            optimizer=optax.adam(learning_rate=cfg.critic_lr),
+            optimizer=optax.adamw(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(
@@ -249,7 +253,7 @@ class BRCAgent(BaseAgent):
             TunableCoefficient(init_value=0.0),
             alpha_rng,
             inputs=(),
-            optimizer=optax.adam(learning_rate=cfg.alpha_lr),
+            optimizer=optax.adam(learning_rate=cfg.alpha_lr, b1=0.5),
         )
         self.target_entropy = -self.act_dim / 2
 

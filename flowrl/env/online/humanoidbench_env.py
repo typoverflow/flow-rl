@@ -36,11 +36,11 @@ class HumanoidBenchEnv:
 
     def step(self, action):
         action = action.astype(np.float32)
-        reward = 0.0
+        total_reward = 0.0
         for _ in range(self.frame_skip):
             obs, reward, terminated, truncated, info = self.env.step(action)
-            reward += reward
+            total_reward += reward
             if terminated or truncated:
                 break
         self.queue.append(obs)
-        return np.concatenate(self.queue), reward, terminated, truncated, info
+        return np.concatenate(self.queue), total_reward, terminated, truncated, info
