@@ -54,6 +54,7 @@ class RewardNormalizer():
             self.returns_max_norm,
             np.abs(self.returns_min_norm),
         )
+        temperature = 0.0
         denominator = (denominator - temperature * self.effective_horizon * self.target_entropy / 2) / self.v_max
         reward = reward / denominator
         return reward

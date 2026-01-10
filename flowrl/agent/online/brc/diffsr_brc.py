@@ -7,8 +7,14 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.agent.online.brc.network import BroNet, EnsembleBroNetCritic
-from flowrl.config.online.algo.brc.brc import BRCConfig
+from flowrl.agent.online.brc.brc import BRCAgent
+from flowrl.agent.online.brc.network import (
+    BroNet,
+    EnsembleBroNetCritic,
+    FactorizedDDPM,
+    update_factorized_ddpm,
+)
+from flowrl.config.online.algo.brc.diffsr_brc import DiffSRBRCConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedGaussianActor
 from flowrl.module.critic import EnsembleCritic
@@ -38,6 +44,7 @@ def update_q(
     critic_target: Model,
     actor: Model,
     log_alpha: Model,
+    ddpm_target: Model,
     batch: Batch,
     discount: float,
     num_bins: int,
@@ -46,7 +53,8 @@ def update_q(
     rng, sample_rng = jax.random.split(rng)
     dist = actor(batch.next_obs)
     next_action, next_logprob = dist.sample_and_log_prob(seed=sample_rng)
-    next_q_logits = critic_target(batch.next_obs, next_action)
+    next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
+    next_q_logits = critic_target(next_feature)
     next_q_probs = jax.nn.softmax(next_q_logits, axis=-1).mean(axis=0)
     v_min = - v_max
     bin_values = jnp.linspace(start=v_min, stop=v_max, num=num_bins)[jnp.newaxis]
@@ -65,11 +73,11 @@ def update_q(
     target_probs = jax.lax.stop_gradient(jnp.sum(lower_values * lower_mask + upper_values * upper_mask, axis=1))
     q_value_target = (bin_values * target_probs).sum(-1)
 
+    feature = ddpm_target(batch.obs, batch.action, method="forward_phi")
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         q_logits = critic.apply(
             {"params": critic_params},
-            batch.obs,
-            batch.action,
+            feature,
             training=True,
             rngs={"dropout": dropout_rng},
         )
@@ -90,6 +98,7 @@ def update_actor(
     actor: Model,
     critic: Model,
     log_alpha: Model,
+    ddpm_target: Model,
     batch: Batch,
     num_bins: int,
     v_max: float,
@@ -103,7 +112,8 @@ def update_actor(
             rngs={"dropout": dropout_rng},
         )
         new_action, new_logprob = dist.sample_and_log_prob(seed=sample_rng)
-        q_logits = critic(batch.obs, new_action)
+        new_feature = ddpm_target(batch.obs, new_action, method="forward_phi")
+        q_logits = critic(new_feature)
         q_probs = jax.nn.softmax(q_logits, axis=-1).mean(axis=0)
         bin_values = jnp.linspace(start=-v_max, stop=v_max, num=num_bins)[jnp.newaxis]
         q_values = (bin_values * q_probs).sum(-1, keepdims=True)
@@ -138,92 +148,130 @@ def update_alpha(
     new_log_alpha, metrics = log_alpha.apply_gradient(alpha_loss_fn)
     return rng, new_log_alpha, metrics
 
-def update_brc(
+def update_diffsr_brc(
     rng: PRNGKey,
     actor: Model,
     critic: Model,
     critic_target: Model,
     log_alpha: Model,
+    ddpm: Model,
+    ddpm_target: Model,
     batch: Batch,
     discount: float,
     ema: float,
     target_entropy: float,
     num_bins: int,
     v_max: float,
+    reward_coef: float,
 ) -> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
-    rng, new_critic, critic_metrics = update_q(rng, critic, critic_target, actor, log_alpha, batch, discount, num_bins, v_max)
-    rng, new_actor, actor_metrics = update_actor(rng, actor, new_critic, log_alpha, batch, num_bins, v_max)
+    rng, new_ddpm, ddpm_metrics = update_factorized_ddpm(rng, ddpm, batch, reward_coef)
+    rng, new_critic, critic_metrics = update_q(rng, critic, critic_target, actor, log_alpha, ddpm_target, batch, discount, num_bins, v_max)
+    rng, new_actor, actor_metrics = update_actor(rng, actor, new_critic, log_alpha, ddpm_target, batch, num_bins, v_max)
     rng, new_log_alpha, alpha_metrics = update_alpha(rng, log_alpha, new_actor, batch, target_entropy)
     new_critic_target = ema_update(new_critic, critic_target, ema)
-    return rng, new_actor, new_critic, new_critic_target, new_log_alpha, {
+    new_ddpm_target = ema_update(ddpm, ddpm_target, ema)
+    return rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_ddpm, new_ddpm_target, {
         **critic_metrics,
         **actor_metrics,
         **alpha_metrics,
+        **ddpm_metrics,
     }
 
-@partial(jax.jit, static_argnames=("num_updates", "discount", "ema", "target_entropy", "num_bins", "v_max"))
-def multiple_update_brc(
+@partial(jax.jit, static_argnames=("num_updates", "discount", "ema", "target_entropy", "num_bins", "v_max", "reward_coef"))
+def multiple_update_diffsr_brc(
     num_updates: int,
     rng: PRNGKey,
     actor: Model,
     critic: Model,
     critic_target: Model,
     log_alpha: Model,
+    ddpm: Model,
+    ddpm_target: Model,
     batch: Batch,
     discount: float,
     ema: float,
     target_entropy: float,
     num_bins: int,
     v_max: float,
+    reward_coef: float,
 ):
     mini_batch_size = batch.obs.shape[0] // num_updates
     batch = jax.tree.map(lambda x: x.reshape((num_updates, mini_batch_size, -1)) if x is not None else None, batch)
     def one_update(i, state):
-        rng, actor, critic, critic_target, log_alpha, metrics = state
-        new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_metrics = update_brc(
+        rng, actor, critic, critic_target, log_alpha, ddpm, ddpm_target, metrics = state
+        new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_ddpm, new_ddpm_target, new_metrics = update_diffsr_brc(
             rng,
             actor,
             critic,
             critic_target,
             log_alpha,
+            ddpm,
+            ddpm_target,
             jax.tree.map(lambda x: jnp.take(x, i, axis=0) if x is not None else None, batch),
             discount,
             ema,
             target_entropy,
             num_bins,
             v_max,
+            reward_coef,
         )
-        return new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_metrics
+        return new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_ddpm, new_ddpm_target, new_metrics
 
-    rng, actor, critic, critic_target, log_alpha, metrics = one_update(0, (rng, actor, critic, critic_target, log_alpha, {}))
-    return jax.lax.fori_loop(1, num_updates, one_update, (rng, actor, critic, critic_target, log_alpha, metrics))
+    rng, actor, critic, critic_target, log_alpha, ddpm, ddpm_target, metrics = one_update(0, (rng, actor, critic, critic_target, log_alpha, ddpm, ddpm_target, {}))
+    return jax.lax.fori_loop(1, num_updates, one_update, (rng, actor, critic, critic_target, log_alpha, ddpm, ddpm_target, metrics))
 
 
-class BRCAgent(BaseAgent):
+class DiffSRBRCAgent(BRCAgent):
     """
     Bigger, Regularized, Categorical (BRC) agent.
     """
-    name = "BRCAgent"
-    model_names = ["actor", "critic", "critic_target"]
+    name = "DiffSRBRCAgent"
+    model_names = ["ddpm", "ddpm_target", "actor", "critic", "critic_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: BRCConfig, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: DiffSRBRCConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
-        self.rng, actor_rng, critic_rng, alpha_rng = jax.random.split(self.rng, 4)
 
-        self.num_bins = cfg.num_bins
-        self.v_max = cfg.v_max
+        self.reward_coef = cfg.reward_coef
+        self.num_noises = cfg.num_noises
+        self.feature_dim = cfg.feature_dim
 
-        actor_def = SquashedGaussianActor(
-            backbone=BroNet(
-                hidden_dim=cfg.actor_hidden_dim,
-                num_blocks=1,
-            ),
-            obs_dim=self.obs_dim,
-            action_dim=self.act_dim,
-            conditional_logstd=True,
-            logstd_softclip=True,
+        # networks
+        self.rng, ddpm_rng, ddpm_init_rng, actor_rng, critic_rng = jax.random.split(self.rng, 5)
+        ddpm_def = FactorizedDDPM(
+            self.obs_dim,
+            self.act_dim,
+            self.feature_dim,
+            cfg.embed_dim,
+            cfg.phi_hidden_dims,
+            cfg.mu_hidden_dims,
+            cfg.reward_hidden_dims,
+            cfg.rff_dim,
+            cfg.num_noises,
         )
+        self.ddpm = Model.create(
+            ddpm_def,
+            ddpm_rng,
+            inputs=(
+                ddpm_init_rng,
+                jnp.ones((1, self.obs_dim)),
+                jnp.ones((1, self.act_dim)),
+                jnp.ones((1, self.obs_dim)),
+            ),
+            optimizer=optax.adam(learning_rate=cfg.feature_lr),
+            clip_grad_norm=cfg.clip_grad_norm,
+        )
+        self.ddpm_target = Model.create(
+            ddpm_def,
+            ddpm_rng,
+            inputs=(
+                ddpm_init_rng,
+                jnp.ones((1, self.obs_dim)),
+                jnp.ones((1, self.act_dim)),
+                jnp.ones((1, self.obs_dim)),
+            ),
+        )
+
         critic_def = EnsembleBroNetCritic(
             hidden_dim=cfg.critic_hidden_dim,
             num_blocks=2,
@@ -231,47 +279,36 @@ class BRCAgent(BaseAgent):
             ensemble_size=cfg.critic_ensemble_size,
         )
 
-        self.actor = Model.create(
-            actor_def,
-            actor_rng,
-            inputs=(jnp.ones((1, self.obs_dim)),),
-            optimizer=optax.adamw(learning_rate=cfg.actor_lr),
-            clip_grad_norm=cfg.clip_grad_norm,
-        )
         self.critic = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=(jnp.ones((1, self.feature_dim)), ),
             optimizer=optax.adamw(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic_target = Model.create(
             critic_def,
             critic_rng,
-            inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
+            inputs=(jnp.ones((1, self.feature_dim)), ),
         )
-        self.log_alpha = Model.create(
-            TunableCoefficient(init_value=0.0),
-            alpha_rng,
-            inputs=(),
-            optimizer=optax.adam(learning_rate=cfg.alpha_lr, b1=0.5),
-        )
-        self.target_entropy = -self.act_dim / 2
 
     def train_step(self, batch: Batch, step: int) -> Metric:
-        self.rng, self.actor, self.critic, self.critic_target, self.log_alpha, metrics = multiple_update_brc(
+        self.rng, self.actor, self.critic, self.critic_target, self.log_alpha, self.ddpm, self.ddpm_target, metrics = multiple_update_diffsr_brc(
             self.cfg.num_updates,
             self.rng,
             self.actor,
             self.critic,
             self.critic_target,
             self.log_alpha,
+            self.ddpm,
+            self.ddpm_target,
             batch,
             self.cfg.discount,
             self.cfg.ema,
             self.target_entropy,
             self.num_bins,
             self.v_max,
+            self.reward_coef,
         )
         return metrics
 
