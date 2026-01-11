@@ -33,6 +33,7 @@ class Config:
     norm_obs: bool
     norm_reward: bool
     discount: float
+    num_updates: int
 
     train_frames: int
     random_frames: int

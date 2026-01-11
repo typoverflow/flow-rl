@@ -137,13 +137,13 @@ class OffPolicyTrainer():
                 if self.global_frame < cfg.warmup_frames:
                     train_metrics = {}
                 else:
-                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size * cfg.num_updates)
                     if self.cfg.norm_obs:
                         batch.obs = self.obs_normalizer.normalize(batch.obs)
                         batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
                     if self.cfg.norm_reward:
                         batch.reward = self.reward_normalizer.normalize(batch.reward, temperature=jnp.exp(self.agent.log_alpha()))
-                    train_metrics = self.agent.train_step(batch, step=self.global_frame)
+                    train_metrics = self.agent.train_step(batch, step=self.global_frame, num_updates=cfg.num_updates)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")
                         self.buffer.update(indices, new_priorities)

@@ -156,8 +156,10 @@ class TD3Agent(BaseAgent):
 
         self._n_training_steps = 0
 
+    def train_step(self, batch: Batch, step: int, num_updates: int = 1) -> Metric:
+        if num_updates > 1:
+            raise NotImplementedError("TD3 does not support num_updates > 1 yet")
 
-    def train_step(self, batch: Batch, step: int) -> Metric:
         metrics = {}
         self.rng, self.critic, critic_metrics = update_critic(
             self.rng,

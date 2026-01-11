@@ -51,13 +51,16 @@ class BaseAgent():
         """
         return None
 
-    def train_step(self, batch: Batch, step: int) -> Metric:
+    def train_step(self, batch: Batch, step: int, num_updates: int = 1) -> Metric:
         """
         Perform a training step on the agent.
 
         Args:
-            batch (Batch): The batch of data to train on.
+            batch (Batch): The batch of data to train on. For num_updates > 1,
+                          the batch size should be (batch_size * num_updates).
             step (int): The current training step.
+            num_updates (int): Number of gradient updates to perform (JIT fused).
+                              The batch will be split into num_updates mini-batches.
 
         Returns:
             Metric: The information dictionary containing training statistics.

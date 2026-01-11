@@ -7,7 +7,6 @@ from ..base import BaseAlgoConfig
 @dataclass
 class BRCConfig(BaseAlgoConfig):
     name: str
-    num_updates: int
     num_bins: int
     v_max: float
     discount: float

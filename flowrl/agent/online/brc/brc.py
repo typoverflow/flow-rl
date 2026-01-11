@@ -137,31 +137,8 @@ def update_alpha(
     new_log_alpha, metrics = log_alpha.apply_gradient(alpha_loss_fn)
     return rng, new_log_alpha, metrics
 
-def update_brc(
-    rng: PRNGKey,
-    actor: Model,
-    critic: Model,
-    critic_target: Model,
-    log_alpha: Model,
-    batch: Batch,
-    discount: float,
-    ema: float,
-    target_entropy: float,
-    num_bins: int,
-    v_max: float,
-) -> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
-    rng, new_critic, critic_metrics = update_q(rng, critic, critic_target, actor, log_alpha, batch, discount, num_bins, v_max)
-    rng, new_actor, actor_metrics = update_actor(rng, actor, new_critic, log_alpha, batch, num_bins, v_max)
-    rng, new_log_alpha, alpha_metrics = update_alpha(rng, log_alpha, new_actor, batch, target_entropy)
-    new_critic_target = ema_update(new_critic, critic_target, ema)
-    return rng, new_actor, new_critic, new_critic_target, new_log_alpha, {
-        **critic_metrics,
-        **actor_metrics,
-        **alpha_metrics,
-    }
-
 @partial(jax.jit, static_argnames=("num_updates", "discount", "ema", "target_entropy", "num_bins", "v_max"))
-def multiple_update_brc(
+def update_brc(
     num_updates: int,
     rng: PRNGKey,
     actor: Model,
@@ -177,25 +154,19 @@ def multiple_update_brc(
 ):
     mini_batch_size = batch.obs.shape[0] // num_updates
     batch = jax.tree.map(lambda x: x.reshape((num_updates, mini_batch_size, -1)) if x is not None else None, batch)
-    def one_update(i, state):
-        rng, actor, critic, critic_target, log_alpha, metrics = state
-        new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_metrics = update_brc(
-            rng,
-            actor,
-            critic,
-            critic_target,
-            log_alpha,
-            jax.tree.map(lambda x: jnp.take(x, i, axis=0) if x is not None else None, batch),
-            discount,
-            ema,
-            target_entropy,
-            num_bins,
-            v_max,
-        )
-        return new_rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_metrics
 
-    rng, actor, critic, critic_target, log_alpha, metrics = one_update(0, (rng, actor, critic, critic_target, log_alpha, {}))
-    return jax.lax.fori_loop(1, num_updates, one_update, (rng, actor, critic, critic_target, log_alpha, metrics))
+    def one_update(i, state):
+        rng, actor, critic, critic_target, log_alpha, _ = state
+        mini_batch = jax.tree.map(lambda x: jnp.take(x, i, axis=0) if x is not None else None, batch)
+        rng, new_critic, critic_metrics = update_q(rng, critic, critic_target, actor, log_alpha, mini_batch, discount, num_bins, v_max)
+        rng, new_actor, actor_metrics = update_actor(rng, actor, new_critic, log_alpha, mini_batch, num_bins, v_max)
+        rng, new_log_alpha, alpha_metrics = update_alpha(rng, log_alpha, new_actor, mini_batch, target_entropy)
+        new_critic_target = ema_update(new_critic, critic_target, ema)
+        metrics = {**critic_metrics, **actor_metrics, **alpha_metrics}
+        return rng, new_actor, new_critic, new_critic_target, new_log_alpha, metrics
+
+    state = one_update(0, (rng, actor, critic, critic_target, log_alpha, {}))
+    return jax.lax.fori_loop(1, num_updates, one_update, state)
 
 
 class BRCAgent(BaseAgent):
@@ -257,9 +228,9 @@ class BRCAgent(BaseAgent):
         )
         self.target_entropy = -self.act_dim / 2
 
-    def train_step(self, batch: Batch, step: int) -> Metric:
-        self.rng, self.actor, self.critic, self.critic_target, self.log_alpha, metrics = multiple_update_brc(
-            self.cfg.num_updates,
+    def train_step(self, batch: Batch, step: int, num_updates: int = 1) -> Metric:
+        self.rng, self.actor, self.critic, self.critic_target, self.log_alpha, metrics = update_brc(
+            num_updates,
             self.rng,
             self.actor,
             self.critic,

@@ -191,7 +191,10 @@ class DiffSRTD3Agent(TD3Agent):
 
         self._n_training_steps = 0
 
-    def train_step(self, batch: Batch, step: int) -> Metric:
+    def train_step(self, batch: Batch, step: int, num_updates: int = 1) -> Metric:
+        if num_updates > 1:
+            raise NotImplementedError("DiffSRTD3 does not support num_updates > 1 yet")
+
         metrics = {}
 
         self.rng, self.ddpm, ddpm_metrics = update_factorized_ddpm(

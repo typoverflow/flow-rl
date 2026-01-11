@@ -2,7 +2,6 @@
 
 algo:
   name: brc
-  num_updates: 2
   num_bins: 101
   v_max: 10.0
   discount: 0.99
