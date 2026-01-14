@@ -1,6 +1,7 @@
 import flax.linen as nn
 import jax.numpy as jnp
 
+import flowrl.module.initialization as init
 from flowrl.functional.activation import mish
 from flowrl.types import *
 
@@ -12,6 +13,8 @@ class Critic(nn.Module):
     activation: Callable = nn.relu
     layer_norm: bool = False
     dropout: Optional[float] = None
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(
@@ -30,6 +33,8 @@ class Critic(nn.Module):
             activation=self.activation,
             layer_norm=self.layer_norm,
             dropout=self.dropout,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )(x, training)
         return x
 
@@ -40,6 +45,8 @@ class EnsembleCritic(nn.Module):
     layer_norm: bool = False
     dropout: Optional[float] = None
     ensemble_size: int = 2
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(
@@ -61,6 +68,8 @@ class EnsembleCritic(nn.Module):
             activation=self.activation,
             layer_norm=self.layer_norm,
             dropout=self.dropout,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )(obs, action, training)
         return x
 
@@ -70,6 +79,8 @@ class CriticT(nn.Module):
     activation: Callable = nn.relu
     layer_norm: bool = False
     dropout: Optional[float] = None
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(
@@ -83,6 +94,8 @@ class CriticT(nn.Module):
         t_ff = MLP(
             hidden_dims=[t_ff.shape[-1], t_ff.shape[-1]],
             activation=mish,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )(t_ff)
         x = jnp.concatenate([item for item in [obs, action, t_ff] if item is not None], axis=-1)
         x = MLP(
@@ -91,6 +104,8 @@ class CriticT(nn.Module):
             activation=self.activation,
             layer_norm=self.layer_norm,
             dropout=self.dropout,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )(x, training)
         return x
 
@@ -102,6 +117,8 @@ class EnsembleCriticT(nn.Module):
     layer_norm: bool = False
     dropout: Optional[float] = None
     ensemble_size: int = 2
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(
@@ -124,6 +141,8 @@ class EnsembleCriticT(nn.Module):
             hidden_dims=self.hidden_dims,
             activation=self.activation,
             layer_norm=self.layer_norm,
-            dropout=self.dropout
+            dropout=self.dropout,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )(obs, action, t, training)
         return x

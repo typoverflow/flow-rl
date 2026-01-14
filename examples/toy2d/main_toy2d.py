@@ -19,6 +19,9 @@ from flowrl.utils.misc import set_seed_everywhere
 SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "bdpo": BDPOAgent,
     "dac": DACAgent,
+    "qsm": QSMAgent,
+    "sdac": SDACAgent,
+    "aca": ACAAgent,
 }
 
 class Trainer():
@@ -30,14 +33,15 @@ class Trainer():
             log_dir="/".join([cfg.log.dir, cfg.algo.name, cfg.log.tag, cfg.task]),
             name="seed"+str(cfg.seed),
             logger_config={
-                "TensorboardLogger": {"activate": True},
-                "WandbLogger": {
-                    "activate": True,
-                    "config": OmegaConf.to_container(cfg),
-                    "settings": wandb.Settings(_disable_stats=True),
-                    "project": cfg.log.project,
-                    "entity": cfg.log.entity
-                } if ("project" in cfg.log and "entity" in cfg.log) else {"activate": False},
+                "CsvLogger": {"activate": True},
+                # "TensorboardLogger": {"activate": True},
+                # "WandbLogger": {
+                #     "activate": True,
+                #     "config": OmegaConf.to_container(cfg),
+                #     "settings": wandb.Settings(_disable_stats=True),
+                #     "project": cfg.log.project,
+                #     "entity": cfg.log.entity
+                # } if ("project" in cfg.log and "entity" in cfg.log) else {"activate": False},
             }
         )
         self.ckpt_save_dir = os.path.join(self.logger.log_dir, "ckpt")

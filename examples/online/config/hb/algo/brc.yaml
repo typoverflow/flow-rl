@@ -1,0 +1,18 @@
+# @package _global_
+
+algo:
+  name: brc
+  num_bins: 101
+  v_max: 10.0
+  discount: 0.99
+  ema: 0.005
+  actor_hidden_dim: 256
+  critic_hidden_dim: 1024
+  critic_ensemble_size: 2
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  alpha_lr: 0.0003
+  clip_grad_norm: null
+
+norm_reward: true
+batch_size: 512

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.offline.d4rl.algo.dtql import DTQLConfig
+from flowrl.config.offline.algo.dtql import DTQLConfig
 from flowrl.flow.edm import EDM, EDMBackbone, compute_edm_loss
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update

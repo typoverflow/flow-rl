@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
+import flowrl.module.initialization as init
 from flowrl.module.mlp import MLP
 from flowrl.types import *
 
@@ -10,6 +11,8 @@ class RffLayer(nn.Module):
     feature_dim: int
     rff_dim: int
     learnable: bool = True
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -17,7 +20,12 @@ class RffLayer(nn.Module):
         half = self.rff_dim // 2
 
         if self.learnable:
-            x = MLP(hidden_dims=[], output_dim=half)(x)
+            x = MLP(
+                hidden_dims=[],
+                output_dim=half,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init
+            )(x)
         else:
             noise = self.variable(
                 "noise",
@@ -32,17 +40,20 @@ class RffReward(nn.Module):
     feature_dim: int
     hidden_dims: list[int]
     rff_dim: int
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, training: bool = False) -> jnp.ndarray:
         x = nn.LayerNorm()(x)
-        x = RffLayer(self.feature_dim, self.rff_dim, learnable=True)(x)
-
+        x = RffLayer(self.feature_dim, self.rff_dim, learnable=True, kernel_init=self.kernel_init, bias_init=self.bias_init)(x)
         x = MLP(
             hidden_dims=self.hidden_dims,
             output_dim=1,
             layer_norm=True,
             activation=nn.elu,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )(x, training=training)
         return x
 
@@ -56,6 +67,8 @@ class RffEnsembleCritic(nn.Module):
     hidden_dims: Sequence[int]
     rff_dim: int
     ensemble_size: int = 2
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
 
     @nn.compact
     def __call__(self, x) -> jnp.ndarray:
@@ -67,5 +80,5 @@ class RffEnsembleCritic(nn.Module):
             out_axes=0,
             axis_size=self.ensemble_size,
         )
-        x = vmap_rff(self.feature_dim, self.hidden_dims, self.rff_dim)(x)
+        x = vmap_rff(self.feature_dim, self.hidden_dims, self.rff_dim, kernel_init=self.kernel_init, bias_init=self.bias_init)(x)
         return x
