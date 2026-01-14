@@ -1,6 +1,9 @@
 import os
+import warnings
 
 os.environ["MUJOCO_GL"] = "egl"
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+warnings.filterwarnings("ignore", message=".*DISPLAY environment variable.*")
 
 import hydra
 import jax
@@ -13,7 +16,7 @@ from tqdm import tqdm, trange
 import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.hb_config import Config
-from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
+from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer, BatchedRewardNormalizer
 from flowrl.env.online.humanoidbench_env import HumanoidBenchEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
@@ -53,15 +56,22 @@ class OffPolicyTrainer():
         print("="*80)
         print(f"\nSave results to: {self.logger.log_dir}\n")
 
-        # create env # TODO switch to parallel environments
         self.frame_skip = cfg.frame_skip
+        self.num_train_envs = cfg.num_train_envs
+        self.update_per_iter = int(self.num_train_envs * cfg.utd)
 
-        # TODO: what to do with seed, frame_skip, frame_stack?
-        print(f"Creating train and eval environments for task: {cfg.task}")
-        self.train_env = HumanoidBenchEnv(cfg.task, cfg.seed, cfg.frame_skip, cfg.frame_stack)
-        self.eval_env = [HumanoidBenchEnv(cfg.task, cfg.seed + i*100, cfg.frame_skip, cfg.frame_stack) for i in range(cfg.eval.num_episodes)]
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
 
-        # create buffer
+        print(f"Creating environments for task: {cfg.task} (num_train_envs={self.num_train_envs})")
+        self.train_env = HumanoidBenchEnv(
+            task=cfg.task, num_envs=self.num_train_envs, seed=cfg.seed,
+            frame_skip=cfg.frame_skip, frame_stack=cfg.frame_stack
+        )
+        self.eval_env = HumanoidBenchEnv(
+            task=cfg.task, num_envs=cfg.eval.num_episodes, seed=cfg.seed + 1000,
+            frame_skip=cfg.frame_skip, frame_stack=cfg.frame_stack
+        )
+
         self.use_lap_buffer = cfg.lap_alpha > 0
         self.obs_dim = self.train_env.observation_space.shape[-1]
         self.action_dim = self.train_env.action_space.shape[-1]
@@ -74,7 +84,8 @@ class OffPolicyTrainer():
         if cfg.norm_obs:
             self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
         if cfg.norm_reward:
-            self.reward_normalizer = RewardNormalizer(
+            self.reward_normalizer = BatchedRewardNormalizer(
+                num_envs=self.num_train_envs,
                 discount=cfg.discount,
                 v_max=10.0,
                 target_entropy=-self.action_dim / 2,
@@ -97,57 +108,60 @@ class OffPolicyTrainer():
 
     def train(self):
         cfg = self.cfg
+        ep_lengths = np.zeros(self.num_train_envs)
+        ep_returns = np.zeros(self.num_train_envs)
 
-        ep_length = ep_return = 0
         obs, _ = self.train_env.reset()
         with tqdm(total=cfg.train_frames, desc="training") as pbar:
             while self.global_frame <= cfg.train_frames:
-                action, _ = self.agent.sample_actions(
-                    self.obs_normalizer.normalize(obs[jnp.newaxis, ...]) if self.cfg.norm_obs else obs[jnp.newaxis, ...],
-                    deterministic=False,
-                    num_samples=1,
+                actions, _ = self.agent.sample_actions(
+                    self.obs_normalizer.normalize(obs) if self.cfg.norm_obs else obs,
+                    deterministic=False, num_samples=1,
                 )
-                action = np.asarray(action[0])
                 if self.global_frame < cfg.random_frames:
-                    action = self.train_env.action_space.sample()
+                    actions = self.train_env.action_space.sample()
 
-                next_obs, reward, terminated, truncated, info = self.train_env.step(action)
-                ep_length += 1
-                ep_return += reward
+                next_obs, rewards, terminated, truncated, infos = self.train_env.step(actions)
 
-                self.buffer.add(obs, action, next_obs, reward, terminated)
-                if self.cfg.norm_obs:
-                    self.obs_normalizer.update(obs)
-                if self.cfg.norm_reward:
-                    self.reward_normalizer.update(
-                        reward,
-                        terminated,
-                        truncated,
-                    )
+                for i in range(self.num_train_envs):
+                    ep_lengths[i] += 1
+                    ep_returns[i] += rewards[i]
 
-                if terminated or truncated:
-                    next_obs, _ = self.train_env.reset()
-                    self.global_episode += 1
-                    self.logger.log_scalars("", {
-                        "rollout/episode_return": ep_return,
-                        "rollout/episode_length": ep_length
-                    }, step=self.global_frame)
-                    ep_length = ep_return = 0
+                    if terminated[i] or truncated[i]:
+                        actual_next_obs = infos["final_obs"][i]
+                    else:
+                        actual_next_obs = next_obs[i]
+
+                    self.buffer.add(obs[i], actions[i], actual_next_obs, rewards[i], terminated[i])
+
+                    if self.cfg.norm_obs:
+                        self.obs_normalizer.update(obs[i])
+                    if self.cfg.norm_reward:
+                        self.reward_normalizer.update(i, rewards[i], terminated[i], truncated[i])
+
+                    if terminated[i] or truncated[i]:
+                        self.global_episode += 1
+                        self.logger.log_scalars("", {
+                            "rollout/episode_return": ep_returns[i],
+                            "rollout/episode_length": ep_lengths[i]
+                        }, step=self.global_frame)
+                        ep_lengths[i] = ep_returns[i] = 0
 
                 if self.global_frame < cfg.warmup_frames:
                     train_metrics = {}
                 else:
-                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size * cfg.num_updates)
-                    if self.cfg.norm_obs:
-                        batch.obs = self.obs_normalizer.normalize(batch.obs)
-                        batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
-                    if self.cfg.norm_reward:
-                        batch.reward = self.reward_normalizer.normalize(batch.reward, temperature=jnp.exp(self.agent.log_alpha()))
-                    train_metrics = self.agent.train_step(batch, step=self.global_frame, num_updates=cfg.num_updates)
-                    if self.use_lap_buffer:
-                        new_priorities = train_metrics.pop("priority")
-                        self.buffer.update(indices, new_priorities)
-                        train_metrics["misc/max_priority"] = self.buffer.max_priority
+                    for _ in range(self.update_per_iter):
+                        batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                        if self.cfg.norm_obs:
+                            batch.obs = self.obs_normalizer.normalize(batch.obs)
+                            batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
+                        if self.cfg.norm_reward:
+                            batch.reward = self.reward_normalizer.normalize(batch.reward, temperature=jnp.exp(self.agent.log_alpha()))
+                        train_metrics = self.agent.train_step(batch, step=self.global_frame, num_updates=1)
+                        if self.use_lap_buffer:
+                            new_priorities = train_metrics.pop("priority")
+                            self.buffer.update(indices, new_priorities)
+                            train_metrics["misc/max_priority"] = self.buffer.max_priority
 
                 if self.use_lap_buffer and self.global_frame % cfg.lap_reset_frames == 0:
                     self.buffer.reset_max_priority()
@@ -158,37 +172,24 @@ class OffPolicyTrainer():
                 if self.global_frame % cfg.eval_frames == 0:
                     self.eval_and_save()
 
-                self.global_step += 1
+                self.global_step += self.num_train_envs
                 obs = next_obs
-                pbar.update(self.frame_skip)
+                pbar.update(self.frame_skip * self.num_train_envs)
 
     def eval_and_save(self):
         # initialize arrays to store results
         returns = np.zeros(self.cfg.eval.num_episodes)
         lengths = np.zeros(self.cfg.eval.num_episodes)
-
-        # reset all environments
-        obs = np.stack([env.reset()[0] for env in self.eval_env], axis=0)
-        returns = np.zeros(self.cfg.eval.num_episodes)
-        lengths = np.zeros(self.cfg.eval.num_episodes)
         dones = np.zeros(self.cfg.eval.num_episodes, dtype=bool)
 
-        # run episodes in parallel
+        # reset all environments
+        obs, _ = self.eval_env.reset()
         while not np.all(dones):
-            # get actions for all environments
             actions, _ = self.agent.sample_actions(
                 self.obs_normalizer.normalize(obs) if self.cfg.norm_obs else obs,
-                deterministic=True,
-                num_samples=self.cfg.eval.num_samples,
+                deterministic=True, num_samples=self.cfg.eval.num_samples,
             )
-            actions = np.asarray(actions)
-
-            # step all environments
-            obs, rewards, terminated, truncated, infos = zip(*[env.step(action) for env, action in zip(self.eval_env, actions)])
-            obs = np.stack(obs, axis=0)
-            rewards = np.stack(rewards, axis=0)
-            terminated = np.stack(terminated, axis=0)
-            truncated = np.stack(truncated, axis=0)
+            obs, rewards, terminated, truncated, infos = self.eval_env.step(actions)
             new_dones = terminated | truncated
 
             returns += rewards * (1-dones)

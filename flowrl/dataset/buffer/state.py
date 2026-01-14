@@ -100,6 +100,30 @@ class RewardNormalizer():
         return values.min(axis=-1), values.max(axis=-1)
 
 
+class BatchedRewardNormalizer():
+    def __init__(self, num_envs: int, discount: float, v_max: float=10.0, target_entropy: float=-9.5):
+        self.num_envs = num_envs
+        self.normalizers = [
+            RewardNormalizer(discount=discount, horizon=None, v_max=v_max, target_entropy=target_entropy)
+            for _ in range(num_envs)
+        ]
+        self.discount = discount
+        self.v_max = v_max
+        self.target_entropy = target_entropy
+        self.effective_horizon = 1 / (1 - discount)
+
+    def update(self, env_idx: int, reward: float, terminated: bool, truncated: bool):
+        self.normalizers[env_idx].update(reward, terminated, truncated)
+        global_min = min(n.returns_min_norm.item() for n in self.normalizers)
+        global_max = max(n.returns_max_norm.item() for n in self.normalizers)
+        for n in self.normalizers:
+            n.returns_min_norm.fill(global_min)
+            n.returns_max_norm.fill(global_max)
+
+    def normalize(self, reward, temperature):
+        return self.normalizers[0].normalize(reward, temperature)
+
+
 
 class ReplayBuffer(object):
     def __init__(

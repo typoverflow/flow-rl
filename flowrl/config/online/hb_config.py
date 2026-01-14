@@ -34,6 +34,8 @@ class Config:
     norm_reward: bool
     discount: float
     num_updates: int
+    num_train_envs: int
+    utd: float
 
     train_frames: int
     random_frames: int

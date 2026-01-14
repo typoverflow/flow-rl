@@ -21,6 +21,9 @@ lap_alpha: 0.0
 norm_obs: false
 norm_reward: false
 discount: 0.99
+num_updates: 2
+num_train_envs: 4
+utd: 1.0
 train_frames: 1_000_000
 warmup_frames: 10_000
 random_frames: 10_000
