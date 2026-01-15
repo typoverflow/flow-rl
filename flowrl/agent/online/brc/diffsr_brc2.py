@@ -8,7 +8,7 @@ import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.brc.brc import BRCAgent
-from flowrl.agent.online.brc.network import (
+from flowrl.agent.online.brc.network import (  # EnsembleBroNetCritic,
     BroNet,
     EnsembleRffBroNetCritic,
     FactorizedDDPM,
@@ -54,35 +54,19 @@ def update_q(
     dist = actor(batch.next_obs)
     next_action, next_logprob = dist.sample_and_log_prob(seed=sample_rng)
     next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
-    next_q_logits = critic_target(next_feature)
-    next_q_probs = jax.nn.softmax(next_q_logits, axis=-1).mean(axis=0)
-    v_min = - v_max
-    bin_values = jnp.linspace(start=v_min, stop=v_max, num=num_bins)[jnp.newaxis]
-    delta = (v_max - v_min) / (num_bins - 1)
-    target_bin_values = batch.reward + discount * (1 - batch.terminal) * (
-        bin_values
-        - jnp.exp(log_alpha()) * next_logprob
-    )
-    target_bin_values = jnp.clip(target_bin_values, v_min, v_max)
-    target_bin_values = (target_bin_values - v_min) / delta
-    lower, upper = jnp.floor(target_bin_values), jnp.ceil(target_bin_values)
-    lower_mask = jax.nn.one_hot(lower.reshape(-1), num_bins).reshape(-1, num_bins, num_bins)
-    upper_mask = jax.nn.one_hot(upper.reshape(-1), num_bins).reshape(-1, num_bins, num_bins)
-    lower_values = (next_q_probs * (upper + (lower == upper).astype(jnp.float32) - target_bin_values))[..., None]
-    upper_values = (next_q_probs * (target_bin_values - lower))[..., None]
-    target_probs = jax.lax.stop_gradient(jnp.sum(lower_values * lower_mask + upper_values * upper_mask, axis=1))
-    q_value_target = (bin_values * target_probs).sum(-1)
+    q_target = critic_target(next_feature).min(0)
+    q_value_target = q_target
+    q_target = batch.reward + discount * (1 - batch.terminal) * (q_target - jnp.exp(log_alpha()) * next_logprob)
 
     feature = ddpm_target(batch.obs, batch.action, method="forward_phi")
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        q_logits = critic.apply(
+        q_pred = critic.apply(
             {"params": critic_params},
             feature,
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        q_logprobs = jax.nn.log_softmax(q_logits, axis=-1)
-        critic_loss = -(target_probs[jnp.newaxis] * q_logprobs).sum(-1).mean(-1).sum(0)
+        critic_loss = ((q_pred - q_target[jnp.newaxis, :])**2).sum(0).mean()
         return critic_loss, {
             "loss/critic_loss": critic_loss,
             "misc/q_mean": q_value_target.mean(),
@@ -113,10 +97,8 @@ def update_actor(
         )
         new_action, new_logprob = dist.sample_and_log_prob(seed=sample_rng)
         new_feature = ddpm_target(batch.obs, new_action, method="forward_phi")
-        q_logits = critic(new_feature)
-        q_probs = jax.nn.softmax(q_logits, axis=-1).mean(axis=0)
-        bin_values = jnp.linspace(start=-v_max, stop=v_max, num=num_bins)[jnp.newaxis]
-        q_values = (bin_values * q_probs).sum(-1, keepdims=True)
+        q_values = critic(new_feature).mean(axis=0)
+
         actor_loss = (jnp.exp(log_alpha()) * new_logprob - q_values).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,
@@ -221,7 +203,7 @@ def multiple_update_diffsr_brc(
     return jax.lax.fori_loop(1, num_updates, one_update, (rng, actor, critic, critic_target, log_alpha, ddpm, ddpm_target, metrics))
 
 
-class DiffSRBRCAgent(BRCAgent):
+class DiffSRBRC2Agent(BRCAgent):
     """
     Bigger, Regularized, Categorical (BRC) agent.
     """
@@ -274,8 +256,9 @@ class DiffSRBRCAgent(BRCAgent):
 
         critic_def = EnsembleRffBroNetCritic(
             hidden_dim=cfg.critic_hidden_dim,
-            num_blocks=1,
-            output_dim=cfg.num_bins,
+            num_blocks=2,
+            # output_dim=cfg.num_bins,
+            output_dim=1,
             ensemble_size=cfg.critic_ensemble_size,
         )
 

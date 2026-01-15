@@ -17,7 +17,8 @@ class TanhMultivariateNormalDiag(distrax.Transformed):
         return jnp.clip(sample, -clip_bound, clip_bound)
 
     def tanh_mean(self) -> jnp.ndarray:
-        return jnp.tanh(self.distribution.mean())
+        mean = jnp.tanh(self.distribution.mean())
+        return self._clip(mean)
 
     def sample(
         self, *, seed: PRNGKey, sample_shape: Shape = () # type: ignore

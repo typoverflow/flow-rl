@@ -3,6 +3,7 @@ import os
 os.environ["MUJOCO_GL"] = "egl"
 
 import hydra
+import imageio
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -26,6 +27,8 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "diffsr_td3": DiffSRTD3Agent,
     "brc": BRCAgent,
     "diffsr_brc": DiffSRBRCAgent,
+    "diffsr_brc2": DiffSRBRC2Agent,
+    "diffsr_brcld": DiffSRBRCLDAgent,
 }
 
 class OffPolicyTrainer():
@@ -48,6 +51,7 @@ class OffPolicyTrainer():
             }
         )
         self.ckpt_save_dir = os.path.join(self.logger.log_dir, "ckpt")
+        self.video_save_dir = os.path.join(self.logger.log_dir, "video")
         OmegaConf.save(cfg, os.path.join(self.logger.log_dir, "config.yaml"))
         print("="*35+" Config "+"="*35)
         print(OmegaConf.to_yaml(cfg))
@@ -174,6 +178,10 @@ class OffPolicyTrainer():
         lengths = np.zeros(self.cfg.eval.num_episodes)
         dones = np.zeros(self.cfg.eval.num_episodes, dtype=bool)
 
+        # if render is True, render and save the environment
+        if self.cfg.log.save_video:
+            renders = []
+
         # run episodes in parallel
         while not np.all(dones):
             # get actions for all environments
@@ -191,6 +199,8 @@ class OffPolicyTrainer():
             terminated = np.stack(terminated, axis=0)
             truncated = np.stack(truncated, axis=0)
             new_dones = terminated | truncated
+            if self.cfg.log.save_video:
+                renders.append(self.eval_env[0].render())
 
             returns += rewards * (1-dones)
             lengths += 1 * (1-dones)
@@ -207,6 +217,14 @@ class OffPolicyTrainer():
         self.logger.log_scalars("eval", eval_metrics, step=self.global_frame)
         if self.cfg.log.save_ckpt:
             self.agent.save(os.path.join(self.ckpt_save_dir, f"{self.global_frame}"))
+        if self.cfg.log.save_video:
+            os.makedirs(os.path.join(self.video_save_dir), exist_ok=True)
+            renders = np.stack(renders, axis=0)
+            imageio.mimsave(
+                os.path.join(self.video_save_dir, f"{self.global_frame}.mp4"),
+                renders,
+                fps=60,
+            )
 
 
 @hydra.main(config_path="./config/hb", config_name="config", version_base=None)

@@ -1,7 +1,7 @@
 # @package _global_
 
 algo:
-  name: diffsr_brc
+  name: diffsr_brc2
   num_noises: 50
   feature_dim: 512
   feature_lr: 0.0001
@@ -10,12 +10,12 @@ algo:
   mu_hidden_dims: [512, 512, 512]
   reward_hidden_dims: [1024, ]
   rff_dim: 1024
-  reward_coef: 100.0
+  reward_coef: 0.1
   clip_grad_norm: null
 
   num_updates: 2
   num_bins: 101
-  v_max: 20.0
+  v_max: 10.0
   discount: 0.99
   ema: 0.005
   actor_hidden_dim: 256
@@ -25,6 +25,6 @@ algo:
   critic_lr: 0.0003
   alpha_lr: 0.0003
 
-norm_reward: true
+# norm_reward: true
 norm_obs: true
 batch_size: 512

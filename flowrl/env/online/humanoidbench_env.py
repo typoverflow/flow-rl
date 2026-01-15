@@ -44,3 +44,7 @@ class HumanoidBenchEnv:
                 break
         self.queue.append(obs)
         return np.concatenate(self.queue), total_reward, terminated, truncated, info
+
+    def render(self):
+        render = self.env.render()
+        return render

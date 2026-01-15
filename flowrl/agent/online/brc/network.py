@@ -230,3 +230,121 @@ def update_factorized_ddpm(
 
     new_ddpm, metrics = ddpm.apply_gradient(loss_fn)
     return rng, new_ddpm, metrics
+
+
+# class RffBroNetCritic(nn.Module):
+#     hidden_dim: int
+#     num_blocks: int = 1
+#     output_dim: int = 0
+#     activation: Callable = nn.relu
+
+#     @nn.compact
+#     def __call__(
+#         self,
+#         obs: jnp.ndarray,
+#         action: Optional[jnp.ndarray] = None,
+#         training: bool = False,
+#     ) -> jnp.ndarray:
+#         if action is not None:
+#             x = jnp.concatenate([obs, action], axis=-1)
+#         else:
+#             x = obs
+#         x = nn.LayerNorm()(x)
+#         x = BroNet(
+#             hidden_dim=self.hidden_dim,
+#             num_blocks=self.num_blocks,
+#             output_dim=self.output_dim,
+#             activation=self.activation,
+#         )(x)
+#         return x
+
+
+# class EnsembleRffBroNetCritic(nn.Module):
+#     hidden_dim: int
+#     num_blocks: int = 1
+#     output_dim: int = 0
+#     activation: Callable = nn.relu
+#     ensemble_size: int = 2
+
+#     @nn.compact
+#     def __call__(
+#         self,
+#         obs: jnp.ndarray,
+#         action: Optional[jnp.ndarray] = None,
+#         training: bool = False,
+#     ) -> jnp.ndarray:
+#         vmap_critic = nn.vmap(
+#             RffBroNetCritic,
+#             variable_axes={"params": 0},
+#             split_rngs={"params": True, "dropout": True},
+#             in_axes=None,
+#             out_axes=0,
+#             axis_size=self.ensemble_size
+#         )
+#         x = vmap_critic(
+#             hidden_dim=self.hidden_dim,
+#             num_blocks=self.num_blocks,
+#             output_dim=self.output_dim,
+#             activation=self.activation,
+#         )(obs, action, training)
+#         return x
+
+
+from flowrl.module.rff import RffLayer
+
+
+class RffBroNetCritic(nn.Module):
+    hidden_dim: int
+    num_blocks: int = 1
+    output_dim: int = 0
+    activation: Callable = nn.relu
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: jnp.ndarray,
+        action: Optional[jnp.ndarray] = None,
+        training: bool = False,
+    ) -> jnp.ndarray:
+        if action is not None:
+            x = jnp.concatenate([obs, action], axis=-1)
+        else:
+            x = obs
+        x = nn.LayerNorm()(x)
+        x = RffLayer(1, self.hidden_dim, learnable=True)(x)
+        for _ in range(self.num_blocks):
+            x = BroNetBlock(self.hidden_dim, self.activation)(x)
+        if self.output_dim > 0:
+            x = nn.Dense(self.output_dim, kernel_init=default_init())(x)
+        return x
+
+
+class EnsembleRffBroNetCritic(nn.Module):
+    hidden_dim: int
+    num_blocks: int = 1
+    output_dim: int = 0
+    activation: Callable = nn.relu
+    ensemble_size: int = 2
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: jnp.ndarray,
+        action: Optional[jnp.ndarray] = None,
+        training: bool = False,
+    ) -> jnp.ndarray:
+        vmap_critic = nn.vmap(
+            RffBroNetCritic,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.ensemble_size
+        )
+        x = vmap_critic(
+            hidden_dim=self.hidden_dim,
+            num_blocks=self.num_blocks,
+            output_dim=self.output_dim,
+            activation=self.activation,
+        )(obs, action, training)
+        return x
