@@ -13,18 +13,18 @@ hydra:
 seed: 0
 device: '0'
 task: ???
-frame_skip: 1
+frame_skip: 2
 frame_stack: 1
-batch_size: 512
+batch_size: 256
 buffer_size: 1_000_000
 lap_alpha: 0.0
 norm_obs: false
 norm_reward: false
 discount: 0.99
-train_frames: 1_000_000
+train_frames: 2_000_000
 warmup_frames: 10_000
 random_frames: 10_000
-eval_frames: 10_000
+eval_frames: 50_000
 log_frames: 1_000
 lap_reset_frames: 250
 log:

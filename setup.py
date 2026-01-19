@@ -29,6 +29,7 @@ def get_base_requirements():
         "scikit-learn==1.6.1",
         "wandb",
         "matplotlib",
+        "imageio[ffmpeg]"
     ]
 
 def get_install_requires():

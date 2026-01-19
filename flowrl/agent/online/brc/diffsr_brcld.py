@@ -1,3 +1,4 @@
+import os
 from functools import partial
 from typing import Tuple
 
@@ -92,19 +93,19 @@ def update_q(
     v_max: float,
 ) -> Tuple[PRNGKey, Model, Metric]:
     rng, sample_rng = jax.random.split(rng)
-    rng, _, history = jit_sample_actions_ld(
-        rng,
-        ld,
-        critic_target,
-        ddpm_target,
-        scaler,
-        batch.next_obs,
-        training=False,
-        ld_temp=ld_temp,
-        num_samples=1,
-        num_bins=num_bins,
-        v_max=v_max,
-    )
+    # rng, _, history = jit_sample_actions_ld(
+    #     rng,
+    #     ld,
+    #     critic_target,
+    #     ddpm_target,
+    #     scaler,
+    #     batch.next_obs,
+    #     training=False,
+    #     ld_temp=ld_temp,
+    #     num_samples=1,
+    #     num_bins=num_bins,
+    #     v_max=v_max,
+    # )
     dist = actor(batch.next_obs)
     next_action, next_logprob = dist.sample_and_log_prob(seed=sample_rng)
     next_feature = ddpm_target(batch.next_obs, next_action, method="forward_phi")
@@ -146,7 +147,24 @@ def update_q(
         }
 
     # update scaler
-    q_grad = history[1] * ld_temp * scaler
+    def get_gradient(xt, condition):
+        original_shape = xt.shape[:-1]
+        xt = xt.reshape(-1, xt.shape[-1])
+        # input_t = input_t.reshape(-1, 1)
+        condition = condition.reshape(-1, condition.shape[-1])
+        energy_and_grad_fn = jax.vmap(jax.value_and_grad(
+            lambda xt, condition:
+                (jax.nn.softmax(critic_target(ddpm_target(condition, xt, method="forward_phi")), axis=-1).mean(axis=0) \
+                * bin_values).sum(-1).mean()
+        ))
+        energy, grad = energy_and_grad_fn(xt, condition)
+        energy = energy.reshape(*original_shape, 1)
+        grad = grad.reshape(*original_shape, -1)
+        return energy, grad
+
+    _, q_grad = get_gradient(batch.action, batch.obs)
+
+    # q_grad = history[1] * ld_temp * scaler
     new_scaler = 0.995 * scaler + 0.005 * jnp.abs(q_grad).mean()
 
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
@@ -183,7 +201,6 @@ def update_actor(
         actor_loss = (jnp.exp(log_alpha()) * new_logprob - q_values).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,
-            "misc/entropy": -new_logprob.mean(),
         }
     new_actor, metrics = actor.apply_gradient(actor_loss_fn)
     return rng, new_actor, metrics
@@ -295,7 +312,7 @@ class DiffSRBRCLDAgent(BaseAgent):
     Bigger, Regularized, Categorical (BRC) agent.
     """
     name = "DiffSRBRCLDAgent"
-    model_names = ["ddpm", "ddpm_target", "actor", "critic", "critic_target"]
+    model_names = ["ddpm", "ddpm_target", "actor", "critic", "critic_target", "log_alpha"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: DiffSRBRCLDConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
@@ -388,7 +405,10 @@ class DiffSRBRCLDAgent(BaseAgent):
         )
 
         # the backup actor
-        from flowrl.module.actor import SquashedGaussianActor
+        from flowrl.module.actor import (
+            SquashedDeterministicActor,
+            SquashedGaussianActor,
+        )
         actor_def = SquashedGaussianActor(
             backbone=BroNet(
                 hidden_dim=256,
@@ -458,6 +478,28 @@ class DiffSRBRCLDAgent(BaseAgent):
                 deterministic,
             )
         # if not deterministic:
-        #     action = action + self.cfg.exploration_noise * jax.random.normal(self.rng, action.shape)
-        #     action = jnp.clip(action, -1.0, 1.0)
+            # action = action + self.cfg.exploration_noise * jax.random.normal(self.rng, action.shape)
+            # action = jnp.clip(action, -1.0, 1.0)
         return action, {}
+
+    def save(self, path: str):
+        super().save(path)
+        jnp.save(os.path.join(os.getcwd(), path, "scaler.npy"), self.scaler)
+
+    def load(self, path: str):
+        super().load(path)
+        self.scaler = jnp.load(os.path.join(os.getcwd(), path, "scaler.npy"))
+
+# @partial(jax.jit, static_argnames=("deterministic", "exploration_noise"))
+# def jit_sample_action(
+#     rng: PRNGKey,
+#     actor: Model,
+#     obs: jnp.ndarray,
+#     deterministic: bool,
+#     exploration_noise: float,
+# ) -> jnp.ndarray:
+#     action = actor(obs, training=False)
+#     if not deterministic:
+#         action = action + exploration_noise * jax.random.normal(rng, action.shape)
+#         action = jnp.clip(action, -1.0, 1.0)
+#     return action

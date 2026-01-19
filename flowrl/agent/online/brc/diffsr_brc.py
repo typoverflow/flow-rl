@@ -169,7 +169,7 @@ def update_diffsr_brc(
     rng, new_actor, actor_metrics = update_actor(rng, actor, new_critic, log_alpha, ddpm_target, batch, num_bins, v_max)
     rng, new_log_alpha, alpha_metrics = update_alpha(rng, log_alpha, new_actor, batch, target_entropy)
     new_critic_target = ema_update(new_critic, critic_target, ema)
-    new_ddpm_target = ema_update(ddpm, ddpm_target, ema)
+    new_ddpm_target = ema_update(new_ddpm, ddpm_target, ema)
     return rng, new_actor, new_critic, new_critic_target, new_log_alpha, new_ddpm, new_ddpm_target, {
         **critic_metrics,
         **actor_metrics,

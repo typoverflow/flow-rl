@@ -468,35 +468,3 @@ def exponential_schedule(init, decay, steps):
 
 def polynomial_schedule(init, final, power, steps):
     return (init - final) * (1 - jnp.arange(steps) / (steps - 1)) ** power + final
-
-
-if __name__ == "__main__":
-    import flax
-    import flax.linen as nn
-
-    rng = jax.random.PRNGKey(0)
-    ld = IBCLangevinDynamics.create(
-        network=flax.linen.Dense(10),
-        rng=rng,
-        inputs=(jnp.ones((1, 10)),),
-        x_dim=10,
-        steps=20,
-        schedule="polynomial",
-        stepsize_init=1e-1,
-        stepsize_final=1e-5,
-        stepsize_decay=0.8,
-        stepsize_power=2.0,
-        grad_clip=1.0,
-        drift_clip=1.0,
-        margin_clip=1.0,
-    )
-    model_fn = lambda x, i, condition: (jnp.ones((*x.shape[:-1], 1)), jnp.ones(x.shape))
-    xT = jnp.ones((128, 10))
-    condition = jnp.ones((128, 5))
-    r1, r2 = ld.sample(
-        rng,
-        model_fn,
-        xT,
-        condition,
-        training=False,
-    )
