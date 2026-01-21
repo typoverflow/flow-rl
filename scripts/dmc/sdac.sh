@@ -1,6 +1,6 @@
 # Specify which GPUs to use
-GPUS=(0 1 2 3 4 5)  # Modify this array to specify which GPUs to use
-SEEDS=(0 1 2 3)
+GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
+SEEDS=(0 1 2 3 4)
 NUM_EACH_GPU=2
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
@@ -13,23 +13,23 @@ TASKS=(
     # "cartpole-swingup"
     # "cartpole-swingup_sparse"
     # "cheetah-run"
-    # "dog-run"
-    # "dog-stand"
-    # "dog-trot"
-    # "dog-walk"
+    "dog-run"
+    "dog-stand"
+    "dog-trot"
+    "dog-walk"
     # "finger-spin"
     # "finger-turn_easy"
     # "finger-turn_hard"
     # "fish-swim"
     # "hopper-hop"
     # "hopper-stand"
-    # "humanoid-run"
-    # "humanoid-stand"
-    # "humanoid-walk"
+    "humanoid-run"
+    "humanoid-stand"
+    "humanoid-walk"
     # "pendulum-swingup"
-    "quadruped-run"
-    "quadruped-walk"
-    "reacher-easy"
+    # "quadruped-run"
+    # "quadruped-walk"
+    # "reacher-easy"
     # "reacher-hard"
     # "walker-run"
     # "walker-stand"
@@ -39,7 +39,7 @@ TASKS=(
 SHARED_ARGS=(
     "algo=sdac"
     "algo.temp=0.01"
-    "log.tag=fix_temp-0.01"
+    "log.tag=temp-0.01"
     "log.project=flow-rl"
     "log.entity=lamda-rl"
 )
@@ -52,6 +52,9 @@ run_task() {
     num_gpus=${#GPUS[@]}
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
+    export CUDA_VISIBLE_DEVICES=$device
+    export MUJOCO_EGL_DEVICE_ID=$device
+    export XLA_PYTHON_CLIENT_PREALLOCATE="false"
     echo "Running $env $seed on GPU $device"
     command="python3 examples/online/main_dmc_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]}"
     if [ -n "$DRY_RUN" ]; then

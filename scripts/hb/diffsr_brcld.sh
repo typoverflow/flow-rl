@@ -1,16 +1,16 @@
 # Specify which GPUs to use
-GPUS=(4 5 6 7)  # Modify this array to specify which GPUs to use
-SEEDS=(2 3 4 5)
+GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
+SEEDS=(0 1)
 NUM_EACH_GPU=3
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
     "h1-walk-v0"
-    # "h1-stand-v0"
-    # "h1-run-v0"
+    "h1-stand-v0"
+    "h1-run-v0"
+    "h1-crawl-v0"
     # "h1-stair-v0"
-    # "h1-crawl-v0"
     # "h1-pole-v0"
     # "h1-sit-v0"
     # "h1-hurry-v0"
@@ -38,11 +38,20 @@ TASKS=(
 )
 
 SHARED_ARGS=(
-    "algo=brc"
+    "algo=diffsr_brcld"
+    "algo.critic_ensemble_size=20"
+    "algo.ld.steps=5"
+    "algo.ld_temp=0.05"
+    "algo.wd=0.0"
+    "algo.clip_grad_norm=10.0"
+    "algo.reward_coef=100.0"
     "algo.critic_hidden_dim=1024"
-    "log.tag=critic1024-bs256-utd2-fix_reward_norm2-fixnet-notempbackup"
+    "algo.v_max=20.0"
+    "log.tag=backup-qens20-step5-ldtemp0.05"
     "log.project=flow-rl"
     "log.entity=lamda-rl"
+    # "log.dir=/localscratch/cgao304/save"
+    # "log.save_ckpt=true"
 )
 
 run_task() {

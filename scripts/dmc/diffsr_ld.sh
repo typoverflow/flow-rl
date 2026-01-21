@@ -13,12 +13,14 @@ TASKS=(
     "humanoid-run"
     "humanoid-stand"
     "humanoid-walk"
+    "quadruped-run"
+    "quadruped-walk"
 )
 
 SHARED_ARGS=(
-    "algo=diffsr_qsm"
+    "algo=diffsr_ld"
     "algo.critic_ensemble_size=10"
-    "algo.diffusion.steps=5"
+    "algo.ld.steps=5"
     "algo.ld_temp=0.05"
     "algo.wd=0.0"
     "algo.clip_grad_norm=10.0"
@@ -34,8 +36,10 @@ run_task() {
     num_gpus=${#GPUS[@]}
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
-    echo "Running $env $seed on GPU $device"
-    command="python3 examples/online/main_dmc_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]}"
+    export MUJOCO_EGL_DEVICE_ID=$device
+    export CUDA_VISIBLE_DEVICES=$device
+    export XLA_PYTHON_CLIENT_PREALLOCATE="false"
+    command="python3 examples/online/main_dmc_offpolicy.py task=$task seed=$seed ${SHARED_ARGS[@]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else
