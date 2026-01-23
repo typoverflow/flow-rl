@@ -33,7 +33,6 @@ class Config:
     buffer_size: int
     lap_alpha: float
     norm_obs: bool
-    norm_reward: bool
 
     train_frames: int
     random_frames: int

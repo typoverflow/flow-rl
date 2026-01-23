@@ -94,7 +94,7 @@ def jit_update_qsm_actor(
     rng, at, t, eps = actor.add_noise(rng, a0)
     alpha1, alpha2 = actor.noise_schedule_func(t)
 
-    q_grad_fn = jax.vmap(jax.grad(lambda a, s: critic_target(s, a).min(axis=0).mean()))
+    q_grad_fn = jax.vmap(jax.grad(lambda a, s: critic_target(s, a).mean()))
     q_grad = q_grad_fn(at, batch.obs)
     eps_estimation = - alpha2 * q_grad / temp / (jnp.abs(q_grad).mean() + 1e-6)
 
@@ -176,6 +176,7 @@ class QSMAgent(BaseAgent):
         critic_activation = {
             "relu": jax.nn.relu,
             "elu": jax.nn.elu,
+            "mish": mish,
         }[cfg.critic_activation]
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,

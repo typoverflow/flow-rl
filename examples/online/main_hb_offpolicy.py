@@ -14,7 +14,7 @@ from tqdm import tqdm, trange
 import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.hb_config import Config
-from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
+from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer
 from flowrl.env.online.humanoidbench_env import HumanoidBenchEnv
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
@@ -25,12 +25,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td3": TD3Agent,
     "diffsr_td3": DiffSRTD3Agent,
-    "brc": BRCAgent,
-    "diffsr_brc": DiffSRBRCAgent,
-    "diffsr_brc2": DiffSRBRC2Agent,
-    "diffsr_brcld": DiffSRBRCLDAgent,
     "simba_sac": SimbaSACAgent,
-    "diffsr_simba_sac": DiffSRSimbaSACAgent,
 }
 
 class OffPolicyTrainer():
@@ -60,10 +55,8 @@ class OffPolicyTrainer():
         print("="*80)
         print(f"\nSave results to: {self.logger.log_dir}\n")
 
-        # create env # TODO switch to parallel environments
         self.frame_skip = cfg.frame_skip
 
-        # TODO: what to do with seed, frame_skip, frame_stack?
         print(f"Creating train and eval environments for task: {cfg.task}")
         self.train_env = HumanoidBenchEnv(cfg.task, cfg.seed, cfg.frame_skip, cfg.frame_stack)
         self.eval_env = [HumanoidBenchEnv(cfg.task, cfg.seed + i*100, cfg.frame_skip, cfg.frame_stack) for i in range(cfg.eval.num_episodes)]
@@ -80,12 +73,6 @@ class OffPolicyTrainer():
         )
         if cfg.norm_obs:
             self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
-        if cfg.norm_reward:
-            self.reward_normalizer = RewardNormalizer(
-                discount=cfg.discount,
-                v_max=10.0,
-                target_entropy=-self.action_dim / 2,
-            )
 
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
@@ -125,12 +112,6 @@ class OffPolicyTrainer():
                 self.buffer.add(obs, action, next_obs, reward, terminated)
                 if self.cfg.norm_obs:
                     self.obs_normalizer.update(obs)
-                if self.cfg.norm_reward:
-                    self.reward_normalizer.update(
-                        reward,
-                        terminated,
-                        truncated,
-                    )
 
                 if terminated or truncated:
                     next_obs, _ = self.train_env.reset()
@@ -148,8 +129,6 @@ class OffPolicyTrainer():
                     if self.cfg.norm_obs:
                         batch.obs = self.obs_normalizer.normalize(batch.obs)
                         batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
-                    if self.cfg.norm_reward:
-                        batch.reward = self.reward_normalizer.normalize(batch.reward, temperature=jnp.exp(self.agent.log_alpha()))
                     train_metrics = self.agent.train_step(batch, step=self.global_frame)
                     if self.use_lap_buffer:
                         new_priorities = train_metrics.pop("priority")

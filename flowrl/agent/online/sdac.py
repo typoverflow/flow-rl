@@ -187,6 +187,7 @@ class SDACAgent(BaseAgent):
         critic_activation = {
             "relu": jax.nn.relu,
             "elu": jax.nn.elu,
+            "mish": mish,
         }[cfg.critic_activation]
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,

@@ -6,13 +6,13 @@ import hydra
 import jax
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco_config import Config
-from flowrl.dataset.buffer.state import ReplayBuffer, RewardNormalizer, RMSNormalizer
+from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer
 from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
@@ -81,8 +81,6 @@ class OffPolicyTrainer():
         )
         if cfg.norm_obs:
             self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
-        if cfg.norm_reward:
-            self.reward_normalizer = RewardNormalizer(discount=cfg.discount)
 
         # create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
@@ -130,8 +128,6 @@ class OffPolicyTrainer():
                             if self.cfg.norm_obs:
                                 batch.obs = self.obs_normalizer.normalize(batch.obs)
                                 batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
-                            if self.cfg.norm_reward:
-                                batch.reward = self.reward_normalizer.normalize(batch.reward)
                             train_metrics = self.agent.train_step(batch, step=self.global_frame)
                             if self.use_lap_buffer:
                                 new_priorities = train_metrics.pop("priority")

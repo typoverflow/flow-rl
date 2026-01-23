@@ -2,16 +2,17 @@
 
 algo:
   name: idem
-  critic_hidden_dims: [256, 256]
+  critic_hidden_dims: [256, 256, 256]
+  critic_activation: mish
   critic_lr: 0.0003
   discount: 0.99
   num_samples: 10
   num_reverse_samples: 500
   ema: 0.005
-  temp: 0.2
+  temp: 0.1
   diffusion:
     time_dim: 64
-    mlp_hidden_dims: [256, 256]
+    mlp_hidden_dims: [256, 256, 256]
     lr: 0.0003
     end_lr: null
     lr_decay_steps: null

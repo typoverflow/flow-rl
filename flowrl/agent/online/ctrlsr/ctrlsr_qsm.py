@@ -131,7 +131,7 @@ def update_actor(
 
 class CtrlSRQSMAgent(QSMAgent):
     """
-    CTRL with Q Score Matching (QSM) agent.
+    CTRLSR with Q Score Matching (QSM) agent.
     """
 
     name = "CtrlSRQSMAgent"

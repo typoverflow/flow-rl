@@ -1,11 +1,12 @@
 from functools import partial
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.agent.online.simba.network import EnsembleSimbaCritic, SimbaNet
+from flowrl.agent.online.simba.network import SimbaCritic, SimbaNet
 from flowrl.config.online.algo.simba.simba_sac import SimbaSACConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedGaussianActor
@@ -179,10 +180,16 @@ class SimbaSACAgent(BaseAgent):
             conditional_logstd=True,
             logstd_softclip=True,
         )
-        critic_def = EnsembleSimbaCritic(
+        critic_def = nn.vmap(
+            SimbaCritic,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=0,
+            axis_size=cfg.critic_ensemble_size,
+        )(
             num_blocks=cfg.critic_num_blocks,
             hidden_dim=cfg.critic_hidden_dim,
-            ensemble_size=cfg.critic_ensemble_size,
         )
 
         self.actor = Model.create(

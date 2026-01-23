@@ -2,8 +2,8 @@
 
 algo:
   name: qsm
-  critic_hidden_dims: [512, 512]
-  critic_activation: relu
+  critic_hidden_dims: [256, 256, 256]
+  critic_activation: mish
   critic_lr: 0.0003
   discount: 0.99
   num_samples: 10
@@ -11,7 +11,7 @@ algo:
   temp: 0.1
   diffusion:
     time_dim: 64
-    mlp_hidden_dims: [512, 512]
+    mlp_hidden_dims: [256, 256, 256]
     lr: 0.0003
     end_lr: null
     lr_decay_steps: null

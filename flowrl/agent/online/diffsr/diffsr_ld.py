@@ -57,7 +57,6 @@ def jit_sample_actions_ld(
         model_fn,
         xT,
         obs_repeat,
-        training,
     )
     if num_samples == 1:
         actions = actions[:, 0]
@@ -205,9 +204,7 @@ class DiffSRLDAgent(BaseAgent):
         )
 
         self.ld = IBCLangevinDynamics.create(
-            network=flax.linen.Dense(1),
             rng=ld_rng,
-            inputs=(jnp.ones((1, 1))),
             x_dim=self.act_dim,
             steps=self.cfg.ld.steps,
             schedule=self.cfg.ld.schedule,

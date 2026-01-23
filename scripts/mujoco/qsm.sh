@@ -22,8 +22,8 @@ TASKS=(
 SHARED_ARGS=(
     "algo=qsm"
     "log.tag=default"
-    "log.project=flow-rl"
-    "log.entity=lamda-rl"
+    "log.project=flow-rl-online"
+    "log.entity=gaochenxiao"
 )
 
 

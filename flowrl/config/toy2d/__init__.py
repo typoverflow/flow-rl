@@ -1,8 +1,7 @@
 from hydra.core.config_store import ConfigStore
 
-from flowrl.config.offline.d4rl.algo.base import BaseAlgoConfig
-from flowrl.config.offline.d4rl.algo.bdpo import BDPOConfig
-from flowrl.config.online.mujoco.algo.sac import SACConfig
+from flowrl.config.offline.algo.base import BaseAlgoConfig
+from flowrl.config.offline.algo.bdpo import BDPOConfig
 
 from .config import Config, LogConfig
 
@@ -15,7 +14,6 @@ cs.store(name="config" + _DEF_SUFFIX, node=Config)
 cs.store(group="algo", name="base", node=BaseAlgoConfig)
 
 _CONFIGS = {
-    "sac": SACConfig,
     "bdpo": BDPOConfig,
 }
 

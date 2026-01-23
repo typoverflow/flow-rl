@@ -8,13 +8,8 @@ import optax
 from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.qsm import QSMAgent, jit_update_qsm_critic
 from flowrl.config.online.algo.idem import IDEMConfig
-from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
-from flowrl.functional.activation import mish
-from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic
-from flowrl.module.mlp import MLP
+from flowrl.flow.continuous_ddpm import ContinuousDDPM
 from flowrl.module.model import Model
-from flowrl.module.time_embedding import LearnableFourierEmbedding
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
 jit_update_idem_critic = jit_update_qsm_critic
@@ -48,8 +43,9 @@ def jit_update_idem_actor(
         )
     )
     q_value, q_grad = q_value_and_grad_fn(a0_hat, obs_repeat)
-    q_grad = q_grad / temp
-    weight = jax.nn.softmax(q_value / temp, axis=0)
+    scale = jnp.abs(q_grad).mean() + 1e-6
+    q_grad = q_grad / temp / scale
+    weight = jax.nn.softmax(q_value / temp / scale, axis=0)
     eps_estimation = - (alpha2 / alpha1) * jnp.sum(weight[:, :, jnp.newaxis] * q_grad, axis=0)
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
@@ -81,6 +77,9 @@ class IDEMAgent(QSMAgent):
     """
     name = "IDEMAgent"
     model_names = ["actor", "critic", "critic_target"]
+
+    def __init__(self, obs_dim: int, act_dim: int, cfg: IDEMConfig, seed: int):
+        super().__init__(obs_dim, act_dim, cfg, seed)
 
     def train_step(self, batch: Batch, step: int) -> Metric:
         self.rng, self.critic, self.critic_target, critic_metrics = jit_update_idem_critic(
