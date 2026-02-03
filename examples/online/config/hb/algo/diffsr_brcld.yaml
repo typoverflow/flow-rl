@@ -1,0 +1,43 @@
+# @package _global_
+
+algo:
+  name: diffsr_brcld
+  num_updates: 2
+  num_bins: 101
+  v_max: 20.0
+  discount: 0.99
+  ema: 0.005
+  critic_hidden_dim: 1024
+  critic_ensemble_size: 10
+  critic_lr: 0.0003
+  clip_grad_norm: 10.0
+
+  num_noises: 50
+  feature_dim: 512
+  feature_lr: 0.0001
+  embed_dim: 256
+  rff_dim: 1024
+  phi_hidden_dims: [512, 512, 512]
+  mu_hidden_dims: [512, 512, 512]
+  reward_hidden_dims: [1024, ]
+  reward_coef: 100.0
+
+  exploration_noise: 0.2
+  num_samples: 10
+  ld_temp: 0.05
+  wd: 0
+  ld:
+    steps: 5
+    schedule: "polynomial"
+    stepsize_init: 1e-1
+    stepsize_final: 1e-3
+    stepsize_decay: 0.8
+    stepsize_power: 2.0
+    noise_scale: 1.0
+    grad_clip: null
+    drift_clip: 2.0
+    margin_clip: 1.0
+
+norm_reward: true
+norm_obs: true
+batch_size: 512

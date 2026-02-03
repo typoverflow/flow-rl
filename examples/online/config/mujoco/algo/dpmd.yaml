@@ -3,13 +3,16 @@
 algo:
   name: dpmd
   critic_hidden_dims: [256, 256]
+  critic_activation: relu
   critic_lr: 0.0003
+  temp_lr: 0.0003
   discount: 0.99
   num_samples: 10
+  num_particles: 32
+  target_kl: 1.5
+  reweight: exp
   ema: 0.005
-  temp: 0.1
-  q_clip: 3.0
-  q_stats_lr: 0.0001
+  old_policy_update_interval: 1000
   diffusion:
     time_dim: 64
     mlp_hidden_dims: [256, 256]

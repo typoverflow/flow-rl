@@ -7,38 +7,21 @@ PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
     "Ant-v5"
+    "Walker2d-v5"
     "HalfCheetah-v5"
     "Hopper-v5"
-    "HumanoidStandup-v5"
     "Humanoid-v5"
     "InvertedDoublePendulum-v5"
     "InvertedPendulum-v5"
     "Pusher-v5"
     "Reacher-v5"
     "Swimmer-v5"
-    "Walker2d-v5"
+    "HumanoidStandup-v5"
 )
 
 SHARED_ARGS=(
     "algo=sdac"
-    "log.tag=fix_temp-0.05"
-    "log.project=flow-rl"
-    "log.entity=lamda-rl"
-)
-
-declare -A TASK_ARGS
-TASK_ARGS=(
-    ["Ant-v5"]="algo.temp=0.05"
-    ["HalfCheetah-v5"]="algo.temp=0.05"
-    ["Hopper-v5"]="algo.temp=0.05"
-    ["Humanoid-v5"]="algo.temp=0.05"
-    ["HumanoidStandup-v5"]="algo.temp=0.05"
-    ["InvertedDoublePendulum-v5"]="algo.temp=0.05"
-    ["InvertedPendulum-v5"]="algo.temp=0.05"
-    ["Pusher-v5"]="algo.temp=0.05"
-    ["Reacher-v5"]="algo.temp=0.05"
-    ["Swimmer-v5"]="algo.temp=0.05"
-    ["Walker2d-v5"]="algo.temp=0.05"
+    "log.tag=default"
 )
 
 run_task() {
@@ -49,7 +32,9 @@ run_task() {
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
     echo "Running $env $seed on GPU $device"
-    command="python3 examples/online/main_mujoco_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]} ${TASK_ARGS[$task]}"
+    export CUDA_VISIBLE_DEVICES=$device
+    export XLA_PYTHON_CLIENT_PREALLOCATE="false"
+    command="python3 examples/online/main_mujoco_offpolicy.py task=$task seed=$seed ${SHARED_ARGS[@]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else

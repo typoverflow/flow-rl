@@ -1,0 +1,48 @@
+# @package _global_
+
+algo:
+  name: diffsr_ld
+  actor_update_freq: 1
+  target_update_freq: 1
+  discount: 0.99
+  ema: 0.005
+  # critic_hidden_dims: [512, 512, 512] # not used
+  critic_activation: elu  # not used
+  critic_ensemble_size: 2
+  layer_norm: true
+  critic_lr: 0.0003
+  clip_grad_norm: null
+
+  # below are params specific to ctrl_td3
+  num_noises: 50
+  feature_dim: 512
+  feature_lr: 0.0001
+  feature_ema: 0.005
+  embed_dim: 256
+  phi_hidden_dims: [512, 512, 512]
+  mu_hidden_dims: [512, 512, 512]
+  critic_hidden_dims: [512, ]
+  reward_hidden_dims: [512, ]
+  rff_dim: 1024
+  ddpm_coef: 1.0
+  reward_coef: 0.1
+  back_critic_grad: false
+  critic_coef: 1.0
+
+  num_samples: 10
+  ld_temp: 0.05
+  wd: 0
+  exploration_noise: 0.2
+  ld:
+    steps: 5
+    schedule: "polynomial"
+    stepsize_init: 1e-1
+    stepsize_final: 1e-3
+    stepsize_decay: 0.8
+    stepsize_power: 2.0
+    noise_scale: 1.0
+    grad_clip: null
+    drift_clip: 2.0
+    margin_clip: 1.0
+
+norm_obs: true

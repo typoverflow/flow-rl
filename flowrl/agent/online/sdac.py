@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.online.mujoco.algo.sdac import SDACConfig
+from flowrl.config.online.algo.sdac import SDACConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
@@ -113,9 +113,10 @@ def jit_update_sdac(
         return loss, {
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),
-            "misc/weight_std": weights.std(0).mean(),
+            "misc/weights_std": weights.std(0).mean(),
             "misc/weights_max": weights.max(0).mean(),
             "misc/weights_min": weights.min(0).mean(),
+            "misc/eps_estimation_l1": jnp.abs((weights * eps_reverse).sum(axis=0)).mean(),
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
@@ -181,25 +182,16 @@ class SDACAgent(BaseAgent):
             t_schedule_n=1.0,
             optimizer=optax.adam(learning_rate=actor_lr),
         )
-        # CHECK: is this really necessary, since we are not using the target actor for policy evaluation?
-        self.actor_target = ContinuousDDPM.create(
-            network=backbone_def,
-            rng=actor_rng,
-            inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim)), ),
-            x_dim=self.act_dim,
-            steps=cfg.diffusion.steps,
-            noise_schedule="cosine",
-            noise_schedule_params={},
-            clip_sampler=cfg.diffusion.clip_sampler,
-            x_min=cfg.diffusion.x_min,
-            x_max=cfg.diffusion.x_max,
-            t_schedule_n=1.0,
-        )
 
         # define the critic
+        critic_activation = {
+            "relu": jax.nn.relu,
+            "elu": jax.nn.elu,
+            "mish": mish,
+        }[cfg.critic_activation]
         critic_def = EnsembleCritic(
             hidden_dims=cfg.critic_hidden_dims,
-            activation=jax.nn.relu,
+            activation=critic_activation,
             layer_norm=False,
             dropout=None,
             ensemble_size=2,

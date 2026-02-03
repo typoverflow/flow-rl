@@ -1,0 +1,27 @@
+# @package _global_
+
+algo:
+  name: simba_sac
+
+  actor_num_blocks: 1
+  actor_hidden_dim: 128
+  actor_lr: 1e-4
+  actor_wd: 1e-2
+
+  critic_num_blocks: 2
+  critic_hidden_dim: 512
+  critic_lr: 1e-4
+  critic_wd: 1e-2
+  critic_ensemble_size: 2
+
+  alpha_lr: 1e-4
+  alpha_wd: 0.0
+  alpha_init_value: 0.01
+  target_entropy_scale: -0.5
+
+  ema: 0.005
+  discount: 0.99
+  num_updates: 2
+
+norm_obs: true
+batch_size: 512

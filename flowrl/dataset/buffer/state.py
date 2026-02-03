@@ -1,9 +1,11 @@
+from typing import Any
+
 import numpy as np
 
 from flowrl.types import Batch
 
 
-class RunningMeanStdNormalizer():
+class RMSNormalizer():
     def __init__(self, epsilon=1e-8, shape=(), dtype=np.float32):
         super().__init__()
         self.mean = np.zeros(shape, dtype=dtype)
@@ -31,8 +33,6 @@ class ReplayBuffer(object):
         obs_dim: int,
         action_dim: int,
         max_size: int=int(1e6),
-        norm_obs: bool=False,
-        norm_reward: bool=False,
         lap_alpha: float=0.0,
     ):
         self.max_size = max_size
@@ -44,13 +44,6 @@ class ReplayBuffer(object):
         self.next_state = np.zeros((max_size, obs_dim), dtype=np.float32)
         self.reward = np.zeros((max_size, 1), dtype=np.float32)
         self.done = np.zeros((max_size, 1), dtype=np.float32)
-
-        self.norm_obs = norm_obs
-        self.norm_reward = norm_reward
-        if norm_obs:
-            self.obs_rms = RunningMeanStdNormalizer(shape=[obs_dim, ])
-        if norm_reward:
-            self.reward_rms = RunningMeanStdNormalizer(shape=[1, ])
 
         if lap_alpha > 0:
             from flowrl.data_structure import MinTree, SumTree
@@ -72,11 +65,6 @@ class ReplayBuffer(object):
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
-        if self.norm_obs:
-            self.obs_rms.update(state)
-        if self.norm_reward:
-            self.reward_rms.update(reward)
-
         if self.lap:
             self.sum_tree.add(self.max_priority)
             self.min_tree.add(-self.max_priority)
@@ -90,11 +78,11 @@ class ReplayBuffer(object):
             indices = np.random.choice(self.size, size=batch_size, replace=False)
 
         return Batch(
-            obs=self.state[indices] if not self.norm_obs else self.obs_rms.normalize(self.state[indices]),
+            obs=self.state[indices],
             action=self.action[indices],
-            reward=self.reward[indices] if not self.norm_reward else self.reward_rms.normalize(self.reward[indices]),
+            reward=self.reward[indices],
             terminal=self.done[indices],
-            next_obs=self.next_state[indices] if not self.norm_obs else self.obs_rms.normalize(self.next_state[indices]),
+            next_obs=self.next_state[indices],
             next_action=None,
         ), indices
 
@@ -112,8 +100,3 @@ class ReplayBuffer(object):
             self.max_priority = - self.min_tree.min()
         else:
             raise ValueError("Only LAP buffer can reset max priority")
-
-    def normalize_obs(self, obs):
-        if self.norm_obs:
-            return self.obs_rms.normalize(obs)
-        return obs

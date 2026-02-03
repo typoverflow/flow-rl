@@ -1,0 +1,30 @@
+# @package _global_
+
+algo:
+  name: qvpo
+  critic_hidden_dims: [256, 256]
+  critic_activation: relu
+  critic_lr: 0.0003
+  discount: 0.99
+  num_behavior_samples: ${oc.select:algo.num_behavior_samples_dict.${task},2}
+  num_evaluate_samples: 32
+  num_train_samples: 64
+  reweight: adv
+  entropy_coef: 0.01
+  ema: 0.005
+  clip_grad_norm: null # according to the paper, table 2
+  diffusion:
+    time_dim: 64
+    mlp_hidden_dims: [256, 256]
+    lr: 0.0003
+    end_lr: null
+    lr_decay_steps: null
+    lr_decay_begin: null
+    steps: 20
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+    solver: ddpm
+  num_behavior_samples_dict:
+    HalfCheetah-v5: 4
+    Hopper-v5: 1

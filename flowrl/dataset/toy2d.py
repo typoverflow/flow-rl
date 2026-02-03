@@ -4,6 +4,7 @@ from collections import namedtuple
 import numpy as np
 import sklearn
 import sklearn.datasets
+from scipy.stats import multivariate_normal
 from sklearn.utils import shuffle as util_shuffle
 
 from flowrl.types import Batch
@@ -142,13 +143,38 @@ def inf_train_gen(data, batch_size=200):
         x = np.random.rand(batch_size) * 5 - 2.5
         y = np.sin(x) * 2.5
         return np.stack((x, y), 1)
+
+    elif data == "8gaussiansmix":
+        scale = 3.5
+        centers = [
+            (0, 1),
+            (-1. / np.sqrt(2), 1. / np.sqrt(2)),
+            (-1, 0),
+            (-1. / np.sqrt(2), -1. / np.sqrt(2)),
+            (0, -1),
+            (1. / np.sqrt(2), -1. / np.sqrt(2)),
+            (1, 0),
+            (1. / np.sqrt(2), 1. / np.sqrt(2)),
+        ]
+        weights = [8, 7, 6, 5, 4, 3, 2, 1]
+
+
+        centers = [(scale * x, scale * y) for x, y in centers]
+        cov = 1.5**2
+        x = np.random.rand(batch_size, 2) * 10 - 5
+        energy = [
+            multivariate_normal.pdf(x, center, cov)
+            for center in centers
+        ]
+        energy = sum([weights[i] * energy[i] for i in range(8)])
+        return x, energy[:, None]
     else:
         assert False
 
 
 class Toy2dDataset(object):
     def __init__(self, task: str, data_size: int=1000000, scan: bool=True):
-        assert task in ["swissroll", "8gaussians", "moons", "rings", "checkerboard", "2spirals"]
+        assert task in ["swissroll", "8gaussians", "moons", "rings", "checkerboard", "2spirals", "8gaussiansmix"]
         self.task = task
         self.data_size = data_size
         self.scan = scan

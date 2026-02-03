@@ -51,7 +51,7 @@ class Model(PyTreeNode, ABC):
 
         state = TrainState.create(
             apply_fn=network.apply,
-            params=params["params"],
+            params=params.get("params", {}),
             tx=optimizer
         )
         return cls(
