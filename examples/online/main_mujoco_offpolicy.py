@@ -25,6 +25,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td7": TD7Agent,
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
+    "qvpo": QVPOAgent,
     "qsm": QSMAgent,
     "idem": IDEMAgent,
 }
@@ -63,10 +64,18 @@ class OffPolicyTrainer():
         self.num_train_envs = cfg.num_train_envs
         self.update_per_iter = int(cfg.num_train_envs * cfg.utd)
         self.train_env = gym.vector.SyncVectorEnv([
-            lambda: gym.make(cfg.task) for _ in range(cfg.num_train_envs)
+            lambda: gym.wrappers.RescaleAction(
+                gym.make(cfg.task),
+                min_action=-1.0,
+                max_action=1.0,
+            ) for _ in range(cfg.num_train_envs)
         ], autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
         self.eval_env = gym.vector.SyncVectorEnv([
-            lambda: gym.make(cfg.task) for _ in range(cfg.eval.num_episodes)
+            lambda: gym.wrappers.RescaleAction(
+                gym.make(cfg.task),
+                min_action=-1.0,
+                max_action=1.0,
+        ) for _ in range(cfg.eval.num_episodes)
         ], autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
 
         # create buffer
@@ -202,9 +211,6 @@ class OnPolicyTrainer():
 
 @hydra.main(config_path="./config/mujoco", config_name="config", version_base=None)
 def main(cfg: Config):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
-    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
     try:
         algo_name = cfg.algo.name
     except omegaconf.errors.MissingMandatoryValue:

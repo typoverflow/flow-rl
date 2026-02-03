@@ -5,7 +5,7 @@ from .base import BaseAlgoConfig
 
 
 @dataclass
-class DPMDDiffusionConfig:
+class QVPODiffusionConfig:
     time_dim: int
     mlp_hidden_dims: List[int]
     lr: float
@@ -20,16 +20,17 @@ class DPMDDiffusionConfig:
 
 
 @dataclass
-class DPMDConfig(BaseAlgoConfig):
+class QVPOConfig(BaseAlgoConfig):
     name: str
     critic_hidden_dims: List[int]
     critic_activation: str
     critic_lr: float
-    temp_lr: float
     discount: float
-    num_samples: int
-    num_particles: int
-    target_kl: float
+    num_behavior_samples: int
+    num_evaluate_samples: int
+    num_train_samples: int
     reweight: str
+    entropy_coef: float
     ema: float
-    diffusion: DPMDDiffusionConfig
+    clip_grad_norm: float
+    diffusion: QVPODiffusionConfig

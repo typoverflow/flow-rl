@@ -2,8 +2,8 @@
 
 algo:
   name: sdac
-  critic_hidden_dims: [256, 256, 256]
-  critic_activation: mish
+  critic_hidden_dims: [256, 256]
+  critic_activation: relu
   critic_lr: 0.0003
   discount: 0.99
   num_samples: 10

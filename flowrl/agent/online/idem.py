@@ -62,9 +62,10 @@ def jit_update_idem_actor(
             "loss/actor_loss": loss,
             "misc/eps_estimation_l1": jnp.abs(eps_estimation).mean(),
             "misc/weights": weight.mean(),
-            "misc/weight_std": weight.std(0).mean(),
-            "misc/weight_max": weight.max(0).mean(),
-            "misc/weight_min": weight.min(0).mean(),
+            "misc/weights_std": weight.std(0).mean(),
+            "misc/weights_max": weight.max(0).mean(),
+            "misc/weights_min": weight.min(0).mean(),
+            "misc/scale": scale,
         }
 
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
