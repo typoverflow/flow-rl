@@ -33,18 +33,57 @@ Offline RL:
 |DAC|`flowrl/agent/dac.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=uqr7jg46c5) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=uqr7jg46c5)|
 |BDPO|`flowrl/agent/bdpo/bdpo.py`|[[Performance]](https://wandb.ai/lamda-rl/flow-rl/panel/nz7r4sj4n?nw=2q8v54gusia) [[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=2q8v54gusia)|
 
-Online RL (Gym-MuJoCo):
-|Algorithm|Location|WandB Report|
-|:---:|:---:|:---:|
-|SAC|`flowrl/agent/online/sac.py`|[[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=xgjfpp0sg5o)|
-|TD3|`flowrl/agent/online/td3.py`|[[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=xgjfpp0sg5o)|
-|SDAC|`flowrl/agent/online/sdac.py`|[[Full Log]](https://wandb.ai/lamda-rl/flow-rl?nw=xgjfpp0sg5o)|
+Online RL
+<table>
+  <thead>
+    <tr>
+      <th style="border-right: 1px solid #ddd; padding: 8px;">Algorithm</th>
+      <th style="border-right: 1px solid #ddd; padding: 8px;">Location</th>
+      <th style="padding: 8px;">WandB Report</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">SAC</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/sac.py</code></td>
+      <td style="padding: 8px;" rowspan="7">
+        <!-- Add your content here, for example: -->
+        <a href="https://wandb.ai/gaochenxiao/flow-rl-online?nw=nvcqz1emwuc">Gym-MuJoCo Results</a><br>
+        <!-- More content can be placed here if needed -->
+      </td>
+    </tr>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">TD3</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/td3.py</code></td>
+    </tr>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">TD7</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/td7.py</code></td>
+    </tr>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">SDAC</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/sdac.py</code></td>
+    </tr>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">QSMAgent</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/qsm.py</code></td>
+    </tr>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">DACERAgent</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/dacer.py</code></td>
+    </tr>
+    <tr>
+      <td style="border-right: 1px solid #ddd; padding: 8px;">QVPOAgent</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/qvpo.py</code></td>
+    </tr>
+  </tbody>
+</table>
 
 ## 📝 Citing Flow RL
 If you use Flow RL in your research, please cite:
 ```bibtex
 @software{flow_rl,
-  author       = {Chen-Xiao Gao and Mingjun Cao},
+  author       = {Chen-Xiao Gao and Mingjun Cao and Edward Chen},
   title        = {Flow RL: Flow-based Reinforcement Learning Algorithms},
   year         = 2025,
   version      = {v0.0.1},
