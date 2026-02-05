@@ -28,6 +28,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "qvpo": QVPOAgent,
     "qsm": QSMAgent,
     "idem": IDEMAgent,
+    "dacer": DACERAgent,
 }
 
 class OffPolicyTrainer():

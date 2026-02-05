@@ -1,5 +1,6 @@
 from ..base import BaseAgent
 from .ctrlsr import *
+from .dacer import DACERAgent
 from .diffsr import *
 from .dpmd import DPMDAgent
 from .idem import IDEMAgent

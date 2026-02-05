@@ -1,4 +1,7 @@
+import dataclasses
+
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 
 import flowrl.module.initialization as init
@@ -146,3 +149,66 @@ class EnsembleCriticT(nn.Module):
             bias_init=self.bias_init,
         )(obs, action, t, training)
         return x
+
+
+class Ensemblize(nn.Module):
+    base_cls: type[nn.Module]
+    base_kwargs: Dict[str, Any]
+    ensemble_size: int
+
+    @nn.compact
+    def __call__(self, *args, **kwargs) -> jnp.ndarray:
+        vmap_cls = nn.vmap(
+            self.base_cls,
+            variable_axes={"params": 0},
+            split_rngs={"params": True, "dropout": True},
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.ensemble_size
+        )
+        return vmap_cls(**self.base_kwargs)(*args, **kwargs)
+
+
+class BasicCritic(nn.Module):
+    backbone: nn.Module
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: jnp.ndarray,
+        action: Optional[jnp.ndarray] = None,
+    ) -> jnp.ndarray:
+        if action is None:
+            x = obs
+        else:
+            x = jnp.concatenate([obs, action], axis=-1)
+        x = self.backbone(x)
+        x = nn.Dense(
+            1, kernel_init=self.kernel_init(), bias_init=self.bias_init()
+        )(x)
+        return x
+
+
+class GaussianCritic(nn.Module):
+    backbone: nn.Module
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: jnp.ndarray,
+        action: Optional[jnp.ndarray] = None,
+    ) -> jnp.ndarray:
+        if action is None:
+            x = obs
+        else:
+            x = jnp.concatenate([obs, action], axis=-1)
+        x = self.backbone(x)
+        x = nn.Dense(
+            2, kernel_init=self.kernel_init(), bias_init=self.bias_init()
+        )(x)
+        mean, std = x[..., :1], jax.nn.softplus(x[..., 1:])
+        return mean, std
