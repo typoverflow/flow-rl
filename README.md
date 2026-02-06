@@ -53,28 +53,28 @@ Online RL
       </td>
     </tr>
     <tr>
-      <td style="border-right: 1px solid #ddd; padding: 8px;">TD3</td>
-      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/td3.py</code></td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">TD3</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><code>flowrl/agent/online/td3.py</code></td>
     </tr>
     <tr>
-      <td style="border-right: 1px solid #ddd; padding: 8px;">TD7</td>
-      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/td7.py</code></td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">TD7</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><code>flowrl/agent/online/td7.py</code></td>
     </tr>
     <tr>
-      <td style="border-right: 1px solid #ddd; padding: 8px;">SDAC</td>
-      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/sdac.py</code></td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">SDAC</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><code>flowrl/agent/online/sdac.py</code></td>
     </tr>
     <tr>
-      <td style="border-right: 1px solid #ddd; padding: 8px;">QSMAgent</td>
-      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/qsm.py</code></td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">QSM</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><code>flowrl/agent/online/qsm.py</code></td>
     </tr>
     <tr>
-      <td style="border-right: 1px solid #ddd; padding: 8px;">DACERAgent</td>
-      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/dacer.py</code></td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">DACER</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><code>flowrl/agent/online/dacer.py</code></td>
     </tr>
     <tr>
-      <td style="border-right: 1px solid #ddd; padding: 8px;">QVPOAgent</td>
-      <td style="border-right: 1px solid #ddd; padding: 8px;"><code>flowrl/agent/online/qvpo.py</code></td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;">QVPO</td>
+      <td style="border-right: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: middle;"><code>flowrl/agent/online/qvpo.py</code></td>
     </tr>
   </tbody>
 </table>
