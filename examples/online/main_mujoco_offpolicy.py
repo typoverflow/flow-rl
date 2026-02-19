@@ -24,11 +24,15 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "td3": TD3Agent,
     "td7": TD7Agent,
     "sdac": SDACAgent,
-    "dpmd": DPMDAgent,
     "qvpo": QVPOAgent,
     "qsm": QSMAgent,
     "idem": IDEMAgent,
     "dacer": DACERAgent,
+    "nclql": NCLQLAgent,
+    "dpmd_exp": DPMDAgent,
+    "dpmd_linear": DPMDAgent,
+    "dpmd_square": DPMDAgent,
+    "dpmd": DPMDAgent,
 }
 
 class OffPolicyTrainer():
@@ -129,6 +133,9 @@ class OffPolicyTrainer():
                         else:
                             actual_next_obs = next_obs[i]
                         self.buffer.add(obs[i], actions[i], actual_next_obs, rewards[i], terminated[i])
+
+                    if self.cfg.norm_obs:
+                        self.obs_normalizer.update(obs)
 
                     if self.global_frame < cfg.warmup_frames:
                         train_metrics = {}

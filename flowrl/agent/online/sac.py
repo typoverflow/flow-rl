@@ -10,7 +10,7 @@ from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.sac import SACConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedGaussianActor
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.critic import BasicCritic, Ensemblize
 from flowrl.module.misc import TunableCoefficient
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
@@ -31,7 +31,6 @@ def jit_sample_action(
         action = dist.sample(seed=rng)
     return action
 
-@partial(jax.jit, static_argnames=("discount"))
 def update_q(
     rng: PRNGKey,
     critic: Model,
@@ -64,7 +63,6 @@ def update_q(
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
     return rng, new_critic, metrics
 
-@jax.jit
 def update_actor(
     rng: PRNGKey,
     actor: Model,
@@ -82,14 +80,13 @@ def update_actor(
         )
         new_action, new_logprob = dist.sample_and_log_prob(seed=sample_rng)
         q = critic(batch.obs, new_action)
-        actor_loss = (jnp.exp(log_alpha()) * new_logprob - q.mean(axis=0)).mean()
+        actor_loss = (jnp.exp(log_alpha()) * new_logprob - q.min(axis=0)).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,
         }
     new_actor, metrics = actor.apply_gradient(actor_loss_fn)
     return rng, new_actor, metrics
 
-@partial(jax.jit, static_argnames=("target_entropy"))
 def update_alpha(
     rng: PRNGKey,
     log_alpha: Model,
@@ -162,14 +159,18 @@ class SACAgent(BaseAgent):
             action_dim=self.act_dim,
             conditional_logstd=True,
         )
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic_hidden_dims,
-            layer_norm=cfg.layer_norm,
-            activation=activation,
-            dropout=None,
+        critic_def = Ensemblize(
+            base_cls=BasicCritic,
+            base_kwargs={
+                "backbone": MLP(
+                    hidden_dims=cfg.critic_hidden_dims,
+                    layer_norm=cfg.layer_norm,
+                    activation=activation,
+                    dropout=None,
+                )
+            },
             ensemble_size=cfg.critic_ensemble_size,
         )
-
         self.actor = Model.create(
             actor_def,
             actor_rng,

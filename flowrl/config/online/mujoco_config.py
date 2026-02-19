@@ -28,7 +28,7 @@ class Config:
     frame_skip: int
     frame_stack: int
     num_train_envs: int
-    utd: int
+    utd: float
     batch_size: int
     buffer_size: int
     lap_alpha: float

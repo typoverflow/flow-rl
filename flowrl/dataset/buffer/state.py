@@ -75,7 +75,7 @@ class ReplayBuffer(object):
             indices = self.sum_tree.find(target, scale=True)[0]
             indices = np.asarray(indices)
         else:
-            indices = np.random.choice(self.size, size=batch_size, replace=False)
+            indices = np.random.choice(self.size, size=batch_size, replace=True)
 
         return Batch(
             obs=self.state[indices],
