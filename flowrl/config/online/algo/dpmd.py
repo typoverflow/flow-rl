@@ -32,4 +32,6 @@ class DPMDConfig(BaseAlgoConfig):
     target_kl: float
     reweight: str
     ema: float
+    old_policy_update_interval: int
+    additive_noise: float
     diffusion: DPMDDiffusionConfig

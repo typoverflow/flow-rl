@@ -1,0 +1,24 @@
+# @package _global_
+
+algo:
+  name: nclql
+  critic_hidden_dims: [256, 256, 256]
+  critic_activation: mish
+  critic_ensemble_size: 2
+  time_dim: 16
+  critic_lr: 0.0001
+  reward_scale: 0.2
+  num_samples: 1
+  discount: 0.99
+  ema: 0.005
+  ald:
+    steps: 2
+    levels: 10
+    w: 500
+    sigma_max: 0.1
+    sigma_min: 0.001
+    step_lr: 0.0001
+    q_grad_norm: true
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0

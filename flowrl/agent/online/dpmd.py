@@ -25,7 +25,7 @@ def solve_normalizer_exp(q: jnp.ndarray, temp: float):
 def solve_normalizer_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
     num_particles = q.shape[-1]
     B = temp * negative
-    target_sum = num_particles * (temp * 1 - B)
+    target_sum = temp * 1 - B
     q_sorted = jnp.sort(q, axis=-1)[..., ::-1]
     q_cumsum = jnp.cumsum(q_sorted, axis=-1)
 
@@ -42,7 +42,7 @@ def solve_normalizer_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
 
 def solve_normalizer_square(q: jnp.ndarray, temp: float):
     num_particles = q.shape[-1]
-    target_sum = num_particles * (temp ** 2)
+    target_sum = temp ** 2
 
     q_sorted = jnp.sort(q, axis=-1)[..., ::-1]
     q_cumsum = jnp.cumsum(q_sorted, axis=-1)
@@ -57,7 +57,7 @@ def solve_normalizer_square(q: jnp.ndarray, temp: float):
 
     S1 = jnp.take_along_axis(q_cumsum, k-1, axis=-1)
     S2 = jnp.take_along_axis(q_squared_cumsum, k-1, axis=-1)
-    delta = S1**2 - k * S2
+    delta = S1**2 - k * S2 + k * target_sum
     nu = (S1 - jnp.sqrt(jnp.maximum(delta, 0.0))) / k
     return nu
 
@@ -86,7 +86,7 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "reweight"))
+@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "reweight", "additive_noise", "num_behavior_samples"))
 def jit_update_dpmd(
     rng: PRNGKey,
     actor: ContinuousDDPM,
@@ -97,15 +97,24 @@ def jit_update_dpmd(
     batch: Batch,
     discount: float,
     reweight: str,
+    num_behavior_samples: int,
     num_particles: int,
     target_kl: float,
     ema: float,
+    additive_noise: float,
 ) -> Tuple[PRNGKey, ContinuousDDPM, Model, Model, jnp.ndarray, jnp.ndarray, Metric]:
 
     # update critic
-    rng, next_xT_rng = jax.random.split(rng)
-    next_xT = jax.random.normal(next_xT_rng, (*batch.next_obs.shape[:-1], actor.x_dim))
-    rng, next_action, _ = actor.sample(rng, next_xT, batch.next_obs, training=False)
+    rng, next_action = jit_sample_actions(
+        rng,
+        actor,
+        critic_target,
+        batch.next_obs,
+        training=False,
+        num_samples=1,
+        best_of_n=False,
+    )
+    next_action = next_action[:, 0]
     q_target = critic_target(batch.next_obs, next_action)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target.min(axis=0)
 
@@ -136,6 +145,9 @@ def jit_update_dpmd(
         num_samples=num_particles,
         best_of_n=False,
     )
+    rng, noise_rng = jax.random.split(rng)
+    noise = jax.random.normal(noise_rng, action_batch.shape)
+    action_batch = action_batch + noise * additive_noise
     q_batch = jax.vmap(
         critic,
         in_axes=(None, 1),
@@ -154,7 +166,7 @@ def jit_update_dpmd(
         weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
     else:
         raise ValueError(f"Invalid reweighting method: {reweight}")
-    entropy = - jnp.sum(weights * jnp.log(weights), axis=-1)
+    entropy = - jnp.sum(weights * jnp.log(weights+1e-6), axis=-1)
     weights = weights * num_particles
 
     rng, at, t, eps = actor.add_noise(rng, action_batch)
@@ -314,9 +326,11 @@ class DPMDAgent(BaseAgent):
             batch,
             discount=self.cfg.discount,
             reweight=self.cfg.reweight,
+            num_behavior_samples=self.cfg.num_behavior_samples,
             num_particles=self.cfg.num_particles,
             target_kl=self.cfg.target_kl,
             ema=self.cfg.ema,
+            additive_noise=self.cfg.additive_noise,
         )
         if self._n_training_steps % self.cfg.old_policy_update_interval == 0:
             self.actor_target = ema_update(self.actor, self.actor_target, 1.0)

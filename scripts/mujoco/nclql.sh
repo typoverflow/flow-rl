@@ -1,7 +1,7 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
-SEEDS=(0 1 2 3 4)
-NUM_EACH_GPU=3
+SEEDS=(2 3)
+NUM_EACH_GPU=2
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
@@ -20,10 +20,9 @@ TASKS=(
 )
 
 SHARED_ARGS=(
-    "algo=dpmd_exp"
+    "algo=nclql"
     "log.tag=default"
 )
-
 
 run_task() {
     task=$1

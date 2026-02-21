@@ -161,14 +161,14 @@ class SACAgent(BaseAgent):
         )
         critic_def = Ensemblize(
             base_cls=BasicCritic,
-            base_kwargs={
-                "backbone": MLP(
+            base_kwargs=dict(
+                backbone=MLP(
                     hidden_dims=cfg.critic_hidden_dims,
                     layer_norm=cfg.layer_norm,
                     activation=activation,
                     dropout=None,
-                )
-            },
+                ),
+            ),
             ensemble_size=cfg.critic_ensemble_size,
         )
         self.actor = Model.create(

@@ -124,7 +124,7 @@ def jit_update_qvpo(
         axis=1
     ).squeeze(1)
     if reweight == "adv":
-        weight = q_batch - v_batch
+        weight = q_batch - v_batch # no need to clip since only selecting the best action
 
     if entropy_coef >= 0:
         rng, rand_rng = jax.random.split(rng)

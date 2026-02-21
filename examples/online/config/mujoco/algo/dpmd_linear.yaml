@@ -1,7 +1,7 @@
 # @package _global_
 
 algo:
-  name: dpmd
+  name: dpmd_linear
   critic_hidden_dims: [256, 256]
   critic_activation: relu
   critic_lr: 0.0003
@@ -10,13 +10,11 @@ algo:
   num_samples: 10
   num_particles: 64
   num_behavior_samples: 2
-  target_kl: 2.5
+  target_kl: 2.0
   reweight: linear
   ema: 0.005
   old_policy_update_interval: 1000
   additive_noise: 0.2
-  additive_noise_dict:
-    Ant-v5: 0.1
   diffusion:
     time_dim: 64
     mlp_hidden_dims: [256, 256, 256]

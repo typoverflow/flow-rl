@@ -122,3 +122,93 @@ class IBCLangevinDynamics(Model):
         output, history = jax.lax.scan(fn, (rng, xT), jnp.arange(self.steps), unroll=True)
         rng, action = output
         return rng, action, history
+
+
+@dataclass
+class AnnealedLangevinDynamics(Model):
+    """
+    Annealed Langevin Dynamics Sampler
+    """
+    state: TrainState
+    dropout_rng: PRNGKey = field(pytree_node=True)
+    x_dim: int = field(pytree_node=False, default=None)
+    steps: int = field(pytree_node=False, default=None)
+    levels: int = field(pytree_node=False, default=None)
+    w: float = field(pytree_node=False, default=None)
+    sigma_max: float = field(pytree_node=False, default=None)
+    sigma_min: float = field(pytree_node=False, default=None)
+    step_lr: float = field(pytree_node=False, default=None)
+    q_grad_norm: bool = field(pytree_node=False, default=False)
+    clip_sampler: bool = field(pytree_node=False, default=None)
+    x_min: float = field(pytree_node=False, default=None)
+    x_max: float = field(pytree_node=False, default=None)
+    sigmas: jnp.ndarray = field(pytree_node=True, default=None)
+
+    @classmethod
+    def create(
+        cls,
+        rng: PRNGKey,
+        x_dim: int,
+        steps: int = 2,
+        levels: int = 10,
+        w: float = 1.0,
+        sigma_max: float = 0.1,
+        sigma_min: float = 0.001,
+        step_lr: float = 0.0001,
+        q_grad_norm: bool = True,
+        clip_sampler: bool = False,
+        x_min: float = -1.0,
+        x_max: float = 1.0,
+    ) -> 'AnnealedLangevinDynamics':
+        network = DummyModel()
+        inputs = ()
+        ret = super().create(network, rng, inputs)
+
+        sigmas = jnp.exp(jnp.linspace(jnp.log(sigma_max), jnp.log(sigma_min), levels))
+        return ret.replace(
+            x_dim=x_dim,
+            steps=steps,
+            levels=levels,
+            w=w,
+            sigma_max=sigma_max,
+            sigma_min=sigma_min,
+            step_lr=step_lr,
+            q_grad_norm=q_grad_norm,
+            clip_sampler=clip_sampler,
+            x_min=x_min,
+            x_max=x_max,
+            sigmas=sigmas,
+        )
+
+    @partial(jax.jit, static_argnames=("model_fn"))
+    def sample(
+        self,
+        rng: PRNGKey,
+        model_fn: Callable,
+        x_init: jnp.ndarray,
+        condition: Optional[jnp.ndarray] = None,
+    ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+        shape = x_init.shape
+        rng, noise_rng = jax.random.split(rng)
+        noise = jax.random.normal(noise_rng, (self.levels, self.steps, *shape))
+
+        l_seq = jnp.repeat(jnp.arange(self.levels), self.steps)
+        noise_seq = noise.reshape((self.levels * self.steps, *shape))
+
+        def fn(xt, inputs):
+            l, noise = inputs
+            energy, q_grad_raw = model_fn(xt, l, condition=condition)
+
+            if self.q_grad_norm:
+                q_grad = q_grad_raw / (jnp.linalg.norm(q_grad_raw, axis=-1, keepdims=True) + 1e-8)
+            else:
+                q_grad = q_grad_raw
+
+            step_size = self.step_lr * (self.sigmas[l] / self.sigmas[-1]) ** 2
+            xt_1 = xt + 0.5 * step_size * self.w * q_grad + jnp.sqrt(step_size) * noise
+            if self.clip_sampler:
+                xt_1 = jnp.clip(xt_1, self.x_min, self.x_max)
+            return xt_1, (xt, q_grad_raw, energy)
+
+        x, history = jax.lax.scan(fn, x_init, (l_seq, noise_seq))
+        return rng, x, history
