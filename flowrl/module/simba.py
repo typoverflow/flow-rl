@@ -19,7 +19,7 @@ class SimbaBlock(nn.Module):
     ) -> jnp.ndarray:
         res = x
         x = nn.LayerNorm()(x)
-        x = nn.Dense(self.hidden_dim * 4, kernel_init=init.he_normal())(x)
+        x = nn.Dense(self.hidden_dim * self.multiplier, kernel_init=init.he_normal())(x)
         x = nn.relu(x)
         x = nn.Dense(self.hidden_dim, kernel_init=init.he_normal())(x)
         return res + x

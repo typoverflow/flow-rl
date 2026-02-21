@@ -39,7 +39,7 @@ class BroNet(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray):
-        x = nn.Dense(self.hidden_dims, kernel_init=init.orthogonal_init())(x)
+        x = nn.Dense(self.hidden_dims[0], kernel_init=init.orthogonal_init())(x)
         x = nn.LayerNorm()(x)
         x = self.activation(x)
         for i, size in enumerate(self.hidden_dims):
