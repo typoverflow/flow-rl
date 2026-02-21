@@ -1,6 +1,6 @@
 import flax.linen as nn
 import jax
-from flax.linen.initializers import lecun_normal, variance_scaling, zeros_init
+from flax.linen.initializers import lecun_normal, variance_scaling, zeros_init, he_normal
 from jax import numpy as jnp
 
 from flowrl.types import *

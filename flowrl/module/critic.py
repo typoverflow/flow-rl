@@ -297,3 +297,25 @@ class GaussianCritic(nn.Module):
         )(x)
         mean, std = x[..., :1], jax.nn.softplus(x[..., 1:])
         return mean, std
+
+class CategoricalCritic(nn.Module):
+    backbone: nn.Module
+    output_nodes: int
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: jnp.ndarray,
+        action: Optional[jnp.ndarray] = None,
+    ) -> jnp.ndarray:
+        if action is None:
+            x = obs
+        else:
+            x = jnp.concatenate([obs, action], axis=-1)
+        x = self.backbone(x)
+        x = nn.Dense(
+            self.output_nodes, kernel_init=self.kernel_init(), bias_init=self.bias_init()
+        )(x)
+        return x
