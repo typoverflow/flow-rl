@@ -160,8 +160,7 @@ class SACAgent(BaseAgent):
             conditional_logstd=True,
         )
         critic_def = Ensemblize(
-            base_cls=ScalarCritic,
-            base_kwargs=dict(
+            base=ScalarCritic(
                 backbone=MLP(
                     hidden_dims=cfg.critic_hidden_dims,
                     layer_norm=cfg.layer_norm,

@@ -270,8 +270,7 @@ class NCLQLAgent(BaseAgent):
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim)), jnp.ones((1, 1))),
         )
         # critic_def = Ensemblize(
-        #     base_cls=BasicCriticWithDiscreteTime,
-        #     base_kwargs=dict(
+        #     base=BasicCriticWithDiscreteTime(
         #         backbone=MLP(
         #             hidden_dims=cfg.critic_hidden_dims,
         #             activation=critic_activation,

@@ -180,8 +180,7 @@ class QSMAgent(BaseAgent):
             "mish": mish,
         }[cfg.critic_activation]
         critic_def = Ensemblize(
-            base_cls=ScalarCritic,
-            base_kwargs=dict(
+            base=ScalarCritic(
                 backbone=MLP(
                     hidden_dims=cfg.critic_hidden_dims,
                     activation=critic_activation,

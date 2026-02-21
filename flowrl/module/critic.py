@@ -152,21 +152,23 @@ class EnsembleCriticT(nn.Module):
 
 
 class Ensemblize(nn.Module):
-    base_cls: type[nn.Module]
-    base_kwargs: Dict[str, Any]
+    base: nn.Module
     ensemble_size: int
 
     @nn.compact
     def __call__(self, *args, **kwargs) -> jnp.ndarray:
-        vmap_cls = nn.vmap(
-            self.base_cls,
+        def call_base(base_instance, *args, **kwargs):
+            return base_instance(*args, **kwargs)
+
+        vmap_fn = nn.vmap(
+            call_base,
             variable_axes={"params": 0},
             split_rngs={"params": True, "dropout": True},
             in_axes=None,
             out_axes=0,
-            axis_size=self.ensemble_size
+            axis_size=self.ensemble_size,
         )
-        return vmap_cls(**self.base_kwargs)(*args, **kwargs)
+        return vmap_fn(self.base, *args, **kwargs)
 
 
 class ScalarCritic(nn.Module):
