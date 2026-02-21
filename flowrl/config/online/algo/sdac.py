@@ -25,6 +25,7 @@ class SDACConfig(BaseAlgoConfig):
     critic_hidden_dims: List[int]
     critic_activation: str
     critic_lr: float
+    critic_ensemble_size: int
     discount: float
     num_samples: int
     num_reverse_samples: int

@@ -10,7 +10,7 @@ from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.sac import SACConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedGaussianActor
-from flowrl.module.critic import BasicCritic, Ensemblize
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.misc import TunableCoefficient
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
@@ -160,7 +160,7 @@ class SACAgent(BaseAgent):
             conditional_logstd=True,
         )
         critic_def = Ensemblize(
-            base_cls=BasicCritic,
+            base_cls=ScalarCritic,
             base_kwargs=dict(
                 backbone=MLP(
                     hidden_dims=cfg.critic_hidden_dims,

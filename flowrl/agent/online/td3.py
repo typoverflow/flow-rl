@@ -10,7 +10,7 @@ from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.td3 import TD3Config
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
@@ -91,7 +91,8 @@ def update_actor(
 
 class TD3Agent(BaseAgent):
     """
-    Twin Delayed Deep Deterministic Policy Gradient (TD3) agent.
+    Twin Delayed Deep Deterministic Policy Gradient (TD3).
+    https://arxiv.org/abs/1802.09477
     """
     name = "TD3Agent"
     model_names = ["actor", "actor_target", "critic", "critic_target"]
@@ -121,11 +122,16 @@ class TD3Agent(BaseAgent):
             action_dim=self.act_dim,
         )
 
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic_hidden_dims,
-            layer_norm=cfg.layer_norm,
-            activation=activation,
-            dropout=None,
+        critic_def = Ensemblize(
+            base_cls=ScalarCritic,
+            base_kwargs=dict(
+                backbone=MLP(
+                    hidden_dims=cfg.critic_hidden_dims,
+                    layer_norm=cfg.layer_norm,
+                    activation=activation,
+                    dropout=None,
+                ),
+            ),
             ensemble_size=cfg.critic_ensemble_size,
         )
 

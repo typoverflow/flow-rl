@@ -231,7 +231,8 @@ def jit_update_alpha(
 
 class DACERAgent(BaseAgent):
     """
-    Diffusion Actor Critic with Entropy Regulator (DACER) agent.
+    Diffusion Actor Critic with Entropy Regulator (DACER)
+    https://arxiv.org/abs/2405.15177
     """
     name = "DACERAgent"
     model_names = ["actor", "critic", "critic_target"]
@@ -242,20 +243,21 @@ class DACERAgent(BaseAgent):
         self.rng, actor_rng, critic_rng, log_alpha_rng = jax.random.split(self.rng, 4)
 
         # define the actor
-        time_embedding = partial(LearnableFourierEmbedding, output_dim=cfg.diffusion.time_dim)
-        cond_embedding = partial(MLP, hidden_dims=(128, 128), activation=mish)
-        noise_predictor = partial(
-            MLP,
-            hidden_dims=cfg.diffusion.mlp_hidden_dims,
-            output_dim=act_dim,
-            activation=mish,
-            layer_norm=False,
-            dropout=None,
-        )
         backbone_def = ContinuousDDPMBackbone(
-            noise_predictor=noise_predictor,
-            time_embedding=time_embedding,
-            cond_embedding=cond_embedding,
+            noise_predictor=MLP(
+                hidden_dims=cfg.diffusion.mlp_hidden_dims,
+                output_dim=act_dim,
+                activation=mish,
+                layer_norm=False,
+                dropout=None,
+            ),
+            time_embedding=LearnableFourierEmbedding(
+                output_dim=cfg.diffusion.time_dim
+            ),
+            cond_embedding=MLP(
+                hidden_dims=(128, 128),
+                activation=mish
+            ),
         )
 
         if cfg.diffusion.lr_decay_steps is not None:

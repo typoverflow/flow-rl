@@ -169,7 +169,7 @@ class Ensemblize(nn.Module):
         return vmap_cls(**self.base_kwargs)(*args, **kwargs)
 
 
-class BasicCritic(nn.Module):
+class ScalarCritic(nn.Module):
     backbone: nn.Module
     kernel_init: Initializer = init.default_kernel_init
     bias_init: Initializer = init.default_bias_init

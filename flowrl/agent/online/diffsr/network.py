@@ -33,16 +33,6 @@ class FactorizedDDPM(nn.Module):
             mish,
             MLP_torch_init(output_dim=self.embed_dim)
         ])
-        # self.mlp_s = nn.Sequential([
-        #     MLP_torch_init(output_dim=self.embed_dim*2),
-        #     mish,
-        #     MLP_torch_init(output_dim=self.embed_dim)
-        # ])
-        # self.mlp_a = nn.Sequential([
-        #     MLP_torch_init(output_dim=self.embed_dim*2),
-        #     mish,
-        #     MLP_torch_init(output_dim=self.embed_dim)
-        # ])
         self.mlp_phi = ResidualMLP(
             self.phi_hidden_dims,
             self.feature_dim,
@@ -74,8 +64,6 @@ class FactorizedDDPM(nn.Module):
         self.alphabars = alphabars
 
     def forward_phi(self, s, a):
-        # s = self.mlp_s(s)
-        # a = self.mlp_a(a)
         x = jnp.concat([s, a], axis=-1)
         x = self.mlp_phi(x)
         return x

@@ -5,6 +5,7 @@ algo:
   critic_hidden_dims: [256, 256]
   critic_activation: relu
   critic_lr: 0.0003
+  critic_ensemble_size: 2
   discount: 0.99
   num_samples: 10
   num_reverse_samples: 500
