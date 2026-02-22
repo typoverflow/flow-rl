@@ -15,7 +15,7 @@ from flowrl.config.offline.algo.bdpo import (
 from flowrl.flow.ddpm import DDPM, DDPMBackbone, jit_update_ddpm
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic, EnsembleCriticT
+from flowrl.module.critic import Ensemblize, ScalarCritic, ScalarCriticWithDiscreteTime
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
@@ -309,7 +309,8 @@ def jit_update_actor(
 
 class BDPOAgent(BaseAgent):
     """
-    Behavior-Regularized Diffusion Policy Optimization
+    Behavior-Regularized Diffusion Policy Optimization (BDPO)
+    https://arxiv.org/abs/2502.04778
     """
     name = "BDPOAgent"
     model_names = ["behavior", "behavior_target", "actor", "actor_target", "q0", "q0_target", "vt", "vt_target"]
@@ -320,10 +321,9 @@ class BDPOAgent(BaseAgent):
         self.rng, behavior_rng, actor_rng, q0_rng, vt_rng = jax.random.split(self.rng, 5)
 
         # define behavior and actor
-        time_embedding = partial(PositionalEmbedding, output_dim=cfg.diffusion.time_dim)
+        time_embedding = PositionalEmbedding(output_dim=cfg.diffusion.time_dim)
         if cfg.diffusion.resnet:
-            noise_predictor = partial(
-                ResidualMLP,
+            noise_predictor = ResidualMLP(
                 hidden_dims=cfg.diffusion.resnet_hidden_dims,
                 output_dim=act_dim,
                 activation=mish,
@@ -332,8 +332,7 @@ class BDPOAgent(BaseAgent):
                 multiplier=1,
             )
         else:
-            noise_predictor = partial(
-                MLP,
+            noise_predictor = MLP(
                 hidden_dims=cfg.diffusion.mlp_hidden_dims,
                 output_dim=act_dim,
                 activation=mish,
@@ -387,18 +386,26 @@ class BDPOAgent(BaseAgent):
         if cfg.critic.lr_decay_steps is not None:
             q0_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
             vt_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
-        q0_def = EnsembleCritic(
-            hidden_dims=cfg.critic.hidden_dims,
-            activation=mish,
+        q0_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=cfg.critic.hidden_dims,
+                    activation=mish,
+                    layer_norm=cfg.critic.layer_norm,
+                )
+            ),
             ensemble_size=cfg.critic.ensemble_size,
-            layer_norm=cfg.critic.layer_norm,
         )
-        vt_def = EnsembleCriticT(
-            time_embedding=time_embedding,
-            hidden_dims=cfg.critic.hidden_dims,
-            activation=mish,
+        vt_def = Ensemblize(
+            base=ScalarCriticWithDiscreteTime(
+                backbone=MLP(
+                    hidden_dims=cfg.critic.hidden_dims,
+                    activation=mish,
+                    layer_norm=True,
+                ),
+                time_embedding=time_embedding,
+            ),
             ensemble_size=cfg.critic.ensemble_size,
-            layer_norm=True,
         )
         self.q0 = Model.create(
             q0_def,

@@ -10,7 +10,7 @@ from flowrl.config.offline.algo.dac import DACConfig
 from flowrl.flow.ddpm import DDPM, DDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
@@ -196,24 +196,22 @@ class DACAgent(BaseAgent):
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
         # define the actor
-        time_embedding = partial(PositionalEmbedding, output_dim=cfg.diffusion.time_dim)
+        time_embedding = PositionalEmbedding(output_dim=cfg.diffusion.time_dim)
         if cfg.diffusion.resnet:
-            noise_predictor = partial(
-                ResidualMLP,
+            noise_predictor = ResidualMLP(
                 hidden_dims=cfg.diffusion.resnet_hidden_dims,
                 output_dim=act_dim,
                 activation=mish,
                 layer_norm=True,
-                dropout=cfg.diffusion.dropout
+                dropout=cfg.diffusion.dropout,
             )
         else:
-            noise_predictor = partial(
-                MLP,
+            noise_predictor = MLP(
                 hidden_dims=cfg.diffusion.mlp_hidden_dims,
                 output_dim=act_dim,
                 activation=mish,
                 layer_norm=cfg.diffusion.layer_norm,
-                dropout=cfg.diffusion.dropout
+                dropout=cfg.diffusion.dropout,
             )
         backbone_def = DDPMBackbone(
             noise_predictor=noise_predictor,
@@ -253,11 +251,15 @@ class DACAgent(BaseAgent):
         )
 
         # define the critics
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic.hidden_dims,
-            activation=mish,
+        critic_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=cfg.critic.hidden_dims,
+                    activation=mish,
+                    layer_norm=cfg.critic.layer_norm,
+                ),
+            ),
             ensemble_size=cfg.critic.ensemble_size,
-            layer_norm=cfg.critic.layer_norm,
         )
         if cfg.critic.lr_decay_steps is not None:
             critic_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)

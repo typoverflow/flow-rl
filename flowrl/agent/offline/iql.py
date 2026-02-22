@@ -37,7 +37,6 @@ def jit_sample_action(
         action = jnp.clip(action, min_action, max_action)
     return action
 
-@partial(jax.jit, static_argnames=("expectile"))
 def update_v(
     value: Model,
     critic_target: Model,
@@ -61,7 +60,6 @@ def update_v(
     new_value, metrics = value.apply_gradient(value_loss_fn)
     return new_value, metrics
 
-@partial(jax.jit, static_argnames=("discount"))
 def update_q(
     critic: Model,
     value: Model,
@@ -85,7 +83,6 @@ def update_q(
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
     return new_critic, metrics
 
-@partial(jax.jit, static_argnames=("beta", "deterministic_actor"))
 def update_actor(
     actor: Model,
     critic_target: Model,
@@ -147,7 +144,8 @@ def update_iql(
 
 class IQLAgent(BaseAgent):
     """
-    Implicit Q-Learning (IQL) agent.
+    Implicit Q-Learning (IQL)
+    https://arxiv.org/abs/2110.06169
     """
     name = "IQLAgent"
     model_names = ["actor", "critic", "critic_target", "value"]

@@ -9,7 +9,7 @@ from flowrl.config.offline.algo.dql import DQLConfig
 from flowrl.flow.ddpm import DDPM, DDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
@@ -165,6 +165,7 @@ def jit_sample_and_select(
 class DQLAgent(BaseAgent):
     """
     Diffusion Q-Learning
+    https://arxiv.org/abs/2208.06193
     """
     name = "DQLAgent"
     model_names = ["actor", "actor_target", "critic", "critic_target"]
@@ -181,16 +182,13 @@ class DQLAgent(BaseAgent):
             actor_lr = cfg.lr
             critic_lr = cfg.lr
         # define the actor
-        time_embedding = partial(PositionalEmbedding, output_dim=cfg.diffusion.time_dim)
-        noise_predictor = partial(
-            MLP,
-            hidden_dims=cfg.diffusion.hidden_dims,
-            output_dim=act_dim,
-            activation=mish,
-        )
         backbone_def = DDPMBackbone(
-            noise_predictor=noise_predictor,
-            time_embedding=time_embedding,
+            noise_predictor=MLP(
+                hidden_dims=cfg.diffusion.hidden_dims,
+                output_dim=act_dim,
+                activation=mish,
+            ),
+            time_embedding=PositionalEmbedding(output_dim=cfg.diffusion.time_dim),
         )
         self.actor = DDPM.create(
             network=backbone_def,
@@ -222,9 +220,13 @@ class DQLAgent(BaseAgent):
         )
 
         # define the critics
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic.hidden_dims,
-            activation=mish,
+        critic_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=cfg.critic.hidden_dims,
+                    activation=mish,
+                ),
+            ),
             ensemble_size=cfg.critic.ensemble_size,
         )
         self.critic = Model.create(
