@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.qsm import QSMAgent, jit_update_qsm_critic
 from flowrl.config.online.algo.idem import IDEMConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM
@@ -74,7 +73,8 @@ def jit_update_idem_actor(
 
 class IDEMAgent(QSMAgent):
     """
-    Iterative Denoising Energy Matching (iDEM) Agent.
+    Iterative Denoising Energy Matching (iDEM)
+    https://arxiv.org/abs/2402.06121
     """
     name = "IDEMAgent"
     model_names = ["actor", "critic", "critic_target"]
@@ -83,6 +83,7 @@ class IDEMAgent(QSMAgent):
         super().__init__(obs_dim, act_dim, cfg, seed)
 
     def train_step(self, batch: Batch, step: int) -> Metric:
+        self.cfg: IDEMConfig
         self.rng, self.critic, self.critic_target, critic_metrics = jit_update_idem_critic(
             self.rng,
             self.actor,

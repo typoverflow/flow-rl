@@ -28,18 +28,18 @@ class FlowBackbone(nn.Module):
         training: bool = False
     ):
         if self.time_embedding is not None:
-            time = self.time_embedding()(time)
+            time = self.time_embedding(time)
             time = MLP(
                 hidden_dims=[time.shape[-1], time.shape[-1]],
                 activation=mish,
             )(time)
         if self.cond_embedding is not None:
-            condition = self.cond_embedding()(condition, training=training)
+            condition = self.cond_embedding(condition, training=training)
         if condition is not None:
             inputs = jnp.concatenate([x, time, condition], axis=-1)
         else:
             inputs = jnp.concatenate([x, time], axis=-1)
-        return self.vel_predictor()(inputs, training=training)
+        return self.vel_predictor(inputs, training=training)
 
 # ======= CNF ========
 

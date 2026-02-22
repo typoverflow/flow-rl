@@ -10,7 +10,7 @@ from flowrl.agent.base import BaseAgent
 from flowrl.config.offline.algo.ivr import IVRConfig
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import TanhMeanGaussianActor
-from flowrl.module.critic import Critic, EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.types import Batch, Metric, Param, PRNGKey
@@ -29,7 +29,6 @@ def jit_sample_action(
     action = jnp.clip(action, min_action, max_action)
     return action
 
-@partial(jax.jit, static_argnames=("discount"))
 def update_q(
     critic: Model,
     value: Model,
@@ -54,7 +53,6 @@ def update_q(
     new_critic, metrics = critic.apply_gradient(critic_loss_fn)
     return new_critic, metrics
 
-@partial(jax.jit, static_argnames=("alpha", "method"))
 def update_v(
     value: Model,
     critic_target: Model,
@@ -93,7 +91,6 @@ def update_v(
     new_value, metrics = value.apply_gradient(value_loss_fn)
     return new_value, metrics
 
-@partial(jax.jit, static_argnames=("alpha", "method"))
 def update_actor(
     actor: Model,
     critic_target: Model,
@@ -152,7 +149,8 @@ def update_ivr(
 
 class IVRAgent(BaseAgent):
     """
-    Implicit Value Regularization (IVR) agent.
+    Implicit Value Regularization (IVR)
+    https://arxiv.org/abs/2303.15810
     """
     name = "IVRAgent"
     model_names = ["actor", "critic", "critic_target", "value"]
@@ -185,9 +183,13 @@ class IVRAgent(BaseAgent):
             optimizer=act_opt,
         )
 
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic_hidden_dims,
-            layer_norm=False,
+        critic_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=cfg.critic_hidden_dims,
+                    layer_norm=False,
+                )
+            ),
             ensemble_size=2,
         )
         self.critic = Model.create(
@@ -202,10 +204,12 @@ class IVRAgent(BaseAgent):
             inputs=(jnp.ones((1, self.obs_dim)), jnp.ones((1, self.act_dim))),
         )
 
-        value_def = Critic(
-            hidden_dims=cfg.value_hidden_dims,
-            layer_norm=cfg.layer_norm,
-            dropout=cfg.value_dropout,
+        value_def = ScalarCritic(
+            backbone=MLP(
+                hidden_dims=cfg.value_hidden_dims,
+                layer_norm=cfg.layer_norm,
+                dropout=cfg.value_dropout,
+            ),
         )
         self.value = Model.create(
             value_def,

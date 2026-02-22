@@ -14,7 +14,7 @@ from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
 from flowrl.functional.loss import expectile_regression
 from flowrl.module.actor import SquashedGaussianActor
-from flowrl.module.critic import Critic, EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
@@ -152,7 +152,8 @@ CRITIC_LR = 3e-4 # DTQL hard codes the critic lr
 
 class DTQLAgent(BaseAgent):
     """
-    Diffusion Trusted Q-Learning (DTQL, https://arxiv.org/abs/2405.19690) agent.
+    Diffusion Trusted Q-Learning (DTQL)
+    https://arxiv.org/abs/2405.19690
     """
     name = "DTQLAgent"
     model_names = ["q", "q_target", "value", "value_target", "bc_actor", "distill_actor"]
@@ -162,11 +163,15 @@ class DTQLAgent(BaseAgent):
         self.cfg = cfg
         self.rng, bc_key, actor_key, critic_key, value_key = jax.random.split(self.rng, 5)
 
-        q_def = EnsembleCritic(
+        q_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=[256,256,256], # DTQL hard codes the critic hidden dims
+                    activation=mish,
+                    layer_norm=True,
+                ),
+            ),
             ensemble_size=2,
-            hidden_dims=[256,256,256], # DTQL hard codes the critic hidden dims
-            activation=mish,
-            layer_norm=True,
         )
         self.q = Model.create(
             q_def,
@@ -180,9 +185,12 @@ class DTQLAgent(BaseAgent):
             inputs=(jnp.ones((1, obs_dim)), jnp.ones((1, act_dim))),
         )
 
-        v_def = Critic(
-            hidden_dims=[256,256,256], # DTQL hard codes the critic hidden dims
-            activation=mish,
+
+        v_def = ScalarCritic(
+            backbone=MLP(
+                hidden_dims=[256,256,256], # DTQL hard codes the critic hidden dims
+                activation=mish,
+            ),
         )
         self.value = Model.create(
             v_def,
@@ -199,13 +207,12 @@ class DTQLAgent(BaseAgent):
         # DTQL's official implementation creates targets for bc_actor and distill_actor but NEVER USES THEM. So we don't create them here.
         self.bc_actor = EDM.create(
             EDMBackbone(
-                noise_predictor=partial(
-                    MLP,
+                noise_predictor=MLP(
                     hidden_dims=[256, 256, 256, 256], # DTQL hard codes the backbone hidden dims
                     output_dim=act_dim,
                     activation=mish,
                 ),
-                time_embedding=partial(PositionalEmbedding, output_dim=16), # DTQL hard codes the time embedding output dim
+                time_embedding=PositionalEmbedding(output_dim=16), # DTQL hard codes the time embedding output dim
             ),
             rng=bc_key,
             inputs=(jnp.ones((1, self.act_dim)), jnp.zeros((1, 1)), jnp.ones((1, self.obs_dim))),

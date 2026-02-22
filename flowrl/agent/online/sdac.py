@@ -10,7 +10,7 @@ from flowrl.config.online.algo.sdac import SDACConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import LearnableFourierEmbedding
@@ -130,7 +130,8 @@ def jit_update_sdac(
 
 class SDACAgent(BaseAgent):
     """
-    Soft Diffusion Actor-Critic (SDAC) agent.
+    Soft Diffusion Actor-Critic (SDAC) and Maximum Entropy Reinforcement Learning with Diffusion Policy (MaxEntDP).
+    https://arxiv.org/pdf/2502.00361 and https://arxiv.org/abs/2502.11612
     """
     name = "SDACAgent"
     model_names = ["actor", "critic", "critic_target"]
@@ -141,20 +142,21 @@ class SDACAgent(BaseAgent):
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
         # define the actor
-        time_embedding = partial(LearnableFourierEmbedding, output_dim=cfg.diffusion.time_dim)
-        cond_embedding = partial(MLP, hidden_dims=(128, 128), activation=mish)
-        noise_predictor = partial(
-            MLP,
-            hidden_dims=cfg.diffusion.mlp_hidden_dims,
-            output_dim=act_dim,
-            activation=mish,
-            layer_norm=False,
-            dropout=None,
-        )
         backbone_def = ContinuousDDPMBackbone(
-            noise_predictor=noise_predictor,
-            time_embedding=time_embedding,
-            cond_embedding=cond_embedding,
+            noise_predictor=MLP(
+                hidden_dims=cfg.diffusion.mlp_hidden_dims,
+                output_dim=act_dim,
+                activation=mish,
+                layer_norm=False,
+                dropout=None,
+            ),
+            time_embedding=LearnableFourierEmbedding(
+                output_dim=cfg.diffusion.time_dim
+            ),
+            cond_embedding=MLP(
+                hidden_dims=(128, 128),
+                activation=mish
+            ),
         )
 
         if cfg.diffusion.lr_decay_steps is not None:
@@ -189,12 +191,16 @@ class SDACAgent(BaseAgent):
             "elu": jax.nn.elu,
             "mish": mish,
         }[cfg.critic_activation]
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic_hidden_dims,
-            activation=critic_activation,
-            layer_norm=False,
-            dropout=None,
-            ensemble_size=2,
+        critic_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=cfg.critic_hidden_dims,
+                    activation=critic_activation,
+                    layer_norm=False,
+                    dropout=None,
+                ),
+            ),
+            ensemble_size=cfg.critic_ensemble_size,
         )
         self.critic = Model.create(
             critic_def,

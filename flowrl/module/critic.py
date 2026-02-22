@@ -152,24 +152,26 @@ class EnsembleCriticT(nn.Module):
 
 
 class Ensemblize(nn.Module):
-    base_cls: type[nn.Module]
-    base_kwargs: Dict[str, Any]
+    base: nn.Module
     ensemble_size: int
 
     @nn.compact
     def __call__(self, *args, **kwargs) -> jnp.ndarray:
-        vmap_cls = nn.vmap(
-            self.base_cls,
+        def call_base(base_instance, *args, **kwargs):
+            return base_instance(*args, **kwargs)
+
+        vmap_fn = nn.vmap(
+            call_base,
             variable_axes={"params": 0},
             split_rngs={"params": True, "dropout": True},
             in_axes=None,
             out_axes=0,
-            axis_size=self.ensemble_size
+            axis_size=self.ensemble_size,
         )
-        return vmap_cls(**self.base_kwargs)(*args, **kwargs)
+        return vmap_fn(self.base, *args, **kwargs)
 
 
-class BasicCritic(nn.Module):
+class ScalarCritic(nn.Module):
     backbone: nn.Module
     kernel_init: Initializer = init.default_kernel_init
     bias_init: Initializer = init.default_bias_init
@@ -179,6 +181,7 @@ class BasicCritic(nn.Module):
         self,
         obs: jnp.ndarray,
         action: Optional[jnp.ndarray] = None,
+        training: bool = False,
     ) -> jnp.ndarray:
         if action is None:
             x = obs
@@ -191,7 +194,7 @@ class BasicCritic(nn.Module):
         return x
 
 
-class BasicCriticWithDiscreteTime(nn.Module):
+class ScalarCriticWithDiscreteTime(nn.Module):
     backbone: nn.Module
     time_embedding: nn.Module
     kernel_init: Initializer = init.default_kernel_init
@@ -205,71 +208,15 @@ class BasicCriticWithDiscreteTime(nn.Module):
         t: jnp.ndarray = None,
         training: bool = False,
     ) -> jnp.ndarray:
-        t_ff = self.time_embedding()(t)
+        t_ff = self.time_embedding(t)
         t_ff = MLP(
             hidden_dims=[t_ff.shape[-1]*2, t_ff.shape[-1]],
             activation=mish,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
         )(t_ff)
-        x = jnp.concatenate([
-            obs, action, t_ff
-        ], axis=-1)
+        x = jnp.concatenate([item for item in [obs, action, t_ff] if item is not None], axis=-1)
         x = self.backbone(x)
-        x = nn.Dense(
-            1, kernel_init=self.kernel_init(), bias_init=self.bias_init()
-        )(x)
-        return x
-
-
-class CriticWithDiscreteTimeFiLM(nn.Module):
-    """Critic with time conditioning via AdaLN (Adaptive Layer Norm).
-    LayerNorm(use_scale=False, use_bias=False) then (1+gamma)*x + beta from time;
-    gamma/beta projection is zero-initialized so training starts without modulation.
-    Takes hidden_dims and time_embedding; builds the backbone internally.
-    """
-    time_embedding: nn.Module
-    hidden_dims: Sequence[int]
-    activation: Callable = mish
-    kernel_init: Initializer = init.default_kernel_init
-    bias_init: Initializer = init.default_bias_init
-
-    @nn.compact
-    def __call__(
-        self,
-        obs: jnp.ndarray,
-        action: Optional[jnp.ndarray] = None,
-        t: Optional[jnp.ndarray] = None,
-        training: bool = False,
-    ) -> jnp.ndarray:
-        t_emb = self.time_embedding()(t)
-        t_emb = MLP(
-            output_dim=t_emb.shape[-1],
-            hidden_dims=[t_emb.shape[-1] * 2,],
-            activation=mish,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-        )(t_emb)
-
-        x = jnp.concatenate([obs, action], axis=-1)
-        for i, dim in enumerate(self.hidden_dims):
-            x = nn.Dense(
-                dim,
-                kernel_init=self.kernel_init(),
-                bias_init=self.bias_init(),
-                name=f"dense_{i}",
-            )(x)
-            x = nn.LayerNorm(use_scale=False, use_bias=False)(x)
-            # Zero-init so at start (1+gamma)*x + beta = x (no modulation)
-            params = nn.Dense(
-                2 * dim,
-                kernel_init=nn.initializers.zeros,
-                bias_init=nn.initializers.zeros,
-                name=f"adaln_{i}",
-            )(t_emb)
-            gamma, beta = params[..., :dim], params[..., dim:]
-            x = (1.0 + gamma) * x + beta
-            x = self.activation(x)
         x = nn.Dense(
             1, kernel_init=self.kernel_init(), bias_init=self.bias_init()
         )(x)
@@ -286,6 +233,7 @@ class GaussianCritic(nn.Module):
         self,
         obs: jnp.ndarray,
         action: Optional[jnp.ndarray] = None,
+        training: bool = False,
     ) -> jnp.ndarray:
         if action is None:
             x = obs
@@ -309,6 +257,7 @@ class CategoricalCritic(nn.Module):
         self,
         obs: jnp.ndarray,
         action: Optional[jnp.ndarray] = None,
+        training: bool = False,
     ) -> jnp.ndarray:
         if action is None:
             x = obs

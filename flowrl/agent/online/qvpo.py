@@ -10,7 +10,7 @@ from flowrl.config.online.algo.qvpo import QVPOConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import EnsembleCritic
+from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import LearnableFourierEmbedding
@@ -171,9 +171,10 @@ def jit_update_qvpo(
 
 class QVPOAgent(BaseAgent):
     """
-    Diffusion Policy Mirror Descent (DPMD) agent.
+    Diffusion-based Reinforcement Learning via Q-weighted Variational Policy Optimization (QVPO).
+    https://arxiv.org/abs/2405.16173
     """
-    name = "DPMDAgent"
+    name = "QVPOAgent"
     model_names = ["actor", "critic", "actor_target", "critic_target"]
 
     def __init__(self, obs_dim: int, act_dim: int, cfg: QVPOConfig, seed: int):
@@ -183,20 +184,21 @@ class QVPOAgent(BaseAgent):
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
         # define the actor
-        time_embedding = partial(LearnableFourierEmbedding, output_dim=cfg.diffusion.time_dim)
-        cond_embedding = partial(MLP, hidden_dims=(128, 128), activation=mish)
-        noise_predictor = partial(
-            MLP,
-            hidden_dims=cfg.diffusion.mlp_hidden_dims,
-            output_dim=act_dim,
-            activation=mish,
-            layer_norm=False,
-            dropout=None,
-        )
         backbone_def = ContinuousDDPMBackbone(
-            noise_predictor=noise_predictor,
-            time_embedding=time_embedding,
-            cond_embedding=cond_embedding,
+            noise_predictor=MLP(
+                hidden_dims=cfg.diffusion.mlp_hidden_dims,
+                output_dim=act_dim,
+                activation=mish,
+                layer_norm=False,
+                dropout=None,
+            ),
+            time_embedding=LearnableFourierEmbedding(
+                output_dim=cfg.diffusion.time_dim
+            ),
+            cond_embedding=MLP(
+                hidden_dims=(128, 128),
+                activation=mish
+            ),
         )
         if cfg.diffusion.lr_decay_steps is not None:
             actor_lr = optax.linear_schedule(
@@ -242,11 +244,15 @@ class QVPOAgent(BaseAgent):
             "elu": jax.nn.elu,
             "mish": mish,
         }[cfg.critic_activation]
-        critic_def = EnsembleCritic(
-            hidden_dims=cfg.critic_hidden_dims,
-            activation=critic_activation,
-            layer_norm=False,
-            dropout=None,
+        critic_def = Ensemblize(
+            base=ScalarCritic(
+                backbone=MLP(
+                    hidden_dims=cfg.critic_hidden_dims,
+                    activation=critic_activation,
+                    layer_norm=False,
+                    dropout=None,
+                ),
+            ),
             ensemble_size=2,
         )
         self.critic = Model.create(

@@ -192,8 +192,7 @@ class FQLAgent(BaseAgent):
         self.rng, bc_key, critic_key, onestep_key = jax.random.split(self.rng, 4)
 
         flow_def = FlowBackbone(
-            vel_predictor=partial(
-                MLP,
+            vel_predictor=MLP(
                 hidden_dims=cfg.actor_hidden_dims,
                 layer_norm=cfg.actor_layer_norm,
                 output_dim=act_dim,

@@ -172,6 +172,7 @@ def update_encoder(
 class TD7Agent(BaseAgent):
     """
     TD7 Agent: State-Action Representation Learning for Deep Reinforcement Learning
+    https://arxiv.org/abs/2306.02451
     """
     name = "TD7Agent"
     model_names = ["actor", "actor_target", "critic", "critic_target", "encoder", "fixed_encoder", "fixed_encoder_target"]
