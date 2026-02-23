@@ -27,7 +27,7 @@ class TanhMultivariateNormalDiag(distrax.Transformed):
         return self._clip(sample)
 
     def log_prob(self, *args, **kwargs):
-        return super().log_prob(*args, **kwargs)[..., jnp.newaxis]
+        return super().log_prob(*args, **kwargs)
 
     def sample_and_log_prob(
         self, *, seed: PRNGKey, sample_shape: Shape = () # type: ignore
@@ -35,4 +35,4 @@ class TanhMultivariateNormalDiag(distrax.Transformed):
         sample, log_prob = super().sample_and_log_prob(
             seed=seed, sample_shape=sample_shape
         )
-        return self._clip(sample), log_prob[..., jnp.newaxis]
+        return self._clip(sample), log_prob

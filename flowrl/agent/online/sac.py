@@ -44,7 +44,7 @@ def update_q(
     dist = actor(batch.next_obs)
     next_action, next_logprob = dist.sample_and_log_prob(seed=sample_rng)
     next_q = critic_target(batch.next_obs, next_action)
-    target_q = batch.reward + discount * (1-batch.terminal) * (next_q.min(axis=0) - jnp.exp(log_alpha()) * next_logprob)
+    target_q = batch.reward + discount * (1-batch.terminal) * (next_q.min(axis=0) - jnp.exp(log_alpha()) * next_logprob[..., jnp.newaxis])
 
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         q = critic.apply(

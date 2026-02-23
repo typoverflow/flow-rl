@@ -9,6 +9,7 @@ from flowrl.types import *
 
 class SimbaBlock(nn.Module):
     hidden_dim: int
+    activation: Callable = nn.relu
     multiplier: int = 4
 
     @nn.compact
@@ -20,16 +21,17 @@ class SimbaBlock(nn.Module):
         res = x
         x = nn.LayerNorm()(x)
         x = nn.Dense(self.hidden_dim * self.multiplier, kernel_init=init.he_normal())(x)
-        x = nn.relu(x)
+        x = self.activation(x)
         x = nn.Dense(self.hidden_dim, kernel_init=init.he_normal())(x)
         return res + x
-    
+
 class Simba(nn.Module):
     """
     https://arxiv.org/abs/2410.09754
     """
     hidden_dims: Sequence[int] = field(default_factory=lambda: [])
     output_dim: int = 0
+    activation: Callable = nn.relu
     multiplier: int = 4
 
     def setup(self):
@@ -49,6 +51,7 @@ class Simba(nn.Module):
         for i, size in enumerate(self.hidden_dims):
             x = SimbaBlock(
                 size,
+                self.activation,
                 self.multiplier,
             )(x, training)
         # Final layer norm

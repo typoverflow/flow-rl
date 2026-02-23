@@ -117,7 +117,7 @@ def update_actor(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        logprobs = dist.log_prob(batch.action).sum(-1, keepdims=True)
+        logprobs = dist.log_prob(batch.action)[..., jnp.newaxis]
         actor_loss = -(weight * logprobs).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,

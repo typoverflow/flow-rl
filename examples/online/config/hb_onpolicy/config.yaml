@@ -1,0 +1,33 @@
+defaults:
+  - /onpolicy_hb_config_cfg_def@_here_
+  - _self_
+  - algo: base # raise error if algo is not specified
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+seed: 0
+device: '0'
+task: ???
+frame_skip: 2
+frame_stack: 1
+norm_obs: true
+train_frames: 2_000_000
+eval_frames: 50_000
+log_frames: 1_000
+num_envs: ${algo.num_envs}
+rollout_length: ${algo.rollout_length}
+log:
+  dir: logs
+  tag: debug
+  save_ckpt: false
+  save_video: false
+  project: ???
+  entity: ???
+eval:
+  num_episodes: 10
+  num_samples: 1

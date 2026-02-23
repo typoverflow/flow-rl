@@ -10,7 +10,7 @@ from flowrl.config.online.algo.nclql import NCLQLConfig
 from flowrl.flow.langevin_dynamics import AnnealedLangevinDynamics
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import BasicCriticWithDiscreteTime, Ensemblize
+from flowrl.module.critic import Ensemblize, ScalarCriticWithDiscreteTime
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding

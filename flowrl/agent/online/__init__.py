@@ -5,6 +5,7 @@ from .diffsr import *
 from .dpmd import DPMDAgent
 from .idem import IDEMAgent
 from .nclql import NCLQLAgent
+from .ppo import PPOAgent
 from .qsm import QSMAgent
 from .qvpo import QVPOAgent
 from .sac import SACAgent
