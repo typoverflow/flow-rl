@@ -560,6 +560,9 @@ class CategoricalBDPOAgent(BaseAgent):
         if cfg.critic.lr_decay_steps is not None:
             q0_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
             vt_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
+        else:
+            q0_lr = cfg.critic.lr
+            vt_lr = cfg.critic.lr
         q0_def = Ensemblize(
             base=ScalarCritic(
                 backbone=MLP(
