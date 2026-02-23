@@ -128,8 +128,8 @@ def categorical_project(
     l = jnp.floor(b).astype(jnp.int32) # (*B, 1)
     u = jnp.ceil(b).astype(jnp.int32) # (*B, 1)
 
-    d_u = (b - l.astype(jnp.float32)) # (*B)
-    d_l = 1.0 - d_u # (*B)
+    d_u = (b - l.astype(jnp.float32)) # (*B, 1)
+    d_l = 1.0 - d_u # (*B, 1)
 
     probs = (d_l * jax.nn.one_hot(l.squeeze(-1), num_atoms)
            + d_u * jax.nn.one_hot(u.squeeze(-1), num_atoms))
