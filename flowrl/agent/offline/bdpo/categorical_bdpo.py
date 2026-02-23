@@ -286,7 +286,8 @@ def update_critic(
             t
         ) # (E, B, num_atoms)
         # sum over atoms (cross-entropy loss) → mean over batch → mean over ensemble members → scalar
-        loss = -((pred * vt_target_probs[jnp.newaxis, :])**2).sum(axis=-1).mean()
+        log_probs = jax.nn.log_softmax(pred, axis=-1)
+        loss = -(vt_target_probs[jnp.newaxis, :] * log_probs).sum(axis=-1).mean()
         E, B, _ = pred.shape
         vt_value = logits_to_value(pred.reshape(E, B, 1, num_atoms), v_min, v_max, num_atoms) # (B, 1)
         return loss, {
