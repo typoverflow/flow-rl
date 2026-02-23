@@ -6,8 +6,9 @@ algo:
   discount: 0.99
   ema: 0.005
   actor_hidden_dims: [256, 256]
+  actor_activation: relu
   critic_hidden_dims: [256, 256]
-  activation: relu
+  critic_activation: relu
   critic_ensemble_size: 2
   actor_lr: 0.0003
   critic_lr: 0.0003

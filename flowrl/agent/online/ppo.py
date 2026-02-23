@@ -28,8 +28,6 @@ def compute_gae(
     deltas = rewards + gamma * (1 - terminated) * next_values - values
 
     # GAE recursion: A_t = δ_t + (γλ) * A_{t+1}
-    # please help me to check whether this is correct when inside of each segment the episode
-    # can be terminated or truncated.
     episode_ended = jnp.maximum(terminated, truncated)
     gae_discount = (1.0 - episode_ended) * gamma * gae_lambda
 
