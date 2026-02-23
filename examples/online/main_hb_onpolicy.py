@@ -57,7 +57,7 @@ class HumanoidBenchOnPolicyTrainer:
         self.num_envs = cfg.num_envs
         self.rollout_length = cfg.rollout_length
         self.train_env = gym.vector.SyncVectorEnv([
-            lambda: gym.wrappers.RescaleAction(
+            lambda i=i: gym.wrappers.RescaleAction(
                 HumanoidBenchEnv(
                     cfg.task,
                     cfg.seed + i,
@@ -70,7 +70,7 @@ class HumanoidBenchOnPolicyTrainer:
             for i in range(self.num_envs)
         ], autoreset_mode=gym.vector.AutoresetMode.SAME_STEP)
         self.eval_env = gym.vector.SyncVectorEnv([
-            lambda: gym.wrappers.RescaleAction(
+            lambda i=i: gym.wrappers.RescaleAction(
                 HumanoidBenchEnv(
                     cfg.task,
                     cfg.seed + 10000 + i,
