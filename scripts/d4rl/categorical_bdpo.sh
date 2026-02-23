@@ -65,7 +65,7 @@ TASK_ARGS=(
 )
 
 
-# first arugment is the name of the experiment
+# first argument is the name of the experiment
 # any other arguments will be added to the command
 # if no arguments are given, exit
 
