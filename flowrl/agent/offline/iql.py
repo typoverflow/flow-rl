@@ -107,8 +107,8 @@ def update_actor(
         if deterministic_actor:
             actor_loss = jnp.sum((pred - batch.action) ** 2, axis=-1, keepdims=True)
         else:
-            dist: distrax.Normal = pred
-            actor_loss = - dist.log_prob(batch.action).sum(axis=-1, keepdims=True)
+            dist: distrax.MultivariateNormalDiag = pred
+            actor_loss = - dist.log_prob(batch.action)[..., jnp.newaxis]
         actor_loss = (exp_a * actor_loss).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,

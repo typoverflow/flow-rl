@@ -2,6 +2,7 @@
 
 algo:
   name: dacer
+  backbone_cls: mlp
   critic_hidden_dims: [256, 256]
   critic_activation: relu
   critic_ensemble_size: 2
@@ -18,8 +19,10 @@ algo:
     HalfCheetah-v5: 0.15
     Humanoid-v5: 0.15
   diffusion:
+    backbone_cls: ${algo.backbone_cls}
+    activation: mish
     time_dim: 64
-    mlp_hidden_dims: [256, 256, 256]
+    hidden_dims: [256, 256, 256]
     lr: 0.0001
     end_lr: null
     lr_decay_steps: null

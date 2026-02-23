@@ -14,11 +14,18 @@ class RMSNormalizer():
         self.epsilon = 1e-8
 
     def update(self, x):
-        self.count += 1
-        delta1 = np.squeeze(x) - self.mean
-        self.mean += delta1 / self.count
-        delta2 = np.squeeze(x)**2 - self.mean_square
-        self.mean_square += delta2 / self.count
+        x = np.asarray(x, dtype=self.mean.dtype)
+        if x.ndim == 1:
+            batch_mean = x
+            batch_mean_sq = x**2
+            n = 1
+        else:
+            batch_mean = np.mean(x, axis=0)
+            batch_mean_sq = np.mean(x**2, axis=0)
+            n = x.shape[0]
+        self.count += n
+        self.mean = self.mean + (batch_mean - self.mean) * n / self.count
+        self.mean_square = self.mean_square + (batch_mean_sq - self.mean_square) * n / self.count
 
     def normalize(self, x):
         var = np.clip(self.mean_square - self.mean**2, a_min=0, a_max=None)

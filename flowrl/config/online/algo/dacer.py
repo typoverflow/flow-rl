@@ -6,8 +6,10 @@ from .base import BaseAlgoConfig
 
 @dataclass
 class DACERDiffusionConfig:
+    backbone_cls: str
+    activation: str
     time_dim: int
-    mlp_hidden_dims: List[int]
+    hidden_dims: List[int]
     lr: float
     end_lr: float
     lr_decay_steps: int | None
@@ -20,6 +22,7 @@ class DACERDiffusionConfig:
 @dataclass
 class DACERConfig(BaseAlgoConfig):
     name: str
+    backbone_cls: str
     critic_hidden_dims: List[int]
     critic_activation: str
     critic_ensemble_size: int

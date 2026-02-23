@@ -5,10 +5,10 @@ from .diffsr import *
 from .dpmd import DPMDAgent
 from .idem import IDEMAgent
 from .nclql import NCLQLAgent
+from .ppo import PPOAgent
 from .qsm import QSMAgent
 from .qvpo import QVPOAgent
 from .sac import SACAgent
 from .sdac import SDACAgent
-from .simba import *
 from .td3 import TD3Agent
 from .td7.td7 import TD7Agent

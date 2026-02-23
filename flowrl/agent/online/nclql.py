@@ -10,7 +10,7 @@ from flowrl.config.online.algo.nclql import NCLQLConfig
 from flowrl.flow.langevin_dynamics import AnnealedLangevinDynamics
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import BasicCriticWithDiscreteTime, Ensemblize
+from flowrl.module.critic import Ensemblize, ScalarCriticWithDiscreteTime
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
@@ -238,7 +238,7 @@ class NCLQLAgent(BaseAgent):
             "mish": mish,
         }[cfg.critic_activation]
         critic1_rng, critic2_rng = jax.random.split(critic_rng, 2)
-        critic_def = BasicCriticWithDiscreteTime(
+        critic_def = ScalarCriticWithDiscreteTime(
             backbone=MLP(
                 hidden_dims=cfg.critic_hidden_dims,
                 activation=critic_activation,

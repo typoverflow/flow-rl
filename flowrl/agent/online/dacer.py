@@ -8,12 +8,13 @@ import optax
 from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.dacer import DACERConfig
 from flowrl.flow.continuous_ddpm import ContinuousDDPM, ContinuousDDPMBackbone
-from flowrl.functional.activation import mish
+from flowrl.functional.activation import get_activation
 from flowrl.functional.ema import ema_update
 from flowrl.module.critic import Ensemblize, GaussianCritic
 from flowrl.module.misc import TunableCoefficient
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
+from flowrl.module.simba import Simba
 from flowrl.module.time_embedding import LearnableFourierEmbedding
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
@@ -243,20 +244,25 @@ class DACERAgent(BaseAgent):
         self.rng, actor_rng, critic_rng, log_alpha_rng = jax.random.split(self.rng, 4)
 
         # define the actor
+        backbone_cls = {
+            "mlp": MLP,
+            "simba": Simba,
+        }[cfg.backbone_cls]
+        actor_activation = get_activation(cfg.diffusion.activation)
+        critic_activation = get_activation(cfg.critic_activation)
+
         backbone_def = ContinuousDDPMBackbone(
-            noise_predictor=MLP(
-                hidden_dims=cfg.diffusion.mlp_hidden_dims,
+            noise_predictor=backbone_cls(
+                hidden_dims=cfg.diffusion.hidden_dims,
                 output_dim=act_dim,
-                activation=mish,
-                layer_norm=False,
-                dropout=None,
+                activation=actor_activation,
             ),
             time_embedding=LearnableFourierEmbedding(
                 output_dim=cfg.diffusion.time_dim
             ),
             cond_embedding=MLP(
                 hidden_dims=(128, 128),
-                activation=mish
+                activation=actor_activation,
             ),
         )
 
@@ -286,18 +292,11 @@ class DACERAgent(BaseAgent):
         )
 
         # define the critic
-        critic_activation = {
-            "relu": jax.nn.relu,
-            "elu": jax.nn.elu,
-            "mish": mish,
-        }[cfg.critic_activation]
         critic_def = Ensemblize(
             base=GaussianCritic(
-                backbone=MLP(
+                backbone=backbone_cls(
                     hidden_dims=cfg.critic_hidden_dims,
                     activation=critic_activation,
-                    layer_norm=False,
-                    dropout=None,
                 ),
             ),
             ensemble_size=cfg.critic_ensemble_size,

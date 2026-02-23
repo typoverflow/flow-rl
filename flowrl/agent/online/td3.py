@@ -1,18 +1,19 @@
 from functools import partial
 from typing import Tuple
 
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.td3 import TD3Config
+from flowrl.functional.activation import get_activation
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedDeterministicActor
 from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
+from flowrl.module.simba import Simba
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
 
@@ -108,15 +109,17 @@ class TD3Agent(BaseAgent):
 
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
-        activation = {
-            "relu": jax.nn.relu,
-            "elu": jax.nn.elu,
-        }[cfg.activation]
+        backbone_cls = {
+            "mlp": MLP,
+            "simba": Simba,
+        }[cfg.backbone_cls]
+        actor_activation = get_activation(cfg.actor_activation)
+        critic_activation = get_activation(cfg.critic_activation)
+
         actor_def = SquashedDeterministicActor(
-            backbone=MLP(
+            backbone=backbone_cls(
                 hidden_dims=cfg.actor_hidden_dims,
-                layer_norm=cfg.layer_norm,
-                dropout=None,
+                activation=actor_activation,
             ),
             obs_dim=self.obs_dim,
             action_dim=self.act_dim,
@@ -124,11 +127,9 @@ class TD3Agent(BaseAgent):
 
         critic_def = Ensemblize(
             base=ScalarCritic(
-                backbone=MLP(
+                backbone=backbone_cls(
                     hidden_dims=cfg.critic_hidden_dims,
-                    layer_norm=cfg.layer_norm,
-                    activation=activation,
-                    dropout=None,
+                    activation=critic_activation,
                 ),
             ),
             ensemble_size=cfg.critic_ensemble_size,

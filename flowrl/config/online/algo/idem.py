@@ -10,6 +10,7 @@ IDEMDiffusionConfig = QSMDiffusionConfig
 @dataclass
 class IDEMConfig(QSMConfig):
     name: str
+    backbone_cls: str
     critic_hidden_dims: List[int]
     critic_activation: str
     critic_lr: float

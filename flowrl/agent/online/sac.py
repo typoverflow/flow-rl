@@ -8,12 +8,14 @@ import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.sac import SACConfig
+from flowrl.functional.activation import get_activation
 from flowrl.functional.ema import ema_update
 from flowrl.module.actor import SquashedGaussianActor
 from flowrl.module.critic import Ensemblize, ScalarCritic
 from flowrl.module.misc import TunableCoefficient
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
+from flowrl.module.simba import Simba
 from flowrl.types import Batch, Metric, Param, PRNGKey
 
 
@@ -44,7 +46,7 @@ def update_q(
     dist = actor(batch.next_obs)
     next_action, next_logprob = dist.sample_and_log_prob(seed=sample_rng)
     next_q = critic_target(batch.next_obs, next_action)
-    target_q = batch.reward + discount * (1-batch.terminal) * (next_q.min(axis=0) - jnp.exp(log_alpha()) * next_logprob)
+    target_q = batch.reward + discount * (1-batch.terminal) * (next_q.min(axis=0) - jnp.exp(log_alpha()) * next_logprob[..., jnp.newaxis])
 
     def critic_loss_fn(critic_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         q = critic.apply(
@@ -80,7 +82,7 @@ def update_actor(
         )
         new_action, new_logprob = dist.sample_and_log_prob(seed=sample_rng)
         q = critic(batch.obs, new_action)
-        actor_loss = (jnp.exp(log_alpha()) * new_logprob - q.min(axis=0)).mean()
+        actor_loss = (jnp.exp(log_alpha()) * new_logprob[..., jnp.newaxis] - q.min(axis=0)).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,
         }
@@ -144,16 +146,17 @@ class SACAgent(BaseAgent):
         self.cfg = cfg
         self.rng, actor_rng, critic_rng, alpha_rng = jax.random.split(self.rng, 4)
 
-        activation = {
-            "relu": jax.nn.relu,
-            "elu": jax.nn.elu,
-        }[cfg.activation]
+        backbone_cls = {
+            "mlp": MLP,
+            "simba": Simba,
+        }[cfg.backbone_cls]
+        actor_activation = get_activation(cfg.actor_activation)
+        critic_activation = get_activation(cfg.critic_activation)
+
         actor_def = SquashedGaussianActor(
-            backbone=MLP(
+            backbone=backbone_cls(
                 hidden_dims=cfg.actor_hidden_dims,
-                layer_norm=cfg.layer_norm,
-                activation=activation,
-                dropout=None,
+                activation=actor_activation,
             ),
             obs_dim=self.obs_dim,
             action_dim=self.act_dim,
@@ -161,11 +164,9 @@ class SACAgent(BaseAgent):
         )
         critic_def = Ensemblize(
             base=ScalarCritic(
-                backbone=MLP(
+                backbone=backbone_cls(
                     hidden_dims=cfg.critic_hidden_dims,
-                    layer_norm=cfg.layer_norm,
-                    activation=activation,
-                    dropout=None,
+                    activation=critic_activation,
                 ),
             ),
             ensemble_size=cfg.critic_ensemble_size,

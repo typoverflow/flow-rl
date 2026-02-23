@@ -2,6 +2,7 @@
 
 algo:
   name: qsm
+  backbone_cls: mlp
   critic_hidden_dims: [256, 256]
   critic_activation: relu
   critic_lr: 0.0003
@@ -10,8 +11,10 @@ algo:
   ema: 0.005
   temp: 0.1
   diffusion:
+    backbone_cls: ${algo.backbone_cls}
+    activation: mish
     time_dim: 64
-    mlp_hidden_dims: [256, 256, 256]
+    hidden_dims: [256, 256, 256]
     lr: 0.0003
     end_lr: null
     lr_decay_steps: null

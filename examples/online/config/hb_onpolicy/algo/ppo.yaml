@@ -1,0 +1,23 @@
+# @package _global_
+
+algo:
+  name: ppo
+  num_envs: 16
+  rollout_length: 128
+  backbone_cls: mlp
+  actor_hidden_dims: [256, 256, 256, 256]
+  critic_hidden_dims: [256, 256, 256, 256]
+  activation: silu
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coeff: 0.01
+  reward_scaling: 1.0
+  normalize_advantage: true
+  normalize_observations: true
+  num_minibatches: 4
+  num_epochs: 4
+  batch_size: 512
+  clip_grad_norm: 0.5

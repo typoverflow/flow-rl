@@ -2,15 +2,16 @@
 
 algo:
   name: td3
+  backbone_cls: mlp
   actor_update_freq: 1
   target_update_freq: 1
   discount: 0.99
   ema: 0.005
   actor_hidden_dims: [512, 512, 512]
+  actor_activation: relu
   critic_hidden_dims: [512, 512, 512]
-  activation: elu
+  critic_activation: relu
   critic_ensemble_size: 2
-  layer_norm: true
   actor_lr: 0.0003
   critic_lr: 0.0003
   clip_grad_norm: null
