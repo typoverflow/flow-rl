@@ -11,12 +11,12 @@ class PPOConfig(BaseAlgoConfig):
     actor_hidden_dims: List[int]
     critic_hidden_dims: List[int]
     activation: str
-    lr: float
+    actor_lr: float
+    critic_lr: float
     gamma: float
     gae_lambda: float
     clip_epsilon: float
     entropy_coeff: float
-    value_loss_coeff: float
     reward_scaling: float
     normalize_advantage: bool
     normalize_observations: bool

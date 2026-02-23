@@ -15,43 +15,47 @@ from flowrl.types import Metric, PRNGKey, RolloutBatch
 
 
 def compute_gae(
-    truncated: jnp.ndarray,   # (T, B, 1)
-    discount: jnp.ndarray,     # (T, B, 1)
+    terminated: jnp.ndarray,   # (T, B, 1)
+    truncated: jnp.ndarray,     # (T, B, 1)
     rewards: jnp.ndarray,      # (T, B, 1)
     values: jnp.ndarray,       # (T, B, 1)
-    bootstrap_value: jnp.ndarray,  # (1, B, 1)
+    next_values: jnp.ndarray,  # (T, B, 1)
     gae_lambda: float,
-):
-    """Compute GAE advantages and value targets. Matches reference exactly."""
-    trunc_mask = 1 - truncated
+    gamma: float,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
 
-    values_t_plus_1 = jnp.concatenate([values[1:], bootstrap_value], axis=0)
-    deltas = rewards + discount * values_t_plus_1 - values
+    # TD residual: δ_t = r_t + γ * V(s_{t+1}) - V(s_t)
+    deltas = rewards + gamma * (1 - terminated) * next_values - values
 
-    deltas = deltas * trunc_mask
-    accum_scale = discount * gae_lambda * trunc_mask
+    # GAE recursion: A_t = δ_t + (γλ) * A_{t+1}
+    # please help me to check whether this is correct when inside of each segment the episode
+    # can be terminated or truncated.
+    episode_ended = jnp.maximum(terminated, truncated)
+    gae_discount = (1.0 - episode_ended) * gamma * gae_lambda
 
-    def scan_fn(carry, x):
-        acc = carry
-        delta_t, accum_scale_t = x
-        acc = delta_t + accum_scale_t * acc
-        return acc, acc
+    def gae_step(carry: jnp.ndarray, x: tuple) -> tuple[jnp.ndarray, jnp.ndarray]:
+        delta_t, disc_t = x
+        a_next = carry
+        a_t = delta_t + disc_t * a_next
+        return a_t, a_t
 
-    _, vs_minus_v_xs = jax.lax.scan(
-        scan_fn,
-        init=jnp.zeros_like(bootstrap_value.squeeze(axis=0)),
-        xs=(deltas, accum_scale),
-        reverse=True,
+    _, advantages = jax.lax.scan(
+        gae_step,
+        init=jnp.zeros_like(values[0]),
+        xs=(deltas[::-1], gae_discount[::-1]),
     )
+    advantages = advantages[::-1]  # [a_0, ..., a_{T-1}]
 
-    gae_values = jnp.add(vs_minus_v_xs, values)
+    # Lambda-return (critic target): V_target = A + V
+    lambda_returns = advantages + values
 
-    return gae_values, vs_minus_v_xs
+    return lambda_returns, advantages
+
 
 
 @partial(jax.jit, static_argnames=(
     "gamma", "gae_lambda", "clip_epsilon", "entropy_coeff",
-    "value_loss_coeff", "reward_scaling", "normalize_advantage",
+    "reward_scaling", "normalize_advantage",
     "num_epochs", "num_minibatches", "batch_size",
 ))
 def jit_update_ppo(
@@ -63,7 +67,6 @@ def jit_update_ppo(
     gae_lambda: float,
     clip_epsilon: float,
     entropy_coeff: float,
-    value_loss_coeff: float,
     reward_scaling: float,
     normalize_advantage: bool,
     num_epochs: int,
@@ -74,17 +77,18 @@ def jit_update_ppo(
 
     # Compute value predictions for all obs
     value_pred = critic(rollout.obs)  # (T, B, 1)
-    bootstrap_value = critic(rollout.last_obs[jnp.newaxis, :])  # (1, B, 1)
+    next_value_pred = critic(rollout.next_obs)
 
     # Compute GAE
     gae_vs, gae_advantages = jax.lax.stop_gradient(
         compute_gae(
+            terminated=rollout.terminated,
             truncated=rollout.truncated,
-            discount=(1 - rollout.terminated) * gamma,
             rewards=rollout.rewards * reward_scaling,
             values=value_pred,
-            bootstrap_value=bootstrap_value,
+            next_values=next_value_pred,
             gae_lambda=gae_lambda,
+            gamma=gamma,
         )
     )
 
@@ -161,8 +165,8 @@ def jit_update_ppo(
                     training=True,
                     rngs={"dropout": dropout_rng},
                 )
-                v_error = (mb_gae_vs - v) * (1 - mb_truncations)
-                v_loss = jnp.mean(v_error ** 2) * value_loss_coeff
+                v_error = mb_gae_vs - v
+                v_loss = jnp.mean(v_error ** 2)
                 return v_loss, {
                     "loss/value_loss": v_loss,
                     "misc/value_mean": jnp.mean(v),
@@ -242,6 +246,7 @@ class PPOAgent(BaseAgent):
             obs_dim=self.obs_dim,
             action_dim=self.act_dim,
             conditional_logstd=True,
+            logstd_min=-10,
         )
         critic_def = ScalarCritic(
             backbone=backbone_cls(
@@ -254,14 +259,14 @@ class PPOAgent(BaseAgent):
             actor_def,
             actor_rng,
             inputs=(jnp.ones((1, self.obs_dim)),),
-            optimizer=optax.adam(learning_rate=cfg.lr),
+            optimizer=optax.adam(learning_rate=cfg.actor_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
         self.critic = Model.create(
             critic_def,
             critic_rng,
             inputs=(jnp.ones((1, self.obs_dim)),),
-            optimizer=optax.adam(learning_rate=cfg.lr),
+            optimizer=optax.adam(learning_rate=cfg.critic_lr),
             clip_grad_norm=cfg.clip_grad_norm,
         )
 
@@ -275,7 +280,6 @@ class PPOAgent(BaseAgent):
             gae_lambda=self.cfg.gae_lambda,
             clip_epsilon=self.cfg.clip_epsilon,
             entropy_coeff=self.cfg.entropy_coeff,
-            value_loss_coeff=self.cfg.value_loss_coeff,
             reward_scaling=self.cfg.reward_scaling,
             normalize_advantage=self.cfg.normalize_advantage,
             num_epochs=self.cfg.num_epochs,

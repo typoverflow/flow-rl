@@ -8,12 +8,12 @@ algo:
   actor_hidden_dims: [256, 256, 256, 256]
   critic_hidden_dims: [256, 256, 256, 256]
   activation: silu
-  lr: 0.0003
+  actor_lr: 0.0003
+  critic_lr: 0.0003
   gamma: 0.99
   gae_lambda: 0.95
   clip_epsilon: 0.2
   entropy_coeff: 0.01
-  value_loss_coeff: 0.5
   reward_scaling: 1.0
   normalize_advantage: true
   normalize_observations: true

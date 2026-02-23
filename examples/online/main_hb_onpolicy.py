@@ -117,11 +117,11 @@ class HumanoidBenchOnPolicyTrainer:
 
         all_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
         all_actions = np.zeros((T, B, self.action_dim), dtype=np.float32)
+        all_next_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
         all_rewards = np.zeros((T, B, 1), dtype=np.float32)
         all_terminated = np.zeros((T, B, 1), dtype=np.float32)
         all_truncated = np.zeros((T, B, 1), dtype=np.float32)
         all_log_probs = np.zeros((T, B, 1), dtype=np.float32)
-        last_obs = np.zeros((B, self.obs_dim), dtype=np.float32)
 
         for t in range(T):
             if self.cfg.norm_obs:
@@ -137,8 +137,8 @@ class HumanoidBenchOnPolicyTrainer:
             all_log_probs[t] = info["log_prob"]
 
             next_obs, rewards, terminated, truncated, infos = self.train_env.step(actions_clipped)
+            real_next_obs = next_obs.copy()
             all_rewards[t] = rewards[..., jnp.newaxis]
-            last_obs = next_obs
 
             self.ep_returns += rewards
             self.ep_lengths += 1
@@ -148,7 +148,7 @@ class HumanoidBenchOnPolicyTrainer:
             if len(done_indices) > 0:
                 all_terminated[t, terminated] = 1.0
                 all_truncated[t, truncated] = 1.0
-                last_obs[done_indices] = np.stack(infos["final_obs"][done_indices], axis=0)
+                real_next_obs[done_indices] = np.stack(infos["final_obs"][done_indices], axis=0)
 
                 # log completed episode stats
                 mean_return = np.mean(self.ep_returns[done_indices])
@@ -161,17 +161,17 @@ class HumanoidBenchOnPolicyTrainer:
                 self.ep_returns[done_indices] = 0.0
                 self.ep_lengths[done_indices] = 0
 
+            real_next_obs_norm = self._normalize_obs(real_next_obs)
+            all_next_obs[t] = real_next_obs_norm
             self.obs = next_obs
-        last_obs = last_obs.copy()
-        last_obs_norm = self._normalize_obs(last_obs)
         return RolloutBatch(
             obs=jnp.array(all_obs),
             actions=jnp.array(all_actions),
+            next_obs=jnp.array(all_next_obs),
             rewards=jnp.array(all_rewards),
             terminated=jnp.array(all_terminated),
             truncated=jnp.array(all_truncated),
             log_probs=jnp.array(all_log_probs),
-            last_obs=jnp.array(last_obs_norm),
         )
 
     def train(self):
