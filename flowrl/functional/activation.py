@@ -5,6 +5,13 @@ import jax
 import jax.numpy as jnp
 
 
+def get_activation(activation: str):
+    return {
+        "relu": jax.nn.relu,
+        "elu": jax.nn.elu,
+        "mish": mish,
+    }[activation]
+
 def mish(x):
     return x * jnp.tanh(nn.softplus(x))
 

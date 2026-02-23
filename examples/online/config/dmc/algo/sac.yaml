@@ -2,13 +2,13 @@
 
 algo:
   name: sac
+  backbone_cls: mlp
   discount: 0.99
   ema: 0.005
   actor_hidden_dims: [512, 512, 512]
   critic_hidden_dims: [512, 512, 512]
   activation: elu
   critic_ensemble_size: 2
-  layer_norm: true
   actor_lr: 0.0003
   critic_lr: 0.0003
   alpha_lr: 0.0003

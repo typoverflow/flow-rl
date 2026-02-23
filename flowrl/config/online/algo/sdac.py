@@ -6,8 +6,10 @@ from .base import BaseAlgoConfig
 
 @dataclass
 class SDACDiffusionConfig:
+    backbone_cls: str
+    activation: str
     time_dim: int
-    mlp_hidden_dims: List[int]
+    hidden_dims: List[int]
     lr: float
     end_lr: float
     lr_decay_steps: int | None
@@ -22,6 +24,7 @@ class SDACDiffusionConfig:
 @dataclass
 class SDACConfig(BaseAlgoConfig):
     name: str
+    backbone_cls: str
     critic_hidden_dims: List[int]
     critic_activation: str
     critic_lr: float

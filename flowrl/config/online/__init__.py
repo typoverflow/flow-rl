@@ -1,7 +1,6 @@
 from hydra.core.config_store import ConfigStore
 
 from .algo.base import BaseAlgoConfig
-from .algo.brc import *
 from .algo.ctrlsr import *
 from .algo.diffsr import *
 from .algo.dpmd import DPMDConfig
