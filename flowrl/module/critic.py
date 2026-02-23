@@ -291,9 +291,10 @@ class CategoricalCriticWithDiscreteTime(nn.Module):
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
         )(t_ff)
-        x = jnp.concatenate([
-            obs, action, t_ff
-        ], axis=-1)
+        x = jnp.concatenate(
+            [item for item in (obs, action, t_ff) if item is not None],
+            axis=-1,
+        )
         x = self.backbone(x, training=training)
         x = nn.Dense(
             self.output_nodes, kernel_init=self.kernel_init(), bias_init=self.bias_init()
