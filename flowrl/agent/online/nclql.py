@@ -238,7 +238,7 @@ class NCLQLAgent(BaseAgent):
             "mish": mish,
         }[cfg.critic_activation]
         critic1_rng, critic2_rng = jax.random.split(critic_rng, 2)
-        critic_def = BasicCriticWithDiscreteTime(
+        critic_def = ScalarCriticWithDiscreteTime(
             backbone=MLP(
                 hidden_dims=cfg.critic_hidden_dims,
                 activation=critic_activation,

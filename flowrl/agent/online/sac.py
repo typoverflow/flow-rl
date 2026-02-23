@@ -80,7 +80,7 @@ def update_actor(
         )
         new_action, new_logprob = dist.sample_and_log_prob(seed=sample_rng)
         q = critic(batch.obs, new_action)
-        actor_loss = (jnp.exp(log_alpha()) * new_logprob - q.min(axis=0)).mean()
+        actor_loss = (jnp.exp(log_alpha()) * new_logprob[..., jnp.newaxis] - q.min(axis=0)).mean()
         return actor_loss, {
             "loss/actor_loss": actor_loss,
         }
