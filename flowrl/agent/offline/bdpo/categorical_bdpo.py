@@ -145,7 +145,7 @@ def jit_sample_and_select(
     num_samples: int,
     solver: str,
     temperature: float,
-) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+) -> Tuple[PRNGKey, jnp.ndarray]:
     B = obs.shape[0]
     rng, xT_rng = jax.random.split(rng)
 
