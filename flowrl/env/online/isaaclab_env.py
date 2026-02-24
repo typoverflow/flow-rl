@@ -1,3 +1,4 @@
+import atexit
 from typing import Optional
 
 import gymnasium as gym
@@ -21,8 +22,9 @@ class IsaacLabEnv:
         import torch
         from isaaclab.app import AppLauncher
 
-        app_launcher = AppLauncher(headless=True, device=device)
-        simulation_app = app_launcher.app
+        self._app_launcher = AppLauncher(headless=True, device=device)
+        self._simulation_app = self._app_launcher.app
+        atexit.register(self.close)
 
         import isaaclab_tasks
         from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
@@ -50,6 +52,7 @@ class IsaacLabEnv:
         else:
             self.num_privileged_obs = 0
         self.num_actions = self.envs.unwrapped.single_action_space.shape[0]
+        self._closed = False
 
     def _to_numpy(self, t) -> np.ndarray:
         return t.detach().cpu().numpy()
@@ -81,3 +84,10 @@ class IsaacLabEnv:
             self._to_numpy(truncations.float()),
             infos,
         )
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.envs.close()
+        self._simulation_app.close()
