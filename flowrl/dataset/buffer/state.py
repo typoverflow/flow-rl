@@ -9,7 +9,7 @@ class RMSNormalizer():
     def __init__(self, epsilon=1e-8, shape=(), dtype=np.float32):
         super().__init__()
         self.mean = np.zeros(shape, dtype=dtype)
-        self.mean_square = np.zeros(shape, dtype=dtype)
+        self.mean_square = np.ones(shape, dtype=dtype)
         self.count = epsilon
         self.epsilon = 1e-8
 

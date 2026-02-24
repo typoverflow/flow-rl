@@ -15,6 +15,7 @@ from .dmc_config import Config as DMCConfig
 from .hb_config import Config as HBConfig
 from .mujoco_config import Config as MUJOCOConfig
 from .onpolicy_hb_config import Config as OnPolicyHBConfig
+from .onpolicy_isaaclab_config import Config as OnPolicyIsaacLabConfig
 
 _DEF_SUFFIX = "_cfg_def"
 
@@ -23,6 +24,7 @@ cs.store(name="dmc_config" + _DEF_SUFFIX, node=DMCConfig)
 cs.store(name="hb_config" + _DEF_SUFFIX, node=HBConfig)
 cs.store(name="mujoco_config" + _DEF_SUFFIX, node=MUJOCOConfig)
 cs.store(name="onpolicy_hb_config" + _DEF_SUFFIX, node=OnPolicyHBConfig)
+cs.store(name="onpolicy_isaaclab_config" + _DEF_SUFFIX, node=OnPolicyIsaacLabConfig)
 
 # raise error if algo is not specified
 cs.store(group="algo", name="base", node=BaseAlgoConfig)

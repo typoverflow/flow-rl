@@ -50,7 +50,10 @@ def get_extras_require():
             "mujoco==3.1.6",
             # commented out because it undortunately depends on torch (see https://github.com/carlosferrazza/humanoid-bench/issues/65)
             # "humanoid-bench @ git+https://github.com/carlosferrazza/humanoid-bench.git",
-        ]
+        ],
+        "isaaclab": [
+            "isaaclab[isaacsim,all]==2.3.2.post1", # install with --extra-index-url https://pypi.nvidia.com
+        ],
     }
 
 def get_ext_modules():
