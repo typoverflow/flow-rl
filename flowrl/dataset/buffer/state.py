@@ -52,10 +52,9 @@ class EmpiricalNormalizer():
         delta = batch_mean - self.mean
         self.mean += delta * global_batch_size / new_count
 
-        delta2 = batch_mean - self.mean
         m_a = self.var * self.count
         m_b = batch_var * global_batch_size
-        M2 = m_a + m_b + delta2**2 * (self.count * global_batch_size / new_count)
+        M2 = m_a + m_b + delta**2 * (self.count * global_batch_size / new_count)
         self.var = M2 / new_count
         self.std = np.sqrt(self.var)
         self.count = new_count
