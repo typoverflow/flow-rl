@@ -14,8 +14,8 @@ seed: 0
 device: '0'
 task: ???
 norm_obs: true
-train_frames: 100_000_000
-eval_frames: 1_000_000
+train_frames: 200_000_000
+eval_frames: 5_000_000
 log_frames: 100_000
 num_envs: ${algo.num_envs}
 rollout_length: ${algo.rollout_length}

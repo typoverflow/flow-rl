@@ -8,7 +8,7 @@ algo:
   actor_hidden_dims: [256, 256, 256]
   critic_hidden_dims: [256, 256, 256]
   activation: elu
-  actor_lr: 0.001
+  actor_lr: 0.0001
   critic_lr: 0.001
   gamma: 0.99
   gae_lambda: 0.95

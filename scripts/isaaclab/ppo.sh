@@ -6,6 +6,8 @@ NUM_EACH_GPU=1
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
+    "Isaac-Ant-v0"
+    "Isaac-Humanoid-v0"
     "Isaac-Velocity-Flat-Anymal-D-v0"
     "Isaac-Velocity-Flat-G1-v0"
 )

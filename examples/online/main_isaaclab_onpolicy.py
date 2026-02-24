@@ -11,7 +11,7 @@ from tqdm import tqdm
 import wandb
 from flowrl.agent.online.ppo import PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
-from flowrl.dataset.buffer.state import RMSNormalizer
+from flowrl.dataset.buffer.state import EmpiricalNormalizer
 from flowrl.env.online.isaaclab_env import IsaacLabEnv
 from flowrl.types import Dict, RolloutBatch
 from flowrl.utils.logger import CompositeLogger
@@ -65,7 +65,7 @@ class IsaacLabOnPolicyTrainer:
         self.max_episode_steps = self.env.max_episode_steps
 
         if cfg.norm_obs:
-            self.obs_normalizer = RMSNormalizer(shape=(self.obs_dim,))
+            self.obs_normalizer = EmpiricalNormalizer(shape=(self.obs_dim,))
 
         # Create agent
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
@@ -175,7 +175,7 @@ class IsaacLabOnPolicyTrainer:
                     last_log_frame = self.global_frame
 
                 if self.global_frame - last_eval_frame >= cfg.eval_frames:
-                    # self.eval_and_save()
+                    self.eval_and_save()
                     last_eval_frame = self.global_frame
 
                 pbar.update(self.global_frame - prev_frame)
@@ -183,7 +183,7 @@ class IsaacLabOnPolicyTrainer:
 
     def eval_and_save(self):
         """Evaluate by running the policy for max_episode_steps in the same env."""
-        obs = self.env.reset(random_start_init=True)
+        obs = self.env.reset(random_start_init=False)
         eval_returns = np.zeros(self.num_envs)
         eval_lengths = np.zeros(self.num_envs)
         eval_dones = np.zeros(self.num_envs, dtype=bool)
