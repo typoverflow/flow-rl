@@ -216,7 +216,7 @@ def jit_sample_action(
 ):
     dist = actor(obs, training=False)
     if deterministic:
-        action = dist.mean()
+        action = dist.tanh_mean()
         log_prob = jnp.zeros(obs.shape[0])
     else:
         action, log_prob = dist.sample_and_log_prob(seed=rng)
