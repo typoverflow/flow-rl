@@ -76,22 +76,20 @@ def logits_to_value(
     Returns:
         expected value, shape (B, 1)
     """
-    # TODO: check if current order is correct:
+    # The computation proceeds in the following order:
     #   1. softmax over atoms
     #   2. mean over ensemble members
     #   3. compute expected value
-    #   4. symexp
-    #   5. mean over num_q_samples dimension
+    #   4. mean over num_q_samples dimension
+    #   5. symexp
     # Steps 1, 2, and 3 are in the correct relative order, consistent with BRC.
-    # However, the placement of steps 4 and 5 is open for discussion;
-    # we might consider swapping their order or even moving them before step 3. 
-    # This requires further deliberation.
+    # Discussion or the order: https://github.com/typoverflow/flow-rl/pull/25#discussion_r2839940571
     E, B, N, _ = logits.shape # assertion for the shape of logits, will raise an error if the shape is not as expected
     atoms = get_atoms(v_min, v_max, num_atoms) # (num_atoms,)
     probs = jax.nn.softmax(logits, axis=-1).mean(axis=0) # (B, N, num_atoms)
     value =  (probs * atoms).sum(axis=-1, keepdims=True) # (B, N, 1)
-    value = symexp(value) # (B, N, 1)
     value = value.mean(axis=1) # (B, 1)
+    value = symexp(value) # (B, 1)
     return value
 
 def categorical_project(
