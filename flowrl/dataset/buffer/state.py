@@ -34,6 +34,36 @@ class RMSNormalizer():
         return (x - self.mean) / std
 
 
+class EmpiricalNormalizer():
+    def __init__(self, epsilon=1e-8, shape=(), dtype=np.float32):
+        super().__init__()
+        self.mean = np.zeros(shape, dtype=np.float32)
+        self.std = np.ones(shape, dtype=np.float32)
+        self.var = np.ones(shape, dtype=np.float32)
+        self.count = epsilon
+        self.epsilon = 1e-8
+
+    def update(self, x):
+        global_batch_size = x.shape[0]
+        batch_mean = np.mean(x, axis=0)
+        batch_var = np.var(x, axis=0)
+        new_count = self.count + global_batch_size
+
+        delta = batch_mean - self.mean
+        self.mean += delta * global_batch_size / new_count
+
+        delta2 = batch_mean - self.mean
+        m_a = self.var * self.count
+        m_b = batch_var * global_batch_size
+        M2 = m_a + m_b + delta2**2 * (self.count * global_batch_size / new_count)
+        self.var = M2 / new_count
+        self.std = np.sqrt(self.var)
+        self.count = new_count
+
+    def normalize(self, x):
+        return (x - self.mean) / np.clip(self.std, a_min=1e-4, a_max=None)
+
+
 class ReplayBuffer(object):
     def __init__(
         self,
