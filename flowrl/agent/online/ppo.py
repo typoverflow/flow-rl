@@ -6,7 +6,7 @@ import optax
 
 from flowrl.agent.base import BaseAgent
 from flowrl.config.online.algo.ppo import PPOConfig
-from flowrl.module.actor import TanhMeanGaussianActor
+from flowrl.module.actor import GaussianActor, SquashedGaussianActor
 from flowrl.module.critic import ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
@@ -91,8 +91,8 @@ def jit_update_ppo(
     )
 
     # Normalize advantages
-    if normalize_advantage:
-        gae_advantages = (gae_advantages - gae_advantages.mean()) / (gae_advantages.std() + 1e-8)
+    # if normalize_advantage:
+        # gae_advantages = (gae_advantages - gae_advantages.mean()) / (gae_advantages.std() + 1e-8)
 
     # Flatten rollout data: (T, B, ...) -> (T*B, ...)
     flat_obs = rollout.obs.reshape(T * B, -1)
@@ -124,6 +124,9 @@ def jit_update_ppo(
             mb_gae_vs = flat_gae_vs[indices]
             mb_truncations = flat_truncations[indices]
 
+            if normalize_advantage:
+                mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
+
             # Joint loss over actor and critic
             def actor_loss_fn(actor_params, dropout_rng):
                 action_dist = actor.apply(
@@ -140,7 +143,7 @@ def jit_update_ppo(
                 surrogate2 = jnp.clip(rho_s, 1 - clip_epsilon, 1 + clip_epsilon) * mb_advantages
                 policy_loss = -jnp.mean(jnp.minimum(surrogate1, surrogate2))
 
-                entropy = action_dist.entropy()
+                entropy = action_dist.distribution.entropy()
                 entropy = jnp.mean(entropy)
                 entropy_loss = -entropy_coeff * entropy
 
@@ -151,7 +154,8 @@ def jit_update_ppo(
                     "misc/entropy": entropy,
                     "misc/policy_ratio": jnp.mean(rho_s),
                     "misc/clipped_ratio": jnp.mean(jnp.abs(rho_s - 1.0) > clip_epsilon),
-                    "misc/action_mean": jnp.mean(action_dist.mean()),
+                    "misc/action_mean": jnp.mean(action_dist.tanh_mean()),
+                    "misc/action_l1": jnp.abs(action_dist.tanh_mean()).mean(),
                 }
 
             new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
@@ -192,9 +196,13 @@ def jit_update_ppo(
     metrics = jax.tree.map(lambda x: x.mean(), all_metrics)
 
     # Add advantage stats (pre-normalization)
-    metrics["misc/reward_mean"] = rollout.rewards.mean()
-    metrics["misc/advantages_mean"] = gae_advantages.mean()
-    metrics["misc/advantages_std"] = gae_advantages.std()
+    metrics.update({
+        "misc/reward_mean": rollout.rewards.mean(),
+        "misc/obs_mean": flat_obs.mean(),
+        "misc/obs_std": flat_obs.std(axis=0).mean(),
+        "misc/advantages_mean": flat_advantages.mean(),
+        "misc/advantages_std": flat_advantages.std(axis=0).mean(),
+    })
 
     return rng, actor, critic, metrics
 
@@ -208,11 +216,10 @@ def jit_sample_action(
 ):
     dist = actor(obs, training=False)
     if deterministic:
-        action = dist.mean()
+        action = dist.tanh_mean()
         log_prob = jnp.zeros(obs.shape[0])
     else:
-        action = dist.sample(seed=rng)
-        log_prob = dist.log_prob(action)
+        action, log_prob = dist.sample_and_log_prob(seed=rng)
     return action, log_prob
 
 
@@ -236,15 +243,16 @@ class PPOAgent(BaseAgent):
             "simba": Simba,
         }[cfg.backbone_cls]
 
-        actor_def = TanhMeanGaussianActor(
+        actor_def = SquashedGaussianActor(
             backbone=backbone_cls(
                 hidden_dims=cfg.actor_hidden_dims,
                 activation=activation,
             ),
             obs_dim=self.obs_dim,
             action_dim=self.act_dim,
-            conditional_logstd=True,
-            logstd_min=-10,
+            conditional_logstd=False,
+            logstd_min=-5,
+            logstd_max=2,
         )
         critic_def = ScalarCritic(
             backbone=backbone_cls(

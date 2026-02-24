@@ -19,7 +19,6 @@ class PPOConfig(BaseAlgoConfig):
     entropy_coeff: float
     reward_scaling: float
     normalize_advantage: bool
-    normalize_observations: bool
     num_envs: int
     rollout_length: int
     num_minibatches: int
