@@ -9,20 +9,18 @@ algo:
   temp_lr: 0.0003
   discount: 0.99
   num_samples: 10
-  num_particles: 32
+  num_particles: 64
   target_kl: 2.0
   reweight: exp
   ema: 0.005
   old_policy_update_interval: 1000
-  additive_noise: ${oc.select:algo.additive_noise_dict.${task},0.2}
-  additive_noise_dict:
-    Ant-v5: 0.1
+  additive_noise: 0.2
   diffusion:
     backbone_cls: ${algo.backbone_cls}
     activation: mish
     time_dim: 64
     hidden_dims: [256, 256, 256]
-    lr: 0.0003
+    lr: 0.0001
     end_lr: null
     lr_decay_steps: null
     lr_decay_begin: null
