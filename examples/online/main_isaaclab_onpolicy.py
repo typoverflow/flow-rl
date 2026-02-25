@@ -75,8 +75,6 @@ class IsaacLabOnPolicyTrainer:
             act_dim=self.action_dim,
             cfg=cfg.algo,
             seed=cfg.seed,
-            action_bound=cfg.action_bound,
-            disable_bootstrap=cfg.disable_bootstrap,
         )
 
         self.global_step = 0
