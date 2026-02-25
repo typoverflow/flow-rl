@@ -199,9 +199,6 @@ class OffPolicyTrainer():
 
 @hydra.main(config_path="./config/dmc", config_name="config", version_base=None)
 def main(cfg: Config):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
-    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
     try:
         algo_name = cfg.algo.name
     except omegaconf.errors.MissingMandatoryValue:
