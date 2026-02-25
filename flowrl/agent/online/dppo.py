@@ -24,8 +24,11 @@ from flowrl.types import Metric, PRNGKey, RolloutBatch
 
 @partial(jax.jit, static_argnames=("steps", "min_logprob_std"))
 def jit_compute_chain_log_probs(
-    actor: ContinuousDDPM, obs: jnp.ndarray, chain: jnp.ndarray,
-    steps: int, min_logprob_std: float,
+    actor: ContinuousDDPM, 
+    obs: jnp.ndarray, 
+    chain: jnp.ndarray,
+    steps: int, 
+    min_logprob_std: float,
 ) -> jnp.ndarray:
     ts = quad_t_schedule(steps, n=actor.t_schedule_n,
                          tmin=actor.t_diffusion[0], tmax=actor.t_diffusion[1])
@@ -55,6 +58,24 @@ def jit_compute_chain_log_probs(
 
     _, step_lps = jax.lax.scan(step_fn, None, jnp.arange(steps, 0, -1))
     return jnp.transpose(step_lps, (1, 0))
+
+
+@partial(jax.jit, static_argnames=("steps", "min_logprob_std"))
+def jit_sample_actions(
+    rng: PRNGKey, actor: ContinuousDDPM, obs: jnp.ndarray,
+    steps: int, min_logprob_std: float,
+) -> Tuple[PRNGKey, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    B = obs.shape[0]
+    rng, xT_rng = jax.random.split(rng)
+    xT = jax.random.normal(xT_rng, (B, actor.x_dim))
+    rng, action, history = actor.sample(
+        rng, xT, condition=obs, training=False, solver="ddpm",
+    )
+    chain = jnp.transpose(
+        jnp.concatenate([history[0], action[jnp.newaxis]], axis=0), (1, 0, 2))
+    step_lps = jit_compute_chain_log_probs(actor, obs, chain, steps, min_logprob_std)
+    log_prob = step_lps.mean(axis=-1, keepdims=True)
+    return rng, action, chain, log_prob
 
 
 @partial(jax.jit, static_argnames=(
@@ -246,20 +267,11 @@ class DPPOAgent(BaseAgent):
         self, obs: jnp.ndarray, deterministic: bool = True, num_samples: int = 1,
     ) -> Tuple[jnp.ndarray, Metric]:
         assert num_samples == 1, "DPPO only supports num_samples=1"
-        B = obs.shape[0]
-        self.rng, xT_rng = jax.random.split(self.rng)
-        xT = jax.random.normal(xT_rng, (B, self.act_dim))
-
-        self.rng, action, history = self.actor.sample(
-            self.rng, xT, condition=obs, training=False, solver="ddpm",
+        self.rng, action, chain, log_prob = jit_sample_actions(
+            self.rng, 
+            self.actor, 
+            obs,
+            self.cfg.diffusion.steps, 
+            self.cfg.diffusion.min_logprob_denoising_std,
         )
-        chain = jnp.transpose(
-            jnp.concatenate([history[0], action[jnp.newaxis]], axis=0), (1, 0, 2))
-
-        step_lps = jit_compute_chain_log_probs(
-            self.actor, obs, chain,
-            self.cfg.diffusion.steps, self.cfg.diffusion.min_logprob_denoising_std,
-        )
-        log_prob = step_lps.mean(axis=-1, keepdims=True)
-
         return action, {"log_prob": log_prob, "action_chains": chain}
