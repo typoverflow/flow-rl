@@ -1,0 +1,41 @@
+# @package _global_
+# Flow Policy Optimization (FPO) config for HumanoidBench
+# Based on official implementation: https://arxiv.org/abs/2507.21053
+
+algo:
+  name: fpo
+  backbone_cls: mlp
+
+  # === Flow policy settings (match official) ===
+  flow_hidden_dims: [32, 32, 32, 32]  # Official uses small actor!
+  flow_steps: 10
+  n_mc: 8                       # n_samples_per_action in official
+  timestep_embed_dim: 8
+  policy_output_scale: 0.25     # Important for stability
+  log_ratio_clip: 3.0           # Clip log-ratio before exp to prevent overflow (matches official)
+  output_mode: u_but_supervise_as_eps  # "u" or "u_but_supervise_as_eps" (recommended)
+  average_losses_before_exp: true  # True: exp(mean(L)), False: mean(exp(clip(L))) - official default is True
+
+  # === Critic settings ===
+  critic_hidden_dims: [256, 256, 256, 256, 256]
+  critic_lr: 0.0003
+
+  # === Training hyperparameters ===
+  activation: silu
+  actor_lr: 0.0003
+  gamma: 0.995                  # Official uses 0.995 (higher than PPO default)
+  gae_lambda: 0.95
+  clip_epsilon: 0.05            # Official uses 0.05 (lower than Gaussian PPO!)
+  reward_scaling: 10.0          # Official uses 10.0
+  normalize_advantage: true
+  normalize_observations: true
+  value_loss_coeff: 0.25
+
+  # === Rollout settings ===
+  # Note: Official uses 2048 envs x 30 steps, but HumanoidBench may need adjustment
+  num_envs: 16                  # Adjust based on HumanoidBench memory
+  rollout_length: 128           # Longer rollouts for HumanoidBench
+  num_minibatches: 32
+  num_epochs: 16                # num_updates_per_batch in official
+  batch_size: 64                # Adjust based on num_envs * rollout_length
+  clip_grad_norm: 0.5

@@ -29,7 +29,7 @@ class Batch:
 
 @partial(
     jax.tree_util.register_dataclass,
-    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "log_probs", "next_obs"],
+    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "log_probs", "next_obs", "flow_noise", "flow_timesteps", "initial_cfm_loss"],
     meta_fields=[],
 )
 @dataclass
@@ -41,5 +41,9 @@ class RolloutBatch:
     truncated: jnp.ndarray  # (T, B, 1) — 1 if time-limited
     terminated: jnp.ndarray    # (T, B, 1) — 1 if truly done, 0 otherwise
     log_probs: jnp.ndarray    # (T, B, 1)
+    # For flow policies (FPO/DPPO) - None for non-flow policies
+    flow_noise: Optional[jnp.ndarray] = None          # (T, B, N_mc, act_dim) - ε samples for CFM
+    flow_timesteps: Optional[jnp.ndarray] = None      # (T, B, N_mc, 1) - τ samples for CFM
+    initial_cfm_loss: Optional[jnp.ndarray] = None    # (T, B, N_mc) - CFM loss at rollout time
 
 __all__ = ["Batch", "RolloutBatch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple", "Initializer", "TrainState"]
