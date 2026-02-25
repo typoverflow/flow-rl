@@ -58,6 +58,8 @@ class IsaacLabOnPolicyTrainer:
             device="cuda:"+str(cfg.device),
             num_envs=cfg.num_envs,
             seed=cfg.seed,
+            action_bound=cfg.action_bound,
+            disable_bootstrap=cfg.disable_bootstrap,
         )
 
         self.obs_dim = self.env.num_obs
@@ -73,6 +75,8 @@ class IsaacLabOnPolicyTrainer:
             act_dim=self.action_dim,
             cfg=cfg.algo,
             seed=cfg.seed,
+            action_bound=cfg.action_bound,
+            disable_bootstrap=cfg.disable_bootstrap,
         )
 
         self.global_step = 0

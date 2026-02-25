@@ -1,0 +1,4 @@
+# @package _global_
+
+task: Isaac-Open-Drawer-Franka-v0
+action_bound: 3.0
