@@ -6,8 +6,9 @@ algo:
   discount: 0.99
   ema: 0.005
   actor_hidden_dims: [512, 512, 512]
+  actor_activation: elu
   critic_hidden_dims: [512, 512, 512]
-  activation: elu
+  critic_activation: elu
   critic_ensemble_size: 2
   actor_lr: 0.0003
   critic_lr: 0.0003

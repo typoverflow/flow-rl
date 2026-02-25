@@ -27,6 +27,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
     "qsm": QSMAgent,
+    "dacer": DACERAgent,
     "ctrlsr_td3": CtrlSRTD3Agent,
     "diffsr_td3": DiffSRTD3Agent,
     "diffsr_ld": DiffSRLDAgent,

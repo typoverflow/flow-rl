@@ -1,7 +1,7 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
 SEEDS=(0 1 2 3)
-NUM_EACH_GPU=2
+NUM_EACH_GPU=1
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
@@ -37,7 +37,7 @@ TASKS=(
 )
 
 SHARED_ARGS=(
-    "algo=sdac"
+    "algo=sac"
     "log.tag=default"
 )
 
