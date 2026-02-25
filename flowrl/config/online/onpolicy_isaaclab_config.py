@@ -10,6 +10,8 @@ class Config:
     device: str
     task: str
     algo: Any
+    action_bound: float
+    disable_bootstrap: bool
     norm_obs: bool
     train_frames: int
     eval_frames: int
