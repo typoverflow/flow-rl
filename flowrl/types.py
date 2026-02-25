@@ -29,7 +29,7 @@ class Batch:
 
 @partial(
     jax.tree_util.register_dataclass,
-    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "log_probs", "next_obs"],
+    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "log_probs", "next_obs", "action_chains"],
     meta_fields=[],
 )
 @dataclass
@@ -41,5 +41,6 @@ class RolloutBatch:
     truncated: jnp.ndarray  # (T, B, 1) — 1 if time-limited
     terminated: jnp.ndarray    # (T, B, 1) — 1 if truly done, 0 otherwise
     log_probs: jnp.ndarray    # (T, B, 1)
+    action_chains: Optional[jnp.ndarray] = None  # (T, B, K+1, act_dim) where K = number of diffusion steps 
 
 __all__ = ["Batch", "RolloutBatch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple", "Initializer", "TrainState"]

@@ -11,6 +11,7 @@ class Config:
     task: str
     algo: Any
     norm_obs: bool
+    store_action_chains: bool
     train_frames: int
     eval_frames: int
     log_frames: int

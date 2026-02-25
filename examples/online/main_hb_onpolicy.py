@@ -12,6 +12,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 import wandb
+from flowrl.agent.online.dppo import DPPOAgent
 from flowrl.agent.online.ppo import PPOAgent
 from flowrl.config.online.onpolicy_hb_config import Config
 from flowrl.dataset.buffer.state import RMSNormalizer
@@ -24,6 +25,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
+    "dppo": DPPOAgent,
 }
 
 
@@ -114,6 +116,7 @@ class HumanoidBenchOnPolicyTrainer:
         """Collect rollouts from vectorized HumanoidBench envs."""
         T = self.rollout_length
         B = self.num_envs
+        store_chains = self.cfg.store_action_chains
 
         all_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
         all_actions = np.zeros((T, B, self.action_dim), dtype=np.float32)
@@ -122,6 +125,7 @@ class HumanoidBenchOnPolicyTrainer:
         all_terminated = np.zeros((T, B, 1), dtype=np.float32)
         all_truncated = np.zeros((T, B, 1), dtype=np.float32)
         all_log_probs = np.zeros((T, B, 1), dtype=np.float32)
+        all_action_chains = None
 
         for t in range(T):
             if self.cfg.norm_obs:
@@ -135,6 +139,12 @@ class HumanoidBenchOnPolicyTrainer:
             actions_clipped = np.clip(actions, -1.0, 1.0)
             all_actions[t] = actions
             all_log_probs[t] = info["log_prob"]
+
+            if store_chains and "action_chains" in info:
+                chains = np.array(info["action_chains"])
+                if all_action_chains is None:
+                    all_action_chains = np.zeros((T, B, *chains.shape[1:]), dtype=np.float32)
+                all_action_chains[t] = chains
 
             next_obs, rewards, terminated, truncated, infos = self.train_env.step(actions_clipped)
             real_next_obs = next_obs.copy()
@@ -172,6 +182,7 @@ class HumanoidBenchOnPolicyTrainer:
             terminated=jnp.array(all_terminated),
             truncated=jnp.array(all_truncated),
             log_probs=jnp.array(all_log_probs),
+            action_chains=jnp.array(all_action_chains) if all_action_chains is not None else None,
         )
 
     def train(self):

@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 import wandb
+from flowrl.agent.online.dppo import DPPOAgent
 from flowrl.agent.online.ppo import PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
@@ -21,6 +22,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
+    "dppo": DPPOAgent,
 }
 
 
@@ -91,6 +93,7 @@ class IsaacLabOnPolicyTrainer:
         """Collect rollouts from IsaacLab vectorized env."""
         T = self.rollout_length
         B = self.num_envs
+        store_chains = self.cfg.store_action_chains
 
         all_raw_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
         all_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
@@ -100,6 +103,7 @@ class IsaacLabOnPolicyTrainer:
         all_terminated = np.zeros((T, B, 1), dtype=np.float32)
         all_truncated = np.zeros((T, B, 1), dtype=np.float32)
         all_log_probs = np.zeros((T, B, 1), dtype=np.float32)
+        all_action_chains = None
 
         for t in range(T):
             obs_norm = self._normalize_obs(self.obs)
@@ -113,6 +117,12 @@ class IsaacLabOnPolicyTrainer:
             actions_clipped = np.clip(actions_np, -1.0, 1.0)
             all_actions[t] = actions_np
             all_log_probs[t] = np.array(info["log_prob"])
+
+            if store_chains and "action_chains" in info:
+                chains = np.array(info["action_chains"])
+                if all_action_chains is None:
+                    all_action_chains = np.zeros((T, B, *chains.shape[1:]), dtype=np.float32)
+                all_action_chains[t] = chains
 
             next_obs, rewards, terminated, truncated, infos = self.env.step(actions_clipped)
 
@@ -153,6 +163,7 @@ class IsaacLabOnPolicyTrainer:
             terminated=jnp.array(all_terminated),
             truncated=jnp.array(all_truncated),
             log_probs=jnp.array(all_log_probs),
+            action_chains=jnp.array(all_action_chains) if all_action_chains is not None else None,
         )
 
     def train(self):
