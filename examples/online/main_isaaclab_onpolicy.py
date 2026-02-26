@@ -174,6 +174,7 @@ class IsaacLabOnPolicyTrainer:
         self.ep_returns = np.zeros(self.num_envs)
         self.ep_lengths = np.zeros(self.num_envs)
 
+        self.eval_and_save()
         with tqdm(total=cfg.train_frames, desc="training") as pbar:
             while self.global_frame < cfg.train_frames:
                 prev_frame = self.global_frame
@@ -191,6 +192,7 @@ class IsaacLabOnPolicyTrainer:
 
                 pbar.update(self.global_frame - prev_frame)
             self.eval_and_save()
+        self.logger.close()
 
     def eval_and_save(self):
         """Evaluate by running the policy for max_episode_steps in the same env."""

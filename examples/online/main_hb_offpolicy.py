@@ -8,10 +8,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm, trange
 
-import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.hb_config import Config
 from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer
@@ -147,6 +147,7 @@ class OffPolicyTrainer():
                 self.global_step += 1
                 obs = next_obs
                 pbar.update(self.frame_skip)
+        self.logger.close()
 
     def eval_and_save(self):
         # initialize arrays to store results

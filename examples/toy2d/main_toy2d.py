@@ -121,6 +121,8 @@ class Trainer():
             print("Stopped by keyboard interruption. ")
         except RuntimeError as e:
             print("Stopped by exception: ", str(e))
+        finally:
+            self.logger.close()
 
     def save(self, step: int, stage: str):
         if self.cfg.log.save_ckpt:

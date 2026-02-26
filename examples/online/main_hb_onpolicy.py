@@ -8,12 +8,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
-from flowrl.agent.online.ppo import PPOAgent
 from flowrl.agent.online.fpo import FPOAgent
+from flowrl.agent.online.ppo import PPOAgent
 from flowrl.config.online.onpolicy_hb_config import Config
 from flowrl.dataset.buffer.state import RMSNormalizer
 from flowrl.env.online.humanoidbench_env import HumanoidBenchEnv
@@ -234,6 +234,7 @@ class HumanoidBenchOnPolicyTrainer:
 
                 pbar.update(self.global_frame - prev_frame)
             self.eval_and_save()
+        self.logger.close()
 
     def eval_and_save(self):
         returns = np.zeros(self.cfg.eval.num_episodes)

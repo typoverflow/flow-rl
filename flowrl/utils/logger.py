@@ -161,12 +161,15 @@ class BaseLogger:
             if self.backup_stdout:
                 self._write(time_str, msg, type)
 
+    def close(self):
+        if hasattr(self, "stdout_fp"):
+            self.stdout_fp.close()
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if hasattr(self, "stdout_fp"):
-            self.stdout_fp.close()
+        self.close()
 
 
 class TensorboardLogger(BaseLogger):
@@ -297,11 +300,16 @@ class TensorboardLogger(BaseLogger):
             return
         self.tb_writer.add_histogram(tag, np.asarray(values), step)
 
+    def close(self):
+        if self.activate and hasattr(self, "tb_writer"):
+            self.tb_writer.close()
+        super().close()
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.tb_writer.close()
+        self.close()
 
 
 class CsvLogger(BaseLogger):
@@ -396,11 +404,16 @@ class CsvLogger(BaseLogger):
         """
         self.log_scalars(main_tag=None, tag_scalar_dict={tag: value}, step=step)
 
+    def close(self):
+        if self.activate and hasattr(self, "csv_fp"):
+            self.csv_fp.close()
+        super().close()
+
     def __enter__(self):
         return self
 
     def __exit__(self, exec_type, exc_val, exc_tb):
-        self.csv_fp.close()
+        self.close()
 
 
 class WandbLogger(BaseLogger):
@@ -478,11 +491,16 @@ class WandbLogger(BaseLogger):
     def log_scalar(self, tag: str, value: float, step: Optional[int] = None):
         self.log_scalars(main_tag=None, tag_scalar_dict={tag: value}, step=step)
 
+    def close(self):
+        if self.activate and hasattr(self, "run"):
+            self.run.finish()
+        super().close()
+
     def __enter__(self):
         return self
 
     def __exit__(self, exec_type, exc_val, exc_tb):
-        self.run.finish()
+        self.close()
 
 
 class CompositeLogger(BaseLogger):
@@ -642,3 +660,8 @@ class CompositeLogger(BaseLogger):
             path=path,
             protocol=protocol,
         )
+
+    def close(self):
+        for logger in self.loggers.values():
+            logger.close()
+        super().close()
