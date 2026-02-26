@@ -90,14 +90,13 @@ def jit_update_ppo(
         )
     )
 
-    # Normalize advantages
-    # if normalize_advantage:
-        # gae_advantages = (gae_advantages - gae_advantages.mean()) / (gae_advantages.std() + 1e-8)
+    if normalize_advantage:
+        gae_advantages = (gae_advantages - gae_advantages.mean()) / (gae_advantages.std() + 1e-8)
 
     # Flatten rollout data: (T, B, ...) -> (T*B, ...)
     flat_obs = rollout.obs.reshape(T * B, -1)
     flat_actions = rollout.actions.reshape(T * B, -1)
-    flat_old_log_probs = rollout.log_probs.reshape(T * B, 1)
+    flat_old_log_probs = rollout.extras["log_prob"].reshape(T * B, 1)
     flat_advantages = gae_advantages.reshape(T * B, 1)
     flat_gae_vs = gae_vs.reshape(T * B, 1)
     flat_truncations = rollout.truncated.reshape(T * B, 1)
@@ -108,14 +107,12 @@ def jit_update_ppo(
 
         # Shuffle and create minibatches
         perm = jax.random.permutation(perm_rng, T * B)
-        # Truncate to num_minibatches * batch_size
         total = num_minibatches * batch_size
         perm = perm[:total]
         mb_indices = perm.reshape(num_minibatches, batch_size)
 
         def minibatch_step(carry, indices):
             rng, actor, critic = carry
-            rng, entropy_rng = jax.random.split(rng)
 
             mb_obs = flat_obs[indices]
             mb_actions = flat_actions[indices]
@@ -123,9 +120,6 @@ def jit_update_ppo(
             mb_advantages = flat_advantages[indices]
             mb_gae_vs = flat_gae_vs[indices]
             mb_truncations = flat_truncations[indices]
-
-            if normalize_advantage:
-                mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
             # Joint loss over actor and critic
             def actor_loss_fn(actor_params, dropout_rng):
@@ -167,7 +161,7 @@ def jit_update_ppo(
                     training=True,
                     rngs={"dropout": dropout_rng},
                 )
-                v_error = mb_gae_vs - v
+                v_error = (mb_gae_vs - v) * (1 - mb_truncations)
                 v_loss = jnp.mean(v_error ** 2)
                 return v_loss, {
                     "loss/value_loss": v_loss,
