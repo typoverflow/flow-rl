@@ -29,7 +29,7 @@ class Batch:
 
 @partial(
     jax.tree_util.register_dataclass,
-    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "log_probs", "next_obs", "flow_noise", "flow_timesteps", "initial_cfm_loss"],
+    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "next_obs", "extras"],
     meta_fields=[],
 )
 @dataclass
@@ -38,12 +38,8 @@ class RolloutBatch:
     actions: jnp.ndarray      # (T, B, act_dim)
     next_obs: jnp.ndarray     # (T, B, obs_dim)
     rewards: jnp.ndarray      # (T, B, 1)
-    truncated: jnp.ndarray  # (T, B, 1) — 1 if time-limited
-    terminated: jnp.ndarray    # (T, B, 1) — 1 if truly done, 0 otherwise
-    log_probs: jnp.ndarray    # (T, B, 1)
-    # For flow policies (FPO/DPPO) - None for non-flow policies
-    flow_noise: Optional[jnp.ndarray] = None          # (T, B, N_mc, act_dim) - ε samples for CFM
-    flow_timesteps: Optional[jnp.ndarray] = None      # (T, B, N_mc, 1) - τ samples for CFM
-    initial_cfm_loss: Optional[jnp.ndarray] = None    # (T, B, N_mc) - CFM loss at rollout time
+    truncated: jnp.ndarray    # (T, B, 1) — 1 if time-limited
+    terminated: jnp.ndarray   # (T, B, 1) — 1 if truly done, 0 otherwise
+    extras: Dict[str, jnp.ndarray] = None  # Algorithm-specific entries
 
 __all__ = ["Batch", "RolloutBatch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple", "Initializer", "TrainState"]

@@ -5,10 +5,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online.ppo import PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
@@ -101,7 +101,7 @@ class IsaacLabOnPolicyTrainer:
         all_rewards = np.zeros((T, B, 1), dtype=np.float32)
         all_terminated = np.zeros((T, B, 1), dtype=np.float32)
         all_truncated = np.zeros((T, B, 1), dtype=np.float32)
-        all_log_probs = np.zeros((T, B, 1), dtype=np.float32)
+        all_extras = None  # Lazily initialized from first sample_actions info
 
         for t in range(T):
             obs_norm = self._normalize_obs(self.obs)
@@ -114,7 +114,15 @@ class IsaacLabOnPolicyTrainer:
             actions_np = np.array(actions)
             actions_clipped = np.clip(actions_np, -1.0, 1.0)
             all_actions[t] = actions_np
-            all_log_probs[t] = np.array(info["log_prob"])
+
+            # Generically collect algorithm-specific info
+            if all_extras is None:
+                all_extras = {
+                    k: np.zeros((T, *np.array(v).shape), dtype=np.float32)
+                    for k, v in info.items()
+                }
+            for k, v in info.items():
+                all_extras[k][t] = np.array(v)
 
             next_obs, rewards, terminated, truncated, infos = self.env.step(actions_clipped)
 
@@ -154,7 +162,7 @@ class IsaacLabOnPolicyTrainer:
             rewards=jnp.array(all_rewards),
             terminated=jnp.array(all_terminated),
             truncated=jnp.array(all_truncated),
-            log_probs=jnp.array(all_log_probs),
+            extras={k: jnp.array(v) for k, v in all_extras.items()},
         )
 
     def train(self):
