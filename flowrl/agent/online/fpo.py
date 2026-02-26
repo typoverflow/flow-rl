@@ -1,11 +1,3 @@
-"""Flow Policy Optimization (FPO) implementation.
-
-Based on: https://arxiv.org/abs/2507.21053
-Reference: https://github.com/kvfrans/fpo (playground implementation)
-
-Uses rectified-flow / linear-interpolation flow matching (consistent with flowrl/flow/cnf.py).
-"""
-
 from functools import partial
 
 import jax
@@ -16,6 +8,7 @@ from flowrl.agent.base import BaseAgent
 from flowrl.agent.online.ppo import compute_gae
 from flowrl.config.online.algo.fpo import FPOConfig
 from flowrl.flow.cnf import ContinuousNormalizingFlow, FlowBackbone
+from flowrl.functional.activation import get_activation
 from flowrl.module.critic import ScalarCritic
 from flowrl.module.mlp import MLP
 from flowrl.module.model import Model
@@ -23,7 +16,6 @@ from flowrl.module.simba import Simba
 from flowrl.module.time_embedding import LearnableFourierEmbedding
 from flowrl.types import Metric, Param, PRNGKey, RolloutBatch
 
-# ============ Core FPO Functions ============
 
 def compute_cfm_loss(
     params: Param,
@@ -35,26 +27,6 @@ def compute_cfm_loss(
     num_mc_samples: int,
     output_mode: str = "u_but_supervise_as_eps",
 ) -> jnp.ndarray:
-    """Compute CFM loss for given (eps, t) samples.
-
-    Uses rectified-flow / linear-interpolation (consistent with CNF.linear_interpolation):
-    - x_t = (1 - t) * eps + t * action
-    - velocity_gt = action - eps
-    - At t=0: x_t = eps (noise); at t=1: x_t = action
-
-    Args:
-        actor_params: Actor parameters (passed explicitly for gradient computation)
-        actor: ContinuousNormalizingFlow model (for structure only)
-        obs: (B, obs_dim) normalized observations
-        actions: (B, action_dim) sampled actions
-        eps: (B, N_mc, action_dim) noise samples
-        t: (B, N_mc, 1) timestep samples
-        output_scale: Scale factor for network output
-        output_mode: "u" (velocity MSE) or "u_but_supervise_as_eps" (epsilon prediction)
-
-    Returns:
-        (B, N_mc) CFM loss per sample
-    """
 
     obs_repeat = obs[:, jnp.newaxis, :].repeat(num_mc_samples, axis=1)
     action_repeat = action[:, jnp.newaxis, :].repeat(num_mc_samples, axis=1)
@@ -279,11 +251,8 @@ class FPOAgent(BaseAgent):
         self.cfg = cfg
         self.rng, actor_rng, critic_rng = jax.random.split(self.rng, 3)
 
-        activation = {
-            "relu": jax.nn.relu,
-            "elu": jax.nn.elu,
-            "silu": jax.nn.silu,
-        }[cfg.activation]
+        critic_activation = get_activation(cfg.critic_activation)
+        actor_activation = get_activation(cfg.flow.activation)
         backbone_cls = {
             "mlp": MLP,
             "simba": Simba,
@@ -292,7 +261,7 @@ class FPOAgent(BaseAgent):
         critic_def = ScalarCritic(
             backbone=backbone_cls(
                 hidden_dims=cfg.critic_hidden_dims,
-                activation=activation,
+                activation=critic_activation,
             ),
         )
         self.critic = Model.create(
@@ -303,11 +272,10 @@ class FPOAgent(BaseAgent):
             clip_grad_norm=cfg.clip_grad_norm,
         )
 
-        # ===== Flow Actor using ContinuousNormalizingFlow =====
         flow_backbone = FlowBackbone(
             vel_predictor=backbone_cls(
                 hidden_dims=cfg.flow.hidden_dims,
-                activation=cfg.flow.activation,
+                activation=actor_activation,
                 output_dim=self.act_dim,
             ),
             time_embedding=LearnableFourierEmbedding(output_dim=cfg.flow.time_dim),

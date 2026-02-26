@@ -1,12 +1,12 @@
 # @package _global_
 
 algo:
-  name: ppo
+  name: fpo
   num_envs: 4096
   rollout_length: 24
   backbone_cls: mlp
   critic_hidden_dims: [256, 256, 256]
-  activation: elu
+  critic_activation: elu
   critic_lr: 0.001
   gamma: 0.99
   gae_lambda: 0.95

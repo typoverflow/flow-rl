@@ -21,7 +21,7 @@ class FPOConfig(BaseAlgoConfig):
     name: str
     backbone_cls: str
     critic_hidden_dims: List[int]
-    activation: str
+    critic_activation: str
     critic_lr: float
     gamma: float
     gae_lambda: float
