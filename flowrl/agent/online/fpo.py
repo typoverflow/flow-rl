@@ -28,8 +28,8 @@ def compute_cfm_loss(
     output_mode: str = "u_but_supervise_as_eps",
 ) -> jnp.ndarray:
 
-    obs_repeat = obs[:, jnp.newaxis, :].repeat(num_mc_samples, axis=1)
-    action_repeat = action[:, jnp.newaxis, :].repeat(num_mc_samples, axis=1)
+    obs_repeat = jnp.broadcast_to(obs[:, None, :], (obs.shape[0], num_mc_samples, obs.shape[-1]))
+    action_repeat = jnp.broadcast_to(action[:, None, :], (action.shape[0], num_mc_samples, action.shape[-1]))
     at = (1 - t) * eps + t * action_repeat
     vel = action_repeat - eps
 
@@ -290,7 +290,7 @@ class FPOAgent(BaseAgent):
             ),
             x_dim=self.act_dim,
             steps=cfg.flow.steps,
-            clip_sampler=True,
+            clip_sampler=cfg.flow.clip_sampler,
             x_min=cfg.flow.x_min,
             x_max=cfg.flow.x_max,
             optimizer=optax.adam(learning_rate=cfg.flow.lr),

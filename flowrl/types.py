@@ -6,6 +6,7 @@ import flax
 import jax
 import jax.numpy as jnp
 from flax.linen.initializers import Initializer
+from flax.struct import field
 from flax.training.train_state import TrainState
 
 PRNGKey = NewType("PRNGKey", jax.Array)
@@ -40,6 +41,6 @@ class RolloutBatch:
     rewards: jnp.ndarray      # (T, B, 1)
     truncated: jnp.ndarray    # (T, B, 1) — 1 if time-limited
     terminated: jnp.ndarray   # (T, B, 1) — 1 if truly done, 0 otherwise
-    extras: Dict[str, jnp.ndarray] = None  # Algorithm-specific entries
+    extras: Dict[str, jnp.ndarray] = field(default_factory=dict) # Algorithm-specific entries
 
 __all__ = ["Batch", "RolloutBatch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple", "Initializer", "TrainState"]
