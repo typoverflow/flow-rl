@@ -34,5 +34,4 @@ algo:
     x_min: -1.0
     x_max: 1.0
     solver: ddpm
-    min_sampling_denoising_std: 0.05
     min_logprob_denoising_std: 0.1

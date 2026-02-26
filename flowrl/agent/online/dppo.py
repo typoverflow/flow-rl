@@ -74,24 +74,43 @@ def jit_sample_actions(
     chain = jnp.transpose(
         jnp.concatenate([history[0], action[jnp.newaxis]], axis=0), (1, 0, 2))
     step_lps = jit_compute_chain_log_probs(actor, obs, chain, steps, min_logprob_std)
-    log_prob = step_lps.mean(axis=-1, keepdims=True)
+    log_prob = step_lps.mean(axis=-1, keepdims=True)  # not used in DPPO training
     return rng, action, chain, log_prob
 
 
 @partial(jax.jit, static_argnames=(
-    "gamma", "gae_lambda", "gamma_denoising",
-    "clip_epsilon", "clip_epsilon_base", "clip_epsilon_rate",
-    "reward_scaling", "normalize_advantage",
-    "num_epochs", "num_minibatches", "batch_size",
-    "denoising_steps", "min_logprob_std",
+    "gamma", 
+    "gae_lambda", 
+    "gamma_denoising",
+    "clip_epsilon", 
+    "clip_epsilon_base", 
+    "clip_epsilon_rate",
+    "reward_scaling", 
+    "normalize_advantage",
+    "num_epochs", 
+    "num_minibatches", 
+    "batch_size",
+    "denoising_steps", 
+    "min_logprob_std",
 ))
 def jit_update_dppo(
-    rng: PRNGKey, actor: ContinuousDDPM, critic: Model, rollout: RolloutBatch,
-    gamma: float, gae_lambda: float, gamma_denoising: float,
-    clip_epsilon: float, clip_epsilon_base: float, clip_epsilon_rate: float,
-    reward_scaling: float, normalize_advantage: bool,
-    num_epochs: int, num_minibatches: int, batch_size: int,
-    denoising_steps: int, min_logprob_std: float,
+    rng: PRNGKey, 
+    actor: ContinuousDDPM, 
+    critic: Model, 
+    rollout: RolloutBatch,
+    gamma: float, 
+    gae_lambda: float, 
+    gamma_denoising: float,
+    clip_epsilon: float, 
+    clip_epsilon_base: float, 
+    clip_epsilon_rate: float,
+    reward_scaling: float, 
+    normalize_advantage: bool,
+    num_epochs: int, 
+    num_minibatches: int, 
+    batch_size: int,
+    denoising_steps: int, 
+    min_logprob_std: float,
 ):
     T, B = rollout.rewards.shape[:2]
     K = denoising_steps
@@ -161,10 +180,14 @@ def jit_update_dppo(
             new_actor, actor_info = actor.apply_gradient(actor_loss_fn)
 
             def critic_loss_fn(critic_params, dropout_rng):
-                v = critic.apply({"params": critic_params}, mb_obs,
-                                 training=True, rngs={"dropout": dropout_rng})
+                v = critic.apply({"params": critic_params}, 
+                                 mb_obs,
+                                 training=True, 
+                                 rngs={"dropout": dropout_rng})
                 v_loss = jnp.mean((mb_vs - v) ** 2)
-                return v_loss, {"loss/value_loss": v_loss, "misc/value_mean": jnp.mean(v)}
+                return v_loss, {
+                    "loss/value_loss": v_loss, 
+                    "misc/value_mean": jnp.mean(v)}
 
             new_critic, critic_info = critic.apply_gradient(critic_loss_fn)
             return (rng, new_actor, new_critic), {**actor_info, **critic_info}

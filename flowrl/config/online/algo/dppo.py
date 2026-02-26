@@ -15,7 +15,6 @@ class DPPODiffusionConfig:
     x_min: float
     x_max: float
     solver: str
-    min_sampling_denoising_std: float
     min_logprob_denoising_std: float
 
 
