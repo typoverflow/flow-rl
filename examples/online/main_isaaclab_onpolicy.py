@@ -9,7 +9,7 @@ import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-from flowrl.agent.online import FPOAgent, PPOAgent
+from flowrl.agent.online import DPPOAgent, FPOAgent, PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
 from flowrl.env.online.isaaclab_env import IsaacLabEnv
@@ -21,6 +21,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
+    "dppo": DPPOAgent,
     "fpo": FPOAgent,
 }
 
