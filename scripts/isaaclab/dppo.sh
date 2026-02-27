@@ -8,6 +8,12 @@ PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 TASKS=(
     "Isaac-Ant-v0"
     "Isaac-Humanoid-v0"
+    "Isaac-Cartpole-v0"
+    "Isaac-Lift-Cube-Franka-v0"
+    "Isaac-Open-Drawer-Franka-v0"
+    "Isaac-Velocity-Flat-Anymal-D-v0"
+    "Isaac-Velocity-Rough-G1-v0"
+    "Isaac-Velocity-Flat-G1-v0"
 )
 
 SHARED_ARGS=(
