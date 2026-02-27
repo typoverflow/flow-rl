@@ -6,10 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm, trange
 
-import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.dmc_config import Config
 from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer
@@ -27,6 +27,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sdac": SDACAgent,
     "dpmd": DPMDAgent,
     "qsm": QSMAgent,
+    "dacer": DACERAgent,
     "ctrlsr_td3": CtrlSRTD3Agent,
     "diffsr_td3": DiffSRTD3Agent,
     "diffsr_ld": DiffSRLDAgent,
@@ -150,6 +151,7 @@ class OffPolicyTrainer():
                 self.global_step += 1
                 obs = next_obs
                 pbar.update(self.frame_skip)
+        self.logger.close()
 
     def eval_and_save(self):
         # initialize arrays to store results
@@ -198,9 +200,6 @@ class OffPolicyTrainer():
 
 @hydra.main(config_path="./config/dmc", config_name="config", version_base=None)
 def main(cfg: Config):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.device)
-    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
     try:
         algo_name = cfg.algo.name
     except omegaconf.errors.MissingMandatoryValue:

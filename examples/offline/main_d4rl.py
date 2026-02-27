@@ -114,6 +114,8 @@ class Trainer():
             print("Stopped by keyboard interruption. ")
         except RuntimeError as e:
             print("Stopped by exception: ", str(e))
+        finally:
+            self.logger.close()
 
     def eval_and_save(self, step: int, prefix: str = "eval"):
         # Initialize arrays to store results

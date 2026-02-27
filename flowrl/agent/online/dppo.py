@@ -125,7 +125,7 @@ def jit_update_dppo(
     ))
 
     flat_obs = rollout.obs.reshape(T * B, -1)
-    flat_chains = rollout.action_chains.reshape(T * B, K + 1, -1)
+    flat_chains = rollout.extras["action_chains"].reshape(T * B, K + 1, -1)
     flat_adv = gae_advantages.reshape(T * B, 1)
     flat_vs = gae_vs.reshape(T * B, 1)
 

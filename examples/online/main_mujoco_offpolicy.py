@@ -6,10 +6,10 @@ import hydra
 import jax
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco_config import Config
 from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer
@@ -170,6 +170,8 @@ class OffPolicyTrainer():
             print("Stopped by keyboard interruption. ")
         except Exception as e:
             raise e
+        finally:
+            self.logger.close()
 
     def eval_and_save(self):
         # initialize arrays to store results

@@ -2,17 +2,21 @@
 
 algo:
   name: sdac
+  backbone_cls: mlp
   critic_hidden_dims: [512, 512, 512]
   critic_activation: elu
   critic_lr: 0.0003
+  critic_ensemble_size: 2
   discount: 0.99
   num_samples: 10
   num_reverse_samples: 500
   ema: 0.005
-  temp: 0.05
+  temp: 0.01
   diffusion:
+    backbone_cls: ${algo.backbone_cls}
+    activation: mish
     time_dim: 64
-    mlp_hidden_dims: [512, 512, 512]
+    hidden_dims: [512, 512, 512]
     lr: 0.0003
     end_lr: null
     lr_decay_steps: null

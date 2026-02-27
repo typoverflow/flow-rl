@@ -6,6 +6,7 @@ import flax
 import jax
 import jax.numpy as jnp
 from flax.linen.initializers import Initializer
+from flax.struct import field
 from flax.training.train_state import TrainState
 
 PRNGKey = NewType("PRNGKey", jax.Array)
@@ -29,7 +30,7 @@ class Batch:
 
 @partial(
     jax.tree_util.register_dataclass,
-    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "log_probs", "next_obs", "action_chains"],
+    data_fields=["obs", "actions", "rewards", "truncated", "terminated", "next_obs", "extras"],
     meta_fields=[],
 )
 @dataclass
@@ -38,9 +39,8 @@ class RolloutBatch:
     actions: jnp.ndarray      # (T, B, act_dim)
     next_obs: jnp.ndarray     # (T, B, obs_dim)
     rewards: jnp.ndarray      # (T, B, 1)
-    truncated: jnp.ndarray  # (T, B, 1) — 1 if time-limited
-    terminated: jnp.ndarray    # (T, B, 1) — 1 if truly done, 0 otherwise
-    log_probs: jnp.ndarray    # (T, B, 1)
-    action_chains: Optional[jnp.ndarray] = None  # (T, B, K+1, act_dim) where K = number of diffusion steps 
+    truncated: jnp.ndarray    # (T, B, 1) — 1 if time-limited
+    terminated: jnp.ndarray   # (T, B, 1) — 1 if truly done, 0 otherwise
+    extras: Dict[str, jnp.ndarray] = field(default_factory=dict) # Algorithm-specific entries
 
 __all__ = ["Batch", "RolloutBatch", "PRNGKey", "Param", "Shape", "Metric", "Optional", "Sequence", "Any", "Dict", "Callable", "Union", "Tuple", "Initializer", "TrainState"]

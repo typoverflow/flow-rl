@@ -16,7 +16,6 @@ task: ???
 frame_skip: 2
 frame_stack: 1
 norm_obs: true
-store_action_chains: false
 train_frames: 2_000_000
 eval_frames: 50_000
 log_frames: 1_000

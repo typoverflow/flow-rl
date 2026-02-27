@@ -1,21 +1,26 @@
 # @package _global_
 
 algo:
-  name: qsm
+  name: dacer
   backbone_cls: mlp
   critic_hidden_dims: [512, 512, 512]
   critic_activation: elu
-  critic_lr: 0.0003
+  critic_ensemble_size: 2
+  critic_lr: 0.0001
+  alpha_lr: 0.03
   discount: 0.99
-  num_samples: 10
   ema: 0.005
-  temp: 0.1
+  entropy_num_samples: 200
+  update_actor_every: 2
+  update_alpha_every: 10000
+  reward_scale: 1.0
+  noise_scaler: 0.1
   diffusion:
     backbone_cls: ${algo.backbone_cls}
     activation: mish
     time_dim: 64
     hidden_dims: [512, 512, 512]
-    lr: 0.0003
+    lr: 0.0001
     end_lr: null
     lr_decay_steps: null
     lr_decay_begin: null
@@ -23,4 +28,3 @@ algo:
     clip_sampler: true
     x_min: -1.0
     x_max: 1.0
-    solver: ddpm

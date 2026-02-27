@@ -10,6 +10,8 @@ def get_activation(activation: str):
         "relu": jax.nn.relu,
         "elu": jax.nn.elu,
         "mish": mish,
+        "silu": jax.nn.silu,
+        "tanh": jax.nn.tanh,
     }[activation]
 
 def mish(x):

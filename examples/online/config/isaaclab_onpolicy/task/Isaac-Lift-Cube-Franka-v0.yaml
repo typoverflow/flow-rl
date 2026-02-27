@@ -1,0 +1,8 @@
+# @package _global_
+
+task: Isaac-Lift-Cube-Franka-v0
+action_bound: 3.0
+# Value learning is unstable for Lift Cube task Due to brittle reward shaping
+# Therefore, we need to disable bootstrap from 'reset_obs' in IsaacLab
+# Higher UTD works better for manipulation tasks
+disable_bootstrap: true

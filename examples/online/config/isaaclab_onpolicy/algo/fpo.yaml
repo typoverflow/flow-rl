@@ -1,35 +1,30 @@
 # @package _global_
 
 algo:
-  name: dppo
+  name: fpo
   num_envs: 4096
   rollout_length: 24
   backbone_cls: mlp
   critic_hidden_dims: [256, 256, 256]
-  critic_activation: mish
-  actor_lr: 0.0001
+  critic_activation: elu
   critic_lr: 0.001
   gamma: 0.99
   gae_lambda: 0.95
-  gamma_denoising: 0.99
-  # 0.1
-  clip_epsilon: 0.2
-  clip_epsilon_base: 0.001
-  clip_epsilon_rate: 3.0
+  clip_epsilon: 0.05
   reward_scaling: 1.0
   normalize_advantage: true
   num_minibatches: 4
   num_epochs: 4
   batch_size: 24576
   clip_grad_norm: 1.0
-  diffusion:
+  additive_noise: 0.0
+  num_mc_samples: 8
+  flow:
+    activation: silu
     hidden_dims: [256, 256, 256]
-    activation: mish
-    time_dim: 32
+    time_dim: 64
     steps: 10
-    noise_schedule: cosine
     clip_sampler: true
+    lr: 0.0001
     x_min: -1.0
     x_max: 1.0
-    solver: ddpm
-    min_logprob_denoising_std: 0.1

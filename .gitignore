@@ -13,3 +13,4 @@ ckpts
 log_bkp/
 logs/
 MUJOCO_LOG.TXT
+.*venv*/

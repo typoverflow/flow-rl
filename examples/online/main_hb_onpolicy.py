@@ -8,11 +8,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online.dppo import DPPOAgent
+from flowrl.agent.online.fpo import FPOAgent
 from flowrl.agent.online.ppo import PPOAgent
 from flowrl.config.online.onpolicy_hb_config import Config
 from flowrl.dataset.buffer.state import RMSNormalizer
@@ -26,6 +27,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
     "dppo": DPPOAgent,
+    "fpo": FPOAgent,
 }
 
 
@@ -113,10 +115,12 @@ class HumanoidBenchOnPolicyTrainer:
         return obs
 
     def collect_rollouts(self) -> RolloutBatch:
-        """Collect rollouts from vectorized HumanoidBench envs."""
+        """Collect rollouts from vectorized HumanoidBench envs.
+
+        Supports both PPO (log_probs) and FPO (flow_noise, flow_timesteps, initial_cfm_loss).
+        """
         T = self.rollout_length
         B = self.num_envs
-        store_chains = self.cfg.store_action_chains
 
         all_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
         all_actions = np.zeros((T, B, self.action_dim), dtype=np.float32)
@@ -125,7 +129,14 @@ class HumanoidBenchOnPolicyTrainer:
         all_terminated = np.zeros((T, B, 1), dtype=np.float32)
         all_truncated = np.zeros((T, B, 1), dtype=np.float32)
         all_log_probs = np.zeros((T, B, 1), dtype=np.float32)
-        all_action_chains = None
+
+        # For flow policies (FPO)
+        is_flow_policy = self.cfg.algo.name == "fpo"
+        if is_flow_policy:
+            n_mc = self.cfg.algo.n_mc
+            all_flow_noise = np.zeros((T, B, n_mc, self.action_dim), dtype=np.float32)
+            all_flow_timesteps = np.zeros((T, B, n_mc, 1), dtype=np.float32)
+            all_initial_cfm_loss = np.zeros((T, B, n_mc), dtype=np.float32)
 
         for t in range(T):
             if self.cfg.norm_obs:
@@ -138,13 +149,14 @@ class HumanoidBenchOnPolicyTrainer:
             )
             actions_clipped = np.clip(actions, -1.0, 1.0)
             all_actions[t] = actions
-            all_log_probs[t] = info["log_prob"]
 
-            if store_chains and "action_chains" in info:
-                chains = np.array(info["action_chains"])
-                if all_action_chains is None:
-                    all_action_chains = np.zeros((T, B, *chains.shape[1:]), dtype=np.float32)
-                all_action_chains[t] = chains
+            # Store policy-specific info
+            if is_flow_policy:
+                all_flow_noise[t] = info["flow_noise"]
+                all_flow_timesteps[t] = info["flow_timesteps"]
+                all_initial_cfm_loss[t] = info["initial_cfm_loss"]
+            else:
+                all_log_probs[t] = info["log_prob"]
 
             next_obs, rewards, terminated, truncated, infos = self.train_env.step(actions_clipped)
             real_next_obs = next_obs.copy()
@@ -174,16 +186,30 @@ class HumanoidBenchOnPolicyTrainer:
             real_next_obs_norm = self._normalize_obs(real_next_obs)
             all_next_obs[t] = real_next_obs_norm
             self.obs = next_obs
-        return RolloutBatch(
-            obs=jnp.array(all_obs),
-            actions=jnp.array(all_actions),
-            next_obs=jnp.array(all_next_obs),
-            rewards=jnp.array(all_rewards),
-            terminated=jnp.array(all_terminated),
-            truncated=jnp.array(all_truncated),
-            log_probs=jnp.array(all_log_probs),
-            action_chains=jnp.array(all_action_chains) if all_action_chains is not None else None,
-        )
+
+        if is_flow_policy:
+            return RolloutBatch(
+                obs=jnp.array(all_obs),
+                actions=jnp.array(all_actions),
+                next_obs=jnp.array(all_next_obs),
+                rewards=jnp.array(all_rewards),
+                terminated=jnp.array(all_terminated),
+                truncated=jnp.array(all_truncated),
+                log_probs=jnp.array(all_log_probs),  # Unused but required
+                flow_noise=jnp.array(all_flow_noise),
+                flow_timesteps=jnp.array(all_flow_timesteps),
+                initial_cfm_loss=jnp.array(all_initial_cfm_loss),
+            )
+        else:
+            return RolloutBatch(
+                obs=jnp.array(all_obs),
+                actions=jnp.array(all_actions),
+                next_obs=jnp.array(all_next_obs),
+                rewards=jnp.array(all_rewards),
+                terminated=jnp.array(all_terminated),
+                truncated=jnp.array(all_truncated),
+                log_probs=jnp.array(all_log_probs),
+            )
 
     def train(self):
         cfg = self.cfg
@@ -210,6 +236,7 @@ class HumanoidBenchOnPolicyTrainer:
 
                 pbar.update(self.global_frame - prev_frame)
             self.eval_and_save()
+        self.logger.close()
 
     def eval_and_save(self):
         returns = np.zeros(self.cfg.eval.num_episodes)

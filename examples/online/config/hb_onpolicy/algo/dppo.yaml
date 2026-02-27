@@ -1,7 +1,5 @@
 # @package _global_
 
-store_action_chains: true
-
 algo:
   name: dppo
   num_envs: 16

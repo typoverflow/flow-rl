@@ -17,7 +17,8 @@ class IsaacLabEnv:
         device: str,
         num_envs: int,
         seed: int,
-        action_bounds: Optional[float] = None,
+        action_bound: Optional[float] = None,
+        disable_bootstrap: bool = False,
     ):
         import torch
         from isaaclab.app import AppLauncher
@@ -42,7 +43,8 @@ class IsaacLabEnv:
 
         self.num_envs = self.envs.unwrapped.num_envs
         self.max_episode_steps = self.envs.unwrapped.max_episode_length
-        self.action_bounds = action_bounds
+        self.action_bound = action_bound
+        self.disable_bootstrap = disable_bootstrap
         self.num_obs = self.envs.unwrapped.single_observation_space["policy"].shape[0]
         self.asymmetric_obs = "critic" in self.envs.unwrapped.single_observation_space
         if self.asymmetric_obs:
@@ -73,9 +75,11 @@ class IsaacLabEnv:
         self, actions: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
         actions_torch = self._to_torch(actions)
-        if self.action_bounds is not None:
-            actions_torch = self._torch.clamp(actions_torch, -1.0, 1.0) * self.action_bounds
+        if self.action_bound is not None:
+            actions_torch = self._torch.clamp(actions_torch, -1.0, 1.0) * self.action_bound
         obs_dict, rew, terminations, truncations, infos = self.envs.step(actions_torch)
+        if self.disable_bootstrap:
+            terminations = terminations | truncations
         obs = self._to_numpy(obs_dict["policy"])
         return (
             obs,

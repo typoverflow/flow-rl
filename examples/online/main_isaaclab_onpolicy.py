@@ -5,12 +5,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
 from flowrl.agent.online.dppo import DPPOAgent
 from flowrl.agent.online.ppo import PPOAgent
+from flowrl.agent.online import FPOAgent, PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
 from flowrl.env.online.isaaclab_env import IsaacLabEnv
@@ -23,6 +24,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
     "dppo": DPPOAgent,
+    "fpo": FPOAgent,
 }
 
 
@@ -60,6 +62,8 @@ class IsaacLabOnPolicyTrainer:
             device="cuda:"+str(cfg.device),
             num_envs=cfg.num_envs,
             seed=cfg.seed,
+            action_bound=cfg.action_bound,
+            disable_bootstrap=cfg.disable_bootstrap,
         )
 
         self.obs_dim = self.env.num_obs
@@ -93,7 +97,6 @@ class IsaacLabOnPolicyTrainer:
         """Collect rollouts from IsaacLab vectorized env."""
         T = self.rollout_length
         B = self.num_envs
-        store_chains = self.cfg.store_action_chains
 
         all_raw_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
         all_obs = np.zeros((T, B, self.obs_dim), dtype=np.float32)
@@ -102,8 +105,7 @@ class IsaacLabOnPolicyTrainer:
         all_rewards = np.zeros((T, B, 1), dtype=np.float32)
         all_terminated = np.zeros((T, B, 1), dtype=np.float32)
         all_truncated = np.zeros((T, B, 1), dtype=np.float32)
-        all_log_probs = np.zeros((T, B, 1), dtype=np.float32)
-        all_action_chains = None
+        all_extras = None  # Lazily initialized from first sample_actions info
 
         for t in range(T):
             obs_norm = self._normalize_obs(self.obs)
@@ -116,13 +118,15 @@ class IsaacLabOnPolicyTrainer:
             actions_np = np.array(actions)
             actions_clipped = np.clip(actions_np, -1.0, 1.0)
             all_actions[t] = actions_np
-            all_log_probs[t] = np.array(info["log_prob"])
 
-            if store_chains and "action_chains" in info:
-                chains = np.array(info["action_chains"])
-                if all_action_chains is None:
-                    all_action_chains = np.zeros((T, B, *chains.shape[1:]), dtype=np.float32)
-                all_action_chains[t] = chains
+            # Generically collect algorithm-specific info
+            if all_extras is None:
+                all_extras = {
+                    k: np.zeros((T, *np.array(v).shape), dtype=np.float32)
+                    for k, v in info.items()
+                }
+            for k, v in info.items():
+                all_extras[k][t] = np.array(v)
 
             next_obs, rewards, terminated, truncated, infos = self.env.step(actions_clipped)
 
@@ -162,8 +166,7 @@ class IsaacLabOnPolicyTrainer:
             rewards=jnp.array(all_rewards),
             terminated=jnp.array(all_terminated),
             truncated=jnp.array(all_truncated),
-            log_probs=jnp.array(all_log_probs),
-            action_chains=jnp.array(all_action_chains) if all_action_chains is not None else None,
+            extras={k: jnp.array(v) for k, v in all_extras.items()},
         )
 
     def train(self):
@@ -174,6 +177,7 @@ class IsaacLabOnPolicyTrainer:
         self.ep_returns = np.zeros(self.num_envs)
         self.ep_lengths = np.zeros(self.num_envs)
 
+        self.eval_and_save()
         with tqdm(total=cfg.train_frames, desc="training") as pbar:
             while self.global_frame < cfg.train_frames:
                 prev_frame = self.global_frame
@@ -191,6 +195,7 @@ class IsaacLabOnPolicyTrainer:
 
                 pbar.update(self.global_frame - prev_frame)
             self.eval_and_save()
+        self.logger.close()
 
     def eval_and_save(self):
         """Evaluate by running the policy for max_episode_steps in the same env."""

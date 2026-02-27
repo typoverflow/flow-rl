@@ -13,7 +13,6 @@ class Config:
     frame_skip: int
     frame_stack: int
     norm_obs: bool
-    store_action_chains: bool
     train_frames: int
     eval_frames: int
     log_frames: int
