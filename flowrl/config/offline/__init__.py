@@ -2,6 +2,7 @@ from hydra.core.config_store import ConfigStore
 
 from .algo.base import BaseAlgoConfig
 from .algo.bdpo import BDPOConfig
+from .algo.categorical_bdpo import CategoricalBDPOConfig
 from .algo.dac import DACConfig
 from .algo.dql import DQLConfig
 from .algo.dtql import DTQLConfig
@@ -21,6 +22,7 @@ cs.store(group="algo", name="base", node=BaseAlgoConfig)
 _CONFIGS = {
     "iql": IQLConfig,
     "bdpo": BDPOConfig,
+    "categorical_bdpo": CategoricalBDPOConfig,
     "ivr": IVRConfig,
     "dac": DACConfig,
     "dql": DQLConfig,

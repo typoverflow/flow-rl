@@ -22,6 +22,7 @@ from flowrl.utils.misc import set_seed_everywhere
 SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "iql": IQLAgent,
     "bdpo": BDPOAgent,
+    "categorical_bdpo": CategoricalBDPOAgent,
     "ivr": IVRAgent,
     "fql": FQLAgent,
     "dac": DACAgent,

@@ -1,5 +1,6 @@
 from ..base import BaseAgent
 from .bdpo.bdpo import BDPOAgent
+from .bdpo.categorical_bdpo import CategoricalBDPOAgent
 from .dac import DACAgent
 from .dql import DQLAgent
 from .dtql import DTQLAgent

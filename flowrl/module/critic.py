@@ -268,3 +268,35 @@ class CategoricalCritic(nn.Module):
             self.output_nodes, kernel_init=self.kernel_init(), bias_init=self.bias_init()
         )(x)
         return x
+
+class CategoricalCriticWithDiscreteTime(nn.Module):
+    backbone: nn.Module
+    time_embedding: nn.Module
+    output_nodes: int
+    kernel_init: Initializer = init.default_kernel_init
+    bias_init: Initializer = init.default_bias_init
+
+    @nn.compact
+    def __call__(
+        self,
+        obs: jnp.ndarray,
+        action: Optional[jnp.ndarray] = None,
+        t: jnp.ndarray = None,
+        training: bool = False,
+    ) -> jnp.ndarray:
+        t_ff = self.time_embedding(t)
+        t_ff = MLP(
+            hidden_dims=[t_ff.shape[-1]*2, t_ff.shape[-1]],
+            activation=mish,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )(t_ff)
+        x = jnp.concatenate(
+            [item for item in (obs, action, t_ff) if item is not None],
+            axis=-1,
+        )
+        x = self.backbone(x, training=training)
+        x = nn.Dense(
+            self.output_nodes, kernel_init=self.kernel_init(), bias_init=self.bias_init()
+        )(x)
+        return x
