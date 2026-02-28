@@ -14,6 +14,7 @@ class FPOFlowConfig:
     lr: float
     x_min: float
     x_max: float
+    output_scale: float
 
 
 @dataclass

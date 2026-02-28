@@ -1,5 +1,6 @@
 from functools import partial
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
@@ -16,6 +17,14 @@ from flowrl.module.simba import Simba
 from flowrl.module.time_embedding import LearnableFourierEmbedding
 from flowrl.types import Metric, Param, PRNGKey, RolloutBatch
 
+
+class OutputScale(nn.Module):
+    backbone: nn.Module
+    output_scale: float
+
+    @nn.compact
+    def __call__(self, *args, **kwargs) -> jnp.ndarray:
+        return self.backbone(*args, **kwargs) * self.output_scale
 
 def compute_cfm_loss(
     params: Param,
@@ -44,7 +53,7 @@ def compute_cfm_loss(
     else:
         eps_pred = at - t * vel_pred
         loss = jnp.mean((eps - eps_pred) ** 2, axis=-1, keepdims=True)
-    return loss
+    return loss, vel_pred
 
 
 @partial(jax.jit, static_argnames=(
@@ -125,7 +134,7 @@ def jit_update_fpo(
 
             # ===== Actor loss: FPO ratio =====
             def actor_loss_fn(actor_params, dropout_rng):
-                new_cfm_loss = compute_cfm_loss(
+                new_cfm_loss, vel_pred = compute_cfm_loss(
                     params=actor_params,
                     actor=actor,
                     obs=mb_obs,
@@ -134,13 +143,12 @@ def jit_update_fpo(
                     t=mb_t,
                     num_mc_samples=num_mc_samples,
                 )
-                rho_s = jnp.exp(
-                    jnp.mean(mb_cfm_loss, axis=-2) -
-                    jnp.mean(new_cfm_loss, axis=-2)
-                )
+                cfm_loss_gap = jnp.mean(mb_cfm_loss, axis=-2) - jnp.mean(new_cfm_loss, axis=-2)
+                rho_s = jnp.exp(cfm_loss_gap)
                 # PPO surrogate with FPO ratio
-                surrogate1 = rho_s * mb_advantages
-                surrogate2 = jnp.clip(rho_s, 1 - clip_epsilon, 1 + clip_epsilon) * mb_advantages
+                mb_advantages_clipped = jnp.clip(mb_advantages, 0.0)
+                surrogate1 = rho_s * mb_advantages_clipped
+                surrogate2 = jnp.clip(rho_s, 1 - clip_epsilon, 1 + clip_epsilon) * mb_advantages_clipped
                 policy_loss = -jnp.mean(jnp.minimum(surrogate1, surrogate2))
 
                 return policy_loss, {
@@ -148,6 +156,8 @@ def jit_update_fpo(
                     "misc/policy_ratio": jnp.mean(rho_s),
                     "misc/clipped_ratio": jnp.mean(jnp.abs(rho_s - 1.0) > clip_epsilon),
                     "misc/cfm_loss_mean": jnp.mean(new_cfm_loss),
+                    "misc/cfm_loss_gap": jnp.mean(jnp.abs(cfm_loss_gap)),
+                    "misc/vel_pred_l1_mean": jnp.abs(vel_pred).mean(),
                 }
 
             new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
@@ -186,6 +196,7 @@ def jit_update_fpo(
         "misc/reward_mean": rollout.rewards.mean(),
         "misc/obs_mean": flat_obs.mean(),
         "misc/obs_std": flat_obs.std(axis=0).mean(),
+        "misc/action_l1_mean": jnp.abs(flat_actions).mean(),
         "misc/advantages_mean": flat_advantages.mean(),
         "misc/advantages_std": flat_advantages.std(axis=0).mean(),
     })
@@ -225,7 +236,7 @@ def jit_sample_action_fpo(
     t_idx = jax.random.randint(t_rng, (B, num_mc_samples, 1), 0, actor.steps)
     t = actor.step2t(t_idx)
 
-    loss = compute_cfm_loss(
+    loss, vel_pred = compute_cfm_loss(
         params=actor.state.params,
         actor=actor,
         obs=obs,
@@ -272,13 +283,16 @@ class FPOAgent(BaseAgent):
             clip_grad_norm=cfg.clip_grad_norm,
         )
 
-        flow_backbone = FlowBackbone(
-            vel_predictor=backbone_cls(
-                hidden_dims=cfg.flow.hidden_dims,
-                activation=actor_activation,
-                output_dim=self.act_dim,
+        flow_backbone = OutputScale(
+            backbone=FlowBackbone(
+                vel_predictor=backbone_cls(
+                    hidden_dims=cfg.flow.hidden_dims,
+                    activation=actor_activation,
+                    output_dim=self.act_dim,
+                ),
+                time_embedding=LearnableFourierEmbedding(output_dim=cfg.flow.time_dim),
             ),
-            time_embedding=LearnableFourierEmbedding(output_dim=cfg.flow.time_dim),
+            output_scale=cfg.flow.output_scale,
         )
         self.actor = ContinuousNormalizingFlow.create(
             network=flow_backbone,
