@@ -5,6 +5,7 @@ from .diffsr import *
 from .dpmd import DPMDAgent
 from .dppo import DPPOAgent
 from .fpo import FPOAgent
+from .genpo import GenPOAgent
 from .idem import IDEMAgent
 from .nclql import NCLQLAgent
 from .ppo import PPOAgent
