@@ -6,6 +6,7 @@ from typing import Any, Optional
 class DataConfig:
     batch_size: int # mini-batch size, used in pretraining and offline RL
     scan: bool # Scanning or random batch sampling of the dataset.
+    prior: str # "data" (structured samples) or "uniform" (uniform over 2D space)
 
 @dataclass
 class EvalConfig:

@@ -90,8 +90,8 @@ def jit_update_sdac(
     rng, tnormal_rng, clipped_rng = jax.random.split(rng, 3)
     rng, at, t, eps = actor.add_noise(rng, a0)
     alpha1, alpha2 = actor.noise_schedule_func(t)
-    lower_bound = - 1.0 / alpha2 * at - alpha1 / alpha2
-    upper_bound = - 1.0 / alpha2 * at + alpha1 / alpha2
+    lower_bound = - 1.0 / alpha2 * at - alpha1 / alpha2 * jnp.abs(actor.x_min)
+    upper_bound = - 1.0 / alpha2 * at + alpha1 / alpha2 * jnp.abs(actor.x_max)
     tnormal_noise = jax.random.truncated_normal(tnormal_rng, lower_bound, upper_bound, (num_reverse_samples, *at.shape))
     normal_noise = jax.random.normal(clipped_rng, (num_reverse_samples, *at.shape))
     normal_noise_clipped = jnp.clip(normal_noise, lower_bound, upper_bound)

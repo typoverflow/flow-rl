@@ -18,10 +18,11 @@ from flowrl.utils.misc import set_seed_everywhere
 
 SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "bdpo": BDPOAgent,
+    "dql": DQLAgent,
     "dac": DACAgent,
+    "dacer": DACERAgent,
     "qsm": QSMAgent,
     "sdac": SDACAgent,
-    "aca": ACAAgent,
 }
 
 class Trainer():
@@ -34,14 +35,6 @@ class Trainer():
             name="seed"+str(cfg.seed),
             logger_config={
                 "CsvLogger": {"activate": True},
-                # "TensorboardLogger": {"activate": True},
-                # "WandbLogger": {
-                #     "activate": True,
-                #     "config": OmegaConf.to_container(cfg),
-                #     "settings": wandb.Settings(_disable_stats=True),
-                #     "project": cfg.log.project,
-                #     "entity": cfg.log.entity
-                # } if ("project" in cfg.log and "entity" in cfg.log) else {"activate": False},
             }
         )
         self.ckpt_save_dir = os.path.join(self.logger.log_dir, "ckpt")
@@ -57,6 +50,7 @@ class Trainer():
         self.dataset = Toy2dDataset(
             task=cfg.task,
             scan=cfg.data.scan,
+            prior=cfg.data.prior,
         )
 
         self.agent = SUPPORTED_AGENTS[cfg.algo.name](
@@ -67,7 +61,7 @@ class Trainer():
         )
 
         # Plot dataset once at the beginning if enabled
-        plot_data(self.plot_save_dir, self.cfg.task)
+        plot_data(self.plot_save_dir, self.cfg.task, prior=self.cfg.data.prior)
 
     def plot_and_eval(self, step: int, stage: str):
         """Plot visualizations and compute metrics."""
@@ -77,8 +71,8 @@ class Trainer():
         os.makedirs(savedir, exist_ok=True)
 
         plot_sample(savedir, self.agent)
-        plot_energy(savedir, self.cfg.task, self.agent)
-        metrics = compute_metrics(savedir, self.cfg.task, self.agent)
+        plot_energy(savedir, self.cfg.task, self.agent, prior=self.cfg.data.prior)
+        metrics = compute_metrics(savedir, self.cfg.task, self.agent, prior=self.cfg.data.prior)
         if metrics:
             self.logger.log_scalars(f"{stage}_eval", metrics, step=step)
 

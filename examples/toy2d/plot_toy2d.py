@@ -3,13 +3,17 @@ import os
 
 from omegaconf import OmegaConf
 
-from examples.toy2d.utils import plot_data, plot_sample
+from examples.toy2d.utils import compute_metrics, plot_data, plot_energy, plot_sample
 from flowrl.agent.offline import *
+from flowrl.agent.online import *
 from flowrl.config.toy2d.config import Config
 
 SUPPORTED_AGENTS: dict[str, type[BaseAgent]] = {
     "bdpo": BDPOAgent,
     "dac": DACAgent,
+    "dacer": DACERAgent,
+    "sdac": SDACAgent,
+    "qsm": QSMAgent,
 }
 
 
@@ -108,11 +112,14 @@ def main():
         # Plot samples from actor
         plot_sample(out_dir, agent)
 
-        # Use agent's custom plot_toy2d method if available
-        agent_metrics = agent.plot_toy2d(out_dir, cfg.task)
-        if agent_metrics is not None:
+        # Plot learned value functions
+        plot_energy(out_dir, cfg.task, agent)
+
+        # Compute metrics
+        metrics = compute_metrics(out_dir, cfg.task, agent)
+        if metrics:
             print("Agent metrics:")
-            for key, value in agent_metrics.items():
+            for key, value in metrics.items():
                 print(f"  {key}: {value:.4f}")
 
     print(f"\nAll plots saved to: {out_dir}")

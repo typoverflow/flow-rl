@@ -42,7 +42,7 @@ def jit_sample_actions(
     if not deterministic:
         actions = actions + \
             jax.random.normal(noise_rng, actions.shape) * jnp.exp(log_alpha()) * noise_scaler
-    return rng, actions.clip(-1.0, 1.0)
+    return rng, actions.clip(actor.x_min, actor.x_max)
 
 
 @partial(jax.jit, static_argnames=("discount", "ema", "reward_scale", "update_actor", "noise_scaler"))

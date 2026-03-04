@@ -30,5 +30,6 @@ log:
 data:
   batch_size: 512
   scan: true
+  prior: data
 eval:
   interval: 10000

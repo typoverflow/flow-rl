@@ -25,8 +25,8 @@ algo:
     solver: ddpm
     steps: 50
     clip_sampler: false
-    x_min: -1.0
-    x_max: 1.0
+    x_min: -4.0
+    x_max: 4.0
     lr: 0.0003
     lr_decay_steps: ${train_steps}
     clip_grad_norm: 1.0

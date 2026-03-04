@@ -15,9 +15,9 @@ from flowrl.dataset.toy2d import Toy2dDataset, inf_train_gen
 SAMPLE_GRAPH_SIZE = 2000
 
 
-def energy_sample(task: str, ss: float, sample_per_state: int = 1000):
+def energy_sample(task: str, ss: float, sample_per_state: int = 1000, prior: str = "data"):
     """Sample data with energy-based weighting."""
-    data, e = inf_train_gen(task, batch_size=1000*sample_per_state)
+    data, e = inf_train_gen(task, batch_size=1000*sample_per_state, prior=prior)
     ori_e = e
     e = e * ss
 
@@ -32,7 +32,7 @@ def energy_sample(task: str, ss: float, sample_per_state: int = 1000):
     return data, ori_e
 
 
-def plot_data(out_dir: str, task: str):
+def plot_data(out_dir: str, task: str, prior: str = "data"):
     """Plot the dataset distribution with different temperature (beta) values."""
     plt.figure(figsize=(12, 3.0))
     ss = [0, 3, 10, 20]
@@ -40,7 +40,7 @@ def plot_data(out_dir: str, task: str):
 
     for i, s in enumerate(ss):
         plt.subplot(1, len(ss), i+1)
-        data, e = energy_sample(task, s, sample_per_state=SAMPLE_GRAPH_SIZE)
+        data, e = energy_sample(task, s, sample_per_state=SAMPLE_GRAPH_SIZE, prior=prior)
         plt.gca().set_aspect('equal', adjustable='box')
         plt.xlim(-4.5, 4.5)
         plt.ylim(-4.5, 4.5)
@@ -95,7 +95,7 @@ def plot_sample(out_dir: str, agent: BaseAgent):
     tqdm.write(f"Saved sample plot to {saveto}")
 
 
-def plot_energy(out_dir, task: str, agent: BaseAgent):
+def plot_energy(out_dir, task: str, agent: BaseAgent, prior: str = "data"):
     plt.rc('font', family='Times New Roman', size=16)
 
     x_range = np.linspace(-4.5, 4.5, 90)
@@ -105,7 +105,7 @@ def plot_energy(out_dir, task: str, agent: BaseAgent):
     zero = np.zeros((90*90, 1))
 
     # Get vmin and vmax for color scale
-    data, e = energy_sample(task, 0, sample_per_state=SAMPLE_GRAPH_SIZE)
+    data, e = energy_sample(task, 0, sample_per_state=SAMPLE_GRAPH_SIZE, prior=prior)
     vmin = e.min()
     vmax = e.max()
 
@@ -212,18 +212,60 @@ def plot_energy(out_dir, task: str, agent: BaseAgent):
         plt.close()
         tqdm.write(f"Saved value plot to {saveto}")
 
+    def sdac_qsm_plot():
+        plt.figure(figsize=(5, 3.0))
+        axes = []
+        c = agent.critic(zero, id_matrix).mean(axis=0).reshape(90, 90)
+        plt.gca().set_aspect("equal", adjustable="box")
+        plt.xlim(0, 89)
+        plt.ylim(0, 89)
+        mappable = plt.imshow(c, origin="lower", vmin=vmin, vmax=vmax, cmap="viridis", rasterized=True)
+        plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+
+        axes.append(plt.gca())
+        plt.xticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+        plt.title('Q Value')
+        plt.gcf().colorbar(mappable, ax=axes, fraction=0.1, pad=0.02, aspect=12)
+        plt.gcf().axes[-1].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.1f'))
+        saveto = os.path.join(out_dir, "qt_space.png")
+        plt.savefig(saveto, dpi=300)
+        plt.close()
+        tqdm.write(f"Saved value plot to {saveto}")
+
+    def dacer_plot():
+        plt.figure(figsize=(5, 3.0))
+        axes = []
+        mean, std = agent.critic(zero, id_matrix)
+        c = mean.mean(axis=0).reshape(90, 90)
+        plt.gca().set_aspect("equal", adjustable="box")
+        plt.xlim(0, 89)
+        plt.ylim(0, 89)
+        mappable = plt.imshow(c, origin="lower", vmin=vmin, vmax=vmax, cmap="viridis", rasterized=True)
+        plt.yticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+        axes.append(plt.gca())
+        plt.xticks(ticks=[5, 25, 45, 65, 85], labels=[-4, -2, 0, 2, 4])
+        plt.title('Q Value (mean)')
+        plt.gcf().colorbar(mappable, ax=axes, fraction=0.1, pad=0.02, aspect=12)
+        plt.gcf().axes[-1].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.1f'))
+        saveto = os.path.join(out_dir, "qt_space.png")
+        plt.savefig(saveto, dpi=300)
+        plt.close()
+        tqdm.write(f"Saved value plot to {saveto}")
+
     if isinstance(agent, BDPOAgent):
         bdpo_plot()
     elif isinstance(agent, DACAgent):
         dac_plot()
-    elif isinstance(agent, ACAAgent):
-        aca_plot()
+    elif isinstance(agent, DACERAgent):
+        dacer_plot()
+    elif isinstance(agent, (SDACAgent, QSMAgent)):
+        sdac_qsm_plot()
     else:
         default_plot()
 
 
 
-def compute_metrics(out_dir: str, task: str, agent: BaseAgent):
+def compute_metrics(out_dir: str, task: str, agent: BaseAgent, prior: str = "data"):
     def default_metrics():
         return {}
 
@@ -233,7 +275,7 @@ def compute_metrics(out_dir: str, task: str, agent: BaseAgent):
 
             if from_dataset:
                 # Get values from dataset
-                dataset = Toy2dDataset(task=task, data_size=datanum, scan=False)
+                dataset = Toy2dDataset(task=task, data_size=datanum, scan=False, prior=prior)
                 batch = dataset.sample(batch_size=datanum)
                 values = batch.reward.flatten()
             else:
