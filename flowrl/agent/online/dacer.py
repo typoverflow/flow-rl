@@ -287,6 +287,7 @@ class DACERAgent(BaseAgent):
             clip_sampler=cfg.diffusion.clip_sampler,
             x_min=cfg.diffusion.x_min,
             x_max=cfg.diffusion.x_max,
+            solver=cfg.diffusion.solver,
             t_schedule_n=1.0,
             optimizer=optax.adam(learning_rate=actor_lr),
         )

@@ -18,6 +18,7 @@ class DACERDiffusionConfig:
     clip_sampler: bool
     x_min: float
     x_max: float
+    solver: str
 
 @dataclass
 class DACERConfig(BaseAlgoConfig):

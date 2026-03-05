@@ -28,3 +28,4 @@ algo:
     clip_sampler: true
     x_min: -1.0
     x_max: 1.0
+    solver: ddpm
