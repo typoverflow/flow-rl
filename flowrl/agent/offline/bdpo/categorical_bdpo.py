@@ -479,6 +479,86 @@ def jit_train_step(
     return rng, q0, q0_target, vt, vt_target, actor, actor_target, metrics
     
 
+@partial(jax.jit, static_argnames=("T", "num_samples", "v_min", "v_max", "num_atoms"))
+def jit_compute_statistics(
+    rng: PRNGKey,
+    vt_target: Model,
+    q0_target: Model,
+    actor: DDPM,
+    actor_target: DDPM,
+    behavior_target: DDPM,
+    batch: Batch,
+    T: int,
+    num_samples: int,
+    v_min: float,
+    v_max: float,
+    num_atoms: int,
+) -> Tuple[PRNGKey, Metric]:
+    """Compute per-timestep statistics for debugging and hyperparameter tuning."""
+    alpha_hats = actor_target.alpha_hats
+
+    B = batch.obs.shape[0]
+    t_proto = jnp.ones((*batch.obs.shape[:-1], num_samples, 1), dtype=jnp.int32)
+
+    obs = batch.obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)       # (B, N, obs_dim)
+    x0 = batch.action[..., jnp.newaxis, :].repeat(num_samples, axis=-2)     # (B, N, act_dim)
+
+    tot_metrics = {}
+    for i in range(0, T + 1):
+        rng, eps_key = jax.random.split(rng)
+        eps_sample = jax.random.normal(eps_key, x0.shape, dtype=jnp.float32)
+        t = t_proto * i
+
+        xt = jnp.sqrt(alpha_hats[i]) * x0 + jnp.sqrt(1 - alpha_hats[i]) * eps_sample
+
+        # vt critic values (categorical: logits -> value)
+        vt_logits = vt_target(obs, xt, t)  # (E, B, N, num_atoms)
+        vt_val = logits_to_value(vt_logits, v_min, v_max, num_atoms)  # (B, 1)
+
+        # per-ensemble-member values for std computation
+        atoms = get_atoms(v_min, v_max, num_atoms)
+        probs = jax.nn.softmax(vt_logits, axis=-1)  # (E, B, N, num_atoms)
+        vt_per_member = symexp((probs * atoms).sum(axis=-1, keepdims=True))  # (E, B, N, 1)
+
+        # noise predictions
+        eps_actor = actor(xt, t, condition=obs)
+        eps_actor_target = actor_target(xt, t, condition=obs)
+        eps_behavior_target = behavior_target(xt, t, condition=obs)
+        bc_loss = 0.5 * ((eps_actor - eps_behavior_target) ** 2).sum(axis=-1).mean()
+        bc_target_loss = 0.5 * ((eps_actor_target - eps_behavior_target) ** 2).sum(axis=-1).mean()
+
+        # vt gradient w.r.t. action
+        def vt_fn_single(a, s, t_):
+            logits = vt_target(s, a, t_)  # (E, num_atoms)
+            logits = logits[:, jnp.newaxis, jnp.newaxis, :]  # (E, 1, 1, num_atoms)
+            return logits_to_value(logits, v_min, v_max, num_atoms).squeeze()
+        vt_grad = jax.vmap(jax.grad(vt_fn_single))(
+            xt.reshape(B * num_samples, -1),
+            obs.reshape(B * num_samples, -1),
+            t.reshape(B * num_samples, -1),
+        )
+
+        # q0 gradient w.r.t. action
+        def q0_fn_single(a, s):
+            return q0_target(s, a).mean(axis=0).squeeze()
+        q0_grad = jax.vmap(jax.grad(q0_fn_single))(
+            xt.reshape(B * num_samples, -1),
+            obs.reshape(B * num_samples, -1),
+        )
+
+        tot_metrics.update({
+            f"stats/vt_std_e_{i}": vt_per_member.std(axis=0).mean(),
+            f"stats/vt_std_a_{i}": vt_per_member.mean(axis=0).std(axis=-2).mean(),
+            f"stats/bc_loss_{i}": bc_loss,
+            f"stats/bc_target_loss_{i}": bc_target_loss,
+            f"stats/vt_grad_{i}": jnp.abs(vt_grad).mean(),
+            f"stats/q0_grad_{i}": jnp.abs(q0_grad).mean(),
+            f"stats/vt_mean_{i}": vt_val.mean(),
+        })
+
+    return rng, tot_metrics
+
+
 class CategoricalBDPOAgent(BaseAgent):
     """
     Categorical version of Behavior-Regularized Diffusion Policy Optimization (BDPO)
@@ -675,6 +755,23 @@ class CategoricalBDPOAgent(BaseAgent):
         )
         self._n_pretraining_steps += 1
         return metrics
+
+    def compute_statistics(self, batch: Batch) -> Metric:
+        self.rng, stats = jit_compute_statistics(
+            self.rng,
+            self.vt_target,
+            self.q0_target,
+            self.actor,
+            self.actor_target,
+            self.behavior_target,
+            batch,
+            self.cfg.diffusion.steps,
+            self.cfg.critic.num_samples,
+            self.cfg.critic.v_min,
+            self.cfg.critic.v_max,
+            self.cfg.critic.output_nodes,
+        )
+        return stats
 
     def sample_actions(
         self,
