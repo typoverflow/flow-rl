@@ -2,7 +2,7 @@
 
 algo:
   name: dppo
-  num_envs: 4096
+  num_envs: 1024
   rollout_length: 24
   backbone_cls: mlp
   critic_hidden_dims: [256, 256, 256]
@@ -12,7 +12,6 @@ algo:
   gamma: 0.99
   gae_lambda: 0.95
   gamma_denoising: 0.99
-  # 0.1
   clip_epsilon: 0.2
   clip_epsilon_base: 0.001
   clip_epsilon_rate: 3.0
@@ -20,7 +19,7 @@ algo:
   normalize_advantage: true
   num_minibatches: 4
   num_epochs: 4
-  batch_size: 24576
+  batch_size: 6144
   clip_grad_norm: 1.0
   diffusion:
     hidden_dims: [256, 256, 256]

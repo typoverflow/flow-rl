@@ -2,7 +2,7 @@
 
 algo:
   name: fpo
-  num_envs: 4096
+  num_envs: 1024
   rollout_length: 24
   backbone_cls: mlp
   critic_hidden_dims: [256, 256, 256]
@@ -15,7 +15,7 @@ algo:
   normalize_advantage: true
   num_minibatches: 4
   num_epochs: 4
-  batch_size: 24576
+  batch_size: 6144
   clip_grad_norm: 1.0
   additive_noise: 0.1
   num_mc_samples: 8

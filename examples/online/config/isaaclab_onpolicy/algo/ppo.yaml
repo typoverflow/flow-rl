@@ -2,7 +2,7 @@
 
 algo:
   name: ppo
-  num_envs: 4096
+  num_envs: 1024
   rollout_length: 24
   backbone_cls: mlp
   actor_hidden_dims: [256, 256, 256]
@@ -18,5 +18,7 @@ algo:
   normalize_advantage: true
   num_minibatches: 4
   num_epochs: 4
-  batch_size: 24576
+  batch_size: 6144
   clip_grad_norm: 1.0
+
+train_frames: 100_000_000
