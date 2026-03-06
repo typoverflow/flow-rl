@@ -17,9 +17,9 @@ algo:
   eta: 1.0
   grad_norm: 1.0
   lr: 0.0003
-  lr_decay_steps: ${train_steps}
+  lr_decay_steps: null
   diffusion:
-    noise_schedule: linear
+    noise_schedule: vp
     time_dim: 64
     hidden_dims: [256, 256, 256]
     solver: ddpm
