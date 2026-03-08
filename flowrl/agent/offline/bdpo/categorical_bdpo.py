@@ -7,15 +7,16 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.config.offline.algo.bdpo import (
-    BDPOConfig,
+from flowrl.config.offline.algo.categorical_bdpo import (
+    CategoricalBDPOConfig,
     BDPODiffusionConfig,
     BDPODiffusionTrainConfig,
 )
 from flowrl.flow.ddpm import DDPM, DDPMBackbone, jit_update_ddpm
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
-from flowrl.module.critic import Ensemblize, ScalarCritic, ScalarCriticWithDiscreteTime
+from flowrl.functional.math import symlog, symexp
+from flowrl.module.critic import CategoricalCriticWithDiscreteTime, Ensemblize, ScalarCritic
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
@@ -23,7 +24,6 @@ from flowrl.types import *
 
 EPS = 1e-6
 
-@partial(jax.jit, static_argnames=("maxQ", "q_target", "rho"))
 def get_target(rng: PRNGKey, vs: jnp.ndarray, maxQ: bool, q_target: str, rho: float) -> Tuple[PRNGKey, jnp.ndarray]:
     # vs is of shape (E, B, N, 1)
     if maxQ:
@@ -45,7 +45,6 @@ def get_target(rng: PRNGKey, vs: jnp.ndarray, maxQ: bool, q_target: str, rho: fl
         raise NotImplementedError(f"Unrecognized Q-target type: {q_target}. ")
     return rng, vs
 
-@partial(jax.jit, static_argnames=("T"))
 def get_penalty(
     actor_eps,
     behavior_eps,
@@ -57,6 +56,83 @@ def get_penalty(
 ) -> jnp.ndarray:
     return 0.5 * betas[t] * ((actor_eps - behavior_eps)**2) / (1 - betas[t]) / (1 - alpha_hats[t])
 
+def get_atoms(v_min: float, v_max: float, num_atoms: int) -> jnp.ndarray:
+    """Get support atoms (pre-transformation) for categorical distribution."""
+    return jnp.linspace(v_min, v_max, num_atoms)
+
+def logits_to_value(
+    logits: jnp.ndarray,
+    v_min: float,
+    v_max: float,
+    num_atoms: int
+) -> jnp.ndarray:
+    """Expected value (post-transformation) from categorical logits.
+
+    Args:
+        logits: raw logits, shape (E, B, N, num_atoms)
+        v_min: minimum support value
+        v_max: maximum support value
+        num_atoms: number of atoms in the categorical distribution
+    Returns:
+        expected value, shape (B, 1)
+    """
+    # The computation proceeds in the following order:
+    #   1. softmax over atoms
+    #   2. mean over ensemble members
+    #   3. compute expected value
+    #   4. mean over num_q_samples dimension
+    #   5. symexp
+    # Steps 1, 2, and 3 are in the correct relative order, consistent with BRC.
+    # Discussion or the order: https://github.com/typoverflow/flow-rl/pull/25#discussion_r2839940571
+    E, B, N, _ = logits.shape # assertion for the shape of logits, will raise an error if the shape is not as expected
+    atoms = get_atoms(v_min, v_max, num_atoms) # (num_atoms,)
+    probs = jax.nn.softmax(logits, axis=-1).mean(axis=0) # (B, N, num_atoms)
+    value =  (probs * atoms).sum(axis=-1, keepdims=True) # (B, N, 1)
+    value = value.mean(axis=1) # (B, 1)
+    value = symexp(value) # (B, 1)
+    return value
+
+def categorical_project(
+    target_values: jnp.ndarray,
+    v_min: float,
+    v_max: float,
+    num_atoms: int
+) -> Tuple[jnp.ndarray, Metric]:
+    """C51-style projection: scalar targets (original-space) → categorical distribution.
+
+    Args:
+        target_values: shape (*B, 1)
+        v_min: minimum support value
+        v_max: maximum support value
+        num_atoms: number of atoms in the categorical distribution
+    Returns:
+        target distribution, shape (*B, num_atoms)
+        metrics dict with pre-clip statistics (keys: pre_clip_max, pre_clip_min,
+            pre_clip_mean, clip_ratio; all computed in the transformed/symlog space)
+    """
+    delta_z = (v_max - v_min) / (num_atoms - 1)
+
+    symlog_values = symlog(target_values)
+    clip_ratio = ((symlog_values < v_min) | (symlog_values > v_max)).mean()
+    metrics = {
+        "pre_clip_max": symlog_values.max(),
+        "pre_clip_min": symlog_values.min(),
+        "pre_clip_mean": symlog_values.mean(),
+        "clip_ratio": clip_ratio,
+    }
+
+    clipped = jnp.clip(symlog_values, v_min, v_max)
+    b = (clipped - v_min) / delta_z # (*B, 1)
+    l = jnp.floor(b).astype(jnp.int32) # (*B, 1)
+    u = jnp.ceil(b).astype(jnp.int32) # (*B, 1)
+
+    d_u = (b - l.astype(jnp.float32)) # (*B, 1)
+    d_l = 1.0 - d_u # (*B, 1)
+
+    probs = (d_l * jax.nn.one_hot(l.squeeze(-1), num_atoms)
+           + d_u * jax.nn.one_hot(u.squeeze(-1), num_atoms))
+    return probs, metrics
+
 @partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temperature"))
 def jit_sample_and_select(
     rng: PRNGKey,
@@ -67,7 +143,7 @@ def jit_sample_and_select(
     num_samples: int,
     solver: str,
     temperature: float,
-) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+) -> Tuple[PRNGKey, jnp.ndarray]:
     B = obs.shape[0]
     rng, xT_rng = jax.random.split(rng)
 
@@ -107,8 +183,7 @@ def jit_update_behavior(
         new_behavior_target = behavior_target
     return rng, new_behavior, new_behavior_target, metrics
 
-@partial(jax.jit, static_argnames=("T", "discount", "eta", "rho", "num_q_samples", "q_target", "maxQ", "solver", "ema", "do_ema_update"))
-def jit_update_critic(
+def update_critic(
     rng: PRNGKey,
     q0: Model,
     q0_target: Model,
@@ -117,6 +192,9 @@ def jit_update_critic(
     actor_target: DDPM,
     behavior_target: DDPM,
     batch: Batch,
+    v_min: float,
+    v_max: float,
+    num_atoms: int,
     T: int,
     discount: float,
     eta: float,
@@ -139,7 +217,7 @@ def jit_update_critic(
     # q0 target
     next_obs_repeat = batch.next_obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
     xT = jax.random.normal(xT_rng, (*next_obs_repeat.shape[:-1], A))
-    rng, next_action, history = actor_target.sample(
+    rng, next_action, _ = actor_target.sample(
         rng,
         xT,
         next_obs_repeat,
@@ -152,18 +230,7 @@ def jit_update_critic(
     )
     rng, q0_target_value = get_target(rng, q0_target_value, maxQ, q_target, rho)
 
-    q0_xt, q0_actor_eps = history
-    q0_t = jnp.arange(T, 0, -1).repeat(B*num_q_samples, axis=0).reshape(T, B, num_q_samples, 1)
-    q0_behavior_eps = behavior_target(
-        q0_xt,
-        q0_t,
-        next_obs_repeat[jnp.newaxis, ...].repeat(T, axis=0),
-    )
-    q0_penalty = get_penalty(q0_actor_eps, q0_behavior_eps, q0_t, T, alphas, alpha_hats, betas)
-    q0_penalty = q0_penalty.sum(axis=0).mean(axis=-2).sum(axis=-1, keepdims=True)
-
-    q0_target_value = q0_target_value - eta * q0_penalty
-    q0_target_value = batch.reward + discount * (1-batch.terminal) * q0_target_value
+    q0_target_value = batch.reward + discount * (1-batch.terminal) * q0_target_value # (B, 1)
 
     # vt target
     obs_repeat = batch.obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
@@ -181,8 +248,8 @@ def jit_update_critic(
         obs_repeat,
         rep_xt_1,
         rep_t_1
-    ) # (E, B, N, 1)
-    rng, vt_target_value1 = get_target(rng, vt_target_value1, False, q_target, rho)
+    ) # (E, B, N, num_atoms)
+    vt_target_value1 = logits_to_value(vt_target_value1, v_min, v_max, num_atoms) # (B, 1)
     vt_target_value2 = q0_target(
         obs_repeat,
         rep_xt_1
@@ -194,19 +261,19 @@ def jit_update_critic(
     vt_behavior_eps = behavior_target(xt, t, batch.obs)
     vt_penalty = get_penalty(vt_actor_eps, vt_behavior_eps, t, T, alphas, alpha_hats, betas)
 
-    vt_target_value = vt_target_value - eta * vt_penalty.sum(axis=-1, keepdims=True)
+    vt_target_value = vt_target_value - eta * vt_penalty.sum(axis=-1, keepdims=True) # (B, 1)
+    vt_target_probs, vt_proj_metrics = categorical_project(vt_target_value, v_min, v_max, num_atoms) # (B, num_atoms)
 
     def q0_loss_fn(q0_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
         pred = q0.apply(
             {"params": q0_params},
             batch.obs,
             batch.action
-        )
+        ) # (E, B, 1)
         loss = ((pred - q0_target_value[jnp.newaxis, :])**2).mean()
         return loss, {
             "loss/q0_loss": loss,
             "misc/q0_mean": pred.mean(),
-            "misc/q0_penalty": q0_penalty.mean(),
             "misc/reward": batch.reward.mean(),
         }
     def vt_loss_fn(vt_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
@@ -215,13 +282,21 @@ def jit_update_critic(
             batch.obs,
             xt,
             t
-        )
-        loss = ((pred - vt_target_value[jnp.newaxis, :])**2).mean()
+        ) # (E, B, num_atoms)
+        # sum over atoms (cross-entropy loss) → mean over batch → mean over ensemble members → scalar
+        log_probs = jax.nn.log_softmax(pred, axis=-1)
+        loss = -(vt_target_probs[jnp.newaxis, :] * log_probs).sum(axis=-1).mean()
+        E, B, _ = pred.shape
+        vt_value = logits_to_value(pred.reshape(E, B, 1, num_atoms), v_min, v_max, num_atoms) # (B, 1)
         return loss, {
             "loss/vt_loss": loss,
-            "misc/vt_mean": pred.mean(),
-            "misc/vt_std": pred.std(axis=0).mean(),
+            "misc/vt_mean": vt_value.mean(),
+            "misc/vt_logits_std": jax.nn.softmax(pred, axis=-1).std(axis=0).mean(),
             "misc/vt_penalty": vt_penalty.mean(),
+            "misc/vt_target_symlog_max": vt_proj_metrics["pre_clip_max"],
+            "misc/vt_target_symlog_min": vt_proj_metrics["pre_clip_min"],
+            "misc/vt_target_symlog_mean": vt_proj_metrics["pre_clip_mean"],
+            "misc/vt_target_clip_ratio": vt_proj_metrics["clip_ratio"],
         }
     new_q0, q0_metrics = q0.apply_gradient(q0_loss_fn)
     new_vt, vt_metrics = vt.apply_gradient(vt_loss_fn)
@@ -236,8 +311,7 @@ def jit_update_critic(
         **vt_metrics
     }
 
-@partial(jax.jit, static_argnames=("T", "eta", "rho", "num_q_samples", "q_target", "maxQ", "solver", "ema", "do_ema_update"))
-def jit_update_actor(
+def update_actor(
     rng: PRNGKey,
     actor: DDPM,
     actor_target: DDPM,
@@ -245,18 +319,18 @@ def jit_update_actor(
     q0_target: Model,
     vt_target: Model,
     batch: Batch,
+    v_min: float,
+    v_max: float,
+    num_atoms: int,
     T: int,
     eta,
     rho: float,
     num_q_samples: int,
     q_target: str,
-    maxQ: bool,
     solver: str,
     ema: float,
     do_ema_update: bool,
 ) -> Tuple[PRNGKey, Model, Model, Metric]:
-    B = batch.obs.shape[0]
-    A = batch.action.shape[-1]
     alphas = actor.alphas
     alpha_hats = actor.alpha_hats
     betas = actor.betas
@@ -280,8 +354,8 @@ def jit_update_actor(
             obs_repeat,
             rep_xt_1,
             rep_t_1
-        )
-        sample_rng_, target_1 = get_target(sample_rng_, target_1, False, q_target, rho=rho)
+        ) # (E, B, N, num_atoms)
+        target_1 = logits_to_value(target_1, v_min, v_max, num_atoms) # (B, 1)
         target_2 = q0_target(
             obs_repeat,
             rep_xt_1
@@ -306,8 +380,106 @@ def jit_update_actor(
     metrics["misc/eta"] = eta
     return rng, new_actor, new_actor_target, metrics
 
+@partial(jax.jit, static_argnames=(
+    "do_actor_update",
+    "v_min",
+    "v_max",
+    "num_atoms",
+    "diffusion_steps",
+    "discount",
+    "eta",
+    "rho",
+    "num_q_samples",
+    "q_target",
+    "maxQ",
+    "solver",
+    "critic_ema",
+    "do_critic_ema_update",
+    "actor_ema",
+    "do_actor_ema_update",
+))
+def jit_train_step(
+    rng: PRNGKey,
+    # models
+    q0: Model,
+    q0_target: Model,
+    vt: Model,
+    vt_target: Model,
+    actor: DDPM,
+    actor_target: DDPM,
+    behavior_target: DDPM,
+    batch: Batch,
+    do_actor_update: bool,
+    # categorical parameters
+    v_min: float,
+    v_max: float,
+    num_atoms: int,
+    # other hyperparameters
+    diffusion_steps: int,
+    discount: float,
+    eta: float,
+    rho: float,
+    num_q_samples: int,
+    q_target: str,
+    maxQ: bool,
+    solver: str,
+    # ema update
+    critic_ema: float,
+    do_critic_ema_update: bool,
+    actor_ema: float,
+    do_actor_ema_update: bool,
+):
+    metrics = {}
+    rng, q0, q0_target, vt, vt_target, critic_metrics = update_critic(
+        rng=rng,
+        q0=q0,
+        q0_target=q0_target,
+        vt=vt,
+        vt_target=vt_target,
+        actor_target=actor_target,
+        behavior_target=behavior_target,
+        batch=batch,
+        v_min=v_min,
+        v_max=v_max,
+        num_atoms=num_atoms,
+        T=diffusion_steps,
+        discount=discount,
+        eta=eta,
+        rho=rho,
+        num_q_samples=num_q_samples,
+        q_target=q_target,
+        maxQ=maxQ,
+        solver=solver,
+        ema=critic_ema,
+        do_ema_update=do_critic_ema_update,
+    )
+    metrics.update(critic_metrics)
+    if do_actor_update:
+        rng, actor, actor_target, actor_metrics = update_actor(
+            rng=rng,
+            actor=actor,
+            actor_target=actor_target,
+            behavior_target=behavior_target,
+            q0_target=q0_target,
+            vt_target=vt_target,
+            batch=batch,
+            v_min=v_min,
+            v_max=v_max,
+            num_atoms=num_atoms,
+            T=diffusion_steps,
+            eta=eta,
+            rho=rho,
+            num_q_samples=num_q_samples,
+            q_target=q_target,
+            solver=solver,
+            ema=actor_ema,
+            do_ema_update=do_actor_ema_update,
+        )
+        metrics.update(actor_metrics)
+    return rng, q0, q0_target, vt, vt_target, actor, actor_target, metrics
+    
 
-@partial(jax.jit, static_argnames=("T", "num_samples"))
+@partial(jax.jit, static_argnames=("T", "num_samples", "v_min", "v_max", "num_atoms"))
 def jit_compute_statistics(
     rng: PRNGKey,
     vt_target: Model,
@@ -318,6 +490,9 @@ def jit_compute_statistics(
     batch: Batch,
     T: int,
     num_samples: int,
+    v_min: float,
+    v_max: float,
+    num_atoms: int,
 ) -> Tuple[PRNGKey, Metric]:
     """Compute per-timestep statistics for debugging and hyperparameter tuning."""
     alpha_hats = actor_target.alpha_hats
@@ -336,8 +511,14 @@ def jit_compute_statistics(
 
         xt = jnp.sqrt(alpha_hats[i]) * x0 + jnp.sqrt(1 - alpha_hats[i]) * eps_sample
 
-        # vt critic values
-        vt_val = vt_target(obs, xt, t)  # (E, B, N, 1)
+        # vt critic values (categorical: logits -> value)
+        vt_logits = vt_target(obs, xt, t)  # (E, B, N, num_atoms)
+        vt_val = logits_to_value(vt_logits, v_min, v_max, num_atoms)  # (B, 1)
+
+        # per-ensemble-member values for std computation
+        atoms = get_atoms(v_min, v_max, num_atoms)
+        probs = jax.nn.softmax(vt_logits, axis=-1)  # (E, B, N, num_atoms)
+        vt_per_member = symexp((probs * atoms).sum(axis=-1, keepdims=True))  # (E, B, N, 1)
 
         # noise predictions
         eps_actor = actor(xt, t, condition=obs)
@@ -348,7 +529,9 @@ def jit_compute_statistics(
 
         # vt gradient w.r.t. action
         def vt_fn_single(a, s, t_):
-            return vt_target(s, a, t_).mean(axis=0).squeeze()
+            logits = vt_target(s, a, t_)  # (E, num_atoms)
+            logits = logits[:, jnp.newaxis, jnp.newaxis, :]  # (E, 1, 1, num_atoms)
+            return logits_to_value(logits, v_min, v_max, num_atoms).squeeze()
         vt_grad = jax.vmap(jax.grad(vt_fn_single))(
             xt.reshape(B * num_samples, -1),
             obs.reshape(B * num_samples, -1),
@@ -364,8 +547,8 @@ def jit_compute_statistics(
         )
 
         tot_metrics.update({
-            f"stats/vt_std_e_{i}": vt_val.std(axis=0).mean(),
-            f"stats/vt_std_a_{i}": vt_val.mean(axis=0).std(axis=-2).mean(),
+            f"stats/vt_std_e_{i}": vt_per_member.std(axis=0).mean(),
+            f"stats/vt_std_a_{i}": vt_per_member.mean(axis=0).std(axis=-2).mean(),
             f"stats/bc_loss_{i}": bc_loss,
             f"stats/bc_target_loss_{i}": bc_target_loss,
             f"stats/vt_grad_{i}": jnp.abs(vt_grad).mean(),
@@ -376,15 +559,15 @@ def jit_compute_statistics(
     return rng, tot_metrics
 
 
-class BDPOAgent(BaseAgent):
+class CategoricalBDPOAgent(BaseAgent):
     """
-    Behavior-Regularized Diffusion Policy Optimization (BDPO)
+    Categorical version of Behavior-Regularized Diffusion Policy Optimization (BDPO)
     https://arxiv.org/abs/2502.04778
     """
-    name = "BDPOAgent"
+    name = "CategoricalBDPOAgent"
     model_names = ["behavior", "behavior_target", "actor", "actor_target", "q0", "q0_target", "vt", "vt_target"]
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: BDPOConfig, seed: int):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: CategoricalBDPOConfig, seed: int):
         super().__init__(obs_dim, act_dim, cfg, seed)
         self.cfg = cfg
         self.rng, behavior_rng, actor_rng, q0_rng, vt_rng = jax.random.split(self.rng, 5)
@@ -455,6 +638,9 @@ class BDPOAgent(BaseAgent):
         if cfg.critic.lr_decay_steps is not None:
             q0_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
             vt_lr = optax.cosine_decay_schedule(cfg.critic.lr, cfg.critic.lr_decay_steps)
+        else:
+            q0_lr = cfg.critic.lr
+            vt_lr = cfg.critic.lr
         q0_def = Ensemblize(
             base=ScalarCritic(
                 backbone=MLP(
@@ -466,13 +652,14 @@ class BDPOAgent(BaseAgent):
             ensemble_size=cfg.critic.ensemble_size,
         )
         vt_def = Ensemblize(
-            base=ScalarCriticWithDiscreteTime(
+            base=CategoricalCriticWithDiscreteTime(
                 backbone=MLP(
                     hidden_dims=cfg.critic.hidden_dims,
                     activation=mish,
                     layer_norm=True,
                 ),
                 time_embedding=time_embedding,
+                output_nodes=cfg.critic.output_nodes,
             ),
             ensemble_size=cfg.critic.ensemble_size,
         )
@@ -519,59 +706,41 @@ class BDPOAgent(BaseAgent):
         self._is_pretraining = False
 
     def train_step(self, batch: Batch, step: int) -> Metric:
-        metrics = {}
-        self.rng, self.q0, self.q0_target, self.vt, self.vt_target, critic_metrics = jit_update_critic(
-            self.rng,
-            self.q0,
-            self.q0_target,
-            self.vt,
-            self.vt_target,
-            self.actor_target,
-            self.behavior_target,
-            batch,
-            self.cfg.diffusion.steps,
-            self.cfg.critic.discount,
-            self.cfg.critic.eta,
-            self.cfg.critic.rho,
-            self.cfg.critic.num_samples,
-            self.cfg.critic.q_target,
-            self.cfg.critic.maxQ,
-            self.cfg.critic.solver,
-            self.cfg.critic.ema,
-            self._n_training_steps % self.cfg.critic.ema_every == 0
+        do_actor_update = (self._n_training_steps >= self.warmup_steps)\
+            and (self._n_training_steps % self.cfg.critic.update_ratio == 0)
+        do_critic_ema_update = self._n_training_steps % self.cfg.critic.ema_every == 0
+        if do_actor_update:
+            actor_step = self._n_training_steps // self.cfg.critic.update_ratio
+            do_actor_ema_update = actor_step % self.cfg.diffusion.actor.ema_every == 0
+        else:
+            do_actor_ema_update = False
+        self.rng, self.q0, self.q0_target, self.vt, self.vt_target, self.actor, self.actor_target, metrics = jit_train_step(
+            rng=self.rng,
+            q0=self.q0,
+            q0_target=self.q0_target,
+            vt=self.vt,
+            vt_target=self.vt_target,
+            actor=self.actor,
+            actor_target=self.actor_target,
+            behavior_target=self.behavior_target,
+            batch=batch,
+            do_actor_update=do_actor_update,
+            v_min=self.cfg.critic.v_min,
+            v_max=self.cfg.critic.v_max,
+            num_atoms=self.cfg.critic.output_nodes,
+            diffusion_steps=self.cfg.diffusion.steps,
+            discount=self.cfg.critic.discount,
+            eta=self.cfg.critic.eta,
+            rho=self.cfg.critic.rho,
+            num_q_samples=self.cfg.critic.num_samples,
+            q_target=self.cfg.critic.q_target,
+            maxQ=self.cfg.critic.maxQ,
+            solver=self.cfg.critic.solver,
+            critic_ema=self.cfg.critic.ema,
+            do_critic_ema_update=do_critic_ema_update,
+            actor_ema=self.cfg.diffusion.actor.ema,
+            do_actor_ema_update=do_actor_ema_update,
         )
-        metrics.update(critic_metrics)
-
-        if self._n_training_steps >= self.warmup_steps\
-            and self._n_training_steps % self.cfg.critic.update_ratio == 0:
-            self.rng, self.actor, self.actor_target, actor_metrics = jit_update_actor(
-                self.rng,
-                self.actor,
-                self.actor_target,
-                self.behavior_target,
-                self.q0_target,
-                self.vt_target,
-                batch,
-                self.cfg.diffusion.steps,
-                self.cfg.critic.eta,
-                self.cfg.critic.rho,
-                self.cfg.critic.num_samples,
-                self.cfg.critic.q_target,
-                self.cfg.critic.maxQ,
-                self.cfg.critic.solver,
-                self.cfg.diffusion.actor.ema,
-                self._n_training_steps % self.cfg.diffusion.actor.ema_every == 0
-            )
-            self.rng, self.behavior, self.behavior_target, behavior_metrics = jit_update_behavior(
-                self.rng,
-                self.behavior,
-                self.behavior_target,
-                batch,
-                self.cfg.diffusion.behavior.ema,
-                self._n_pretraining_steps % self.cfg.diffusion.behavior.ema_every == 0
-            )
-            metrics.update(actor_metrics)
-            metrics.update(behavior_metrics)
         self._n_training_steps += 1
         return metrics
 
@@ -598,6 +767,9 @@ class BDPOAgent(BaseAgent):
             batch,
             self.cfg.diffusion.steps,
             self.cfg.critic.num_samples,
+            self.cfg.critic.v_min,
+            self.cfg.critic.v_max,
+            self.cfg.critic.output_nodes,
         )
         return stats
 
