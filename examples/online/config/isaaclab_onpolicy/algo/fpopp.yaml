@@ -1,7 +1,7 @@
 # @package _global_
 
 algo:
-  name: fpo
+  name: fpopp
   num_envs: 1024
   rollout_length: 24
   backbone_cls: mlp
@@ -18,16 +18,20 @@ algo:
   batch_size: 6144
   clip_grad_norm: 1.0
   additive_noise: 0.1
-  num_mc_samples: 8
+  num_mc_samples: 16
+  cfm_loss_clamp: -1.0
+  cfm_loss_clamp_negative_advantages_max: 20.0
+  cfm_diff_clamp_max: 5.0
+  advantage_clamp: 100.0
   flow:
     activation: silu
     hidden_dims: [256, 256, 256]
     time_dim: 16
-    steps: 10
+    steps: 64
     clip_sampler: true
     lr: 0.0001
     x_min: -1.0
     x_max: 1.0
-    output_scale: 0.25
+    output_scale: 1.0
 
 train_frames: 100_000_000
