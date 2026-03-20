@@ -34,15 +34,13 @@ class BDPODiffusionConfig():
 @dataclass
 class BDPOCriticConfig():
     discount: float
-    q_target: str
-    maxQ: bool
     ensemble_size: int
-    rho: float
     eta: float
     hidden_dims: List[int]
     output_nodes: int
     v_min: float
     v_max: float
+    symexp_before_mean: bool  # if True: symexp per sample then mean over N; if False: mean over N then symexp (Jensen bias but more stable)
 
     lr: float
     lr_decay_steps: int

@@ -36,7 +36,6 @@ SHARED_ARGS=(
 
 ANTMAZE_ARGS=(
     "algo.critic.layer_norm=true"
-    "algo.critic.maxQ=true"
     "algo.critic.discount=0.995"
     "data.norm_reward=antmaze100"
     "eval.num_episodes=100"
@@ -46,22 +45,22 @@ ANTMAZE_ARGS=(
 
 declare -A TASK_ARGS
 TASK_ARGS=(
-    ["halfcheetah-medium-v2"]="algo.critic.eta=0.05 algo.critic.rho=0.5"
-    ["halfcheetah-medium-replay-v2"]="algo.critic.eta=0.05 algo.critic.rho=0.5"
-    ["halfcheetah-medium-expert-v2"]="algo.critic.eta=0.05 algo.critic.rho=0.5"
-    ["hopper-medium-v2"]="algo.critic.eta=0.2 algo.critic.rho=2.0 algo.critic.ensemble_size=20"
-    ["hopper-medium-replay-v2"]="algo.critic.eta=0.2 algo.critic.rho=2.0"
-    ["hopper-medium-expert-v2"]="algo.critic.eta=0.2 algo.critic.rho=2.0"
-    ["walker2d-medium-v2"]="algo.critic.eta=0.15 algo.critic.rho=1.0"
-    ["walker2d-medium-replay-v2"]="algo.critic.eta=0.15 algo.critic.rho=1.0"
-    ["walker2d-medium-expert-v2"]="algo.critic.eta=0.15 algo.critic.rho=1.0"
+    ["halfcheetah-medium-v2"]="algo.critic.eta=0.05"
+    ["halfcheetah-medium-replay-v2"]="algo.critic.eta=0.05"
+    ["halfcheetah-medium-expert-v2"]="algo.critic.eta=0.05"
+    ["hopper-medium-v2"]="algo.critic.eta=0.2 algo.critic.ensemble_size=20"
+    ["hopper-medium-replay-v2"]="algo.critic.eta=0.2"
+    ["hopper-medium-expert-v2"]="algo.critic.eta=0.2"
+    ["walker2d-medium-v2"]="algo.critic.eta=0.15"
+    ["walker2d-medium-replay-v2"]="algo.critic.eta=0.15"
+    ["walker2d-medium-expert-v2"]="algo.critic.eta=0.15"
     # antmaze
-    ["antmaze-umaze-v0"]="algo.critic.eta=0.5 algo.critic.rho=0.8 ${ANTMAZE_ARGS[@]}"
-    ["antmaze-umaze-diverse-v0"]="algo.temperature=null algo.critic.eta=0.5 algo.critic.rho=0.8 ${ANTMAZE_ARGS[@]}"
-    ["antmaze-medium-play-v0"]="algo.critic.eta=0.2 algo.critic.rho=0.8 ${ANTMAZE_ARGS[@]}"
-    ["antmaze-medium-diverse-v0"]="algo.critic.eta=0.2 algo.critic.rho=0.8 ${ANTMAZE_ARGS[@]}"
-    ["antmaze-large-play-v0"]="algo.critic.eta=1.0 algo.critic.rho=0.8 ${ANTMAZE_ARGS[@]}"
-    ["antmaze-large-diverse-v0"]="algo.critic.eta=1.0 algo.critic.rho=0.8 ${ANTMAZE_ARGS[@]}"
+    ["antmaze-umaze-v0"]="algo.critic.eta=0.5 ${ANTMAZE_ARGS[@]}"
+    ["antmaze-umaze-diverse-v0"]="algo.temperature=null algo.critic.eta=0.5 ${ANTMAZE_ARGS[@]}"
+    ["antmaze-medium-play-v0"]="algo.critic.eta=0.2 ${ANTMAZE_ARGS[@]}"
+    ["antmaze-medium-diverse-v0"]="algo.critic.eta=0.2 ${ANTMAZE_ARGS[@]}"
+    ["antmaze-large-play-v0"]="algo.critic.eta=1.0 ${ANTMAZE_ARGS[@]}"
+    ["antmaze-large-diverse-v0"]="algo.critic.eta=1.0 ${ANTMAZE_ARGS[@]}"
 )
 
 

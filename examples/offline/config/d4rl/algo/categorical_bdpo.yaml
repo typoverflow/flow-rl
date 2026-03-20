@@ -42,15 +42,13 @@ algo:
     x_max: 1.0
   critic:
     discount: 0.99
-    q_target: lcb
-    maxQ: false
     ensemble_size: 10
-    rho: 0.0
     eta: 1.0
     hidden_dims: [256, 256, 256]
     output_nodes: 101
     v_min: -10.0
     v_max: 10.0
+    symexp_before_mean: false
     lr: 0.0003
     lr_decay_steps: ${train_steps}
     clip_grad_norm: 1.0

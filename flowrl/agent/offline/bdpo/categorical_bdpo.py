@@ -16,34 +16,13 @@ from flowrl.flow.ddpm import DDPM, DDPMBackbone, jit_update_ddpm
 from flowrl.functional.activation import mish
 from flowrl.functional.ema import ema_update
 from flowrl.functional.math import symlog, symexp
-from flowrl.module.critic import CategoricalCriticWithDiscreteTime, Ensemblize, ScalarCritic
+from flowrl.module.critic import CategoricalCritic, CategoricalCriticWithDiscreteTime, Ensemblize
 from flowrl.module.mlp import MLP, ResidualMLP
 from flowrl.module.model import Model
 from flowrl.module.time_embedding import PositionalEmbedding
 from flowrl.types import *
 
 EPS = 1e-6
-
-def get_target(rng: PRNGKey, vs: jnp.ndarray, maxQ: bool, q_target: str, rho: float) -> Tuple[PRNGKey, jnp.ndarray]:
-    # vs is of shape (E, B, N, 1)
-    if maxQ:
-        vs = vs.max(axis=-2)
-    else:
-        vs = vs.mean(axis=-2)
-    if q_target == "min":
-        vs = vs.min(axis=0)
-    elif q_target == "convex":
-        vs = rho * vs.min(axis=0) + (1-rho) * vs.max(axis=0)
-    elif q_target == "lcb":
-        vs = vs.mean(axis=0) - rho * vs.std(axis=0)
-    elif q_target == "rand_convex":
-        rng, alpha_key = jax.random.split(rng)
-        alphas = jax.random.uniform(alpha_key, vs.shape)
-        alphas /= (alphas.sum(axis=0, keepdims=True) + EPS)
-        vs = (vs * alphas).sum(axis=0)
-    else:
-        raise NotImplementedError(f"Unrecognized Q-target type: {q_target}. ")
-    return rng, vs
 
 def get_penalty(
     actor_eps,
@@ -64,7 +43,8 @@ def logits_to_value(
     logits: jnp.ndarray,
     v_min: float,
     v_max: float,
-    num_atoms: int
+    num_atoms: int,
+    symexp_before_mean: bool,
 ) -> jnp.ndarray:
     """Expected value (post-transformation) from categorical logits.
 
@@ -73,6 +53,10 @@ def logits_to_value(
         v_min: minimum support value
         v_max: maximum support value
         num_atoms: number of atoms in the categorical distribution
+        symexp_before_mean: if True, apply symexp per sample before averaging over N
+            (consistent with per-sample action selection; unbiased mean in original space);
+            if False, average over N in symlog space then apply symexp once
+            (biased by Jensen's inequality but potentially more stable).
     Returns:
         expected value, shape (B, 1)
     """
@@ -87,9 +71,11 @@ def logits_to_value(
     E, B, N, _ = logits.shape # assertion for the shape of logits, will raise an error if the shape is not as expected
     atoms = get_atoms(v_min, v_max, num_atoms) # (num_atoms,)
     probs = jax.nn.softmax(logits, axis=-1).mean(axis=0) # (B, N, num_atoms)
-    value =  (probs * atoms).sum(axis=-1, keepdims=True) # (B, N, 1)
-    value = value.mean(axis=1) # (B, 1)
-    value = symexp(value) # (B, 1)
+    value = (probs * atoms).sum(axis=-1, keepdims=True) # (B, N, 1), in symlog space
+    if symexp_before_mean:
+        value = symexp(value).mean(axis=1) # symexp per sample, then mean → (B, 1)
+    else:
+        value = symexp(value.mean(axis=1)) # mean in symlog space, then symexp → (B, 1)
     return value
 
 def categorical_project(
@@ -133,7 +119,7 @@ def categorical_project(
            + d_u * jax.nn.one_hot(u.squeeze(-1), num_atoms))
     return probs, metrics
 
-@partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temperature"))
+@partial(jax.jit, static_argnames=("training", "num_samples", "solver", "temperature", "v_min", "v_max", "num_atoms"))
 def jit_sample_and_select(
     rng: PRNGKey,
     model: DDPM,
@@ -143,6 +129,9 @@ def jit_sample_and_select(
     num_samples: int,
     solver: str,
     temperature: float,
+    v_min: float,
+    v_max: float,
+    num_atoms: int,
 ) -> Tuple[PRNGKey, jnp.ndarray]:
     B = obs.shape[0]
     rng, xT_rng = jax.random.split(rng)
@@ -154,11 +143,13 @@ def jit_sample_and_select(
     if temperature is None:
         return rng, actions[:, 0]
     else:
-        qs = q0(
+        qs_logits = q0(
             obs_repeat,
             actions,
-        )
-        qs = qs.mean(axis=0).reshape(B, num_samples)
+        ) # (E, B, num_samples, num_atoms)
+        atoms = get_atoms(v_min, v_max, num_atoms)
+        probs = jax.nn.softmax(qs_logits, axis=-1).mean(axis=0) # (B, num_samples, num_atoms)
+        qs = symexp((probs * atoms).sum(axis=-1)) # (B, num_samples)
         if temperature <= 0.0:
             idx = qs.argmax(axis=-1)
         else:
@@ -198,13 +189,11 @@ def update_critic(
     T: int,
     discount: float,
     eta: float,
-    rho: float,
     num_q_samples: int,
-    q_target: str,
-    maxQ: bool,
     solver: str,
     ema: float,
     do_ema_update: bool,
+    symexp_before_mean: bool,
 ) -> Tuple[PRNGKey, Model, Model, Model, Model, Metric]:
     B = batch.obs.shape[0]
     A = batch.action.shape[-1]
@@ -227,10 +216,11 @@ def update_critic(
     q0_target_value = q0_target(
         next_obs_repeat,
         next_action
-    )
-    rng, q0_target_value = get_target(rng, q0_target_value, maxQ, q_target, rho)
+    ) # (E, B, N, num_atoms)
+    q0_target_value = logits_to_value(q0_target_value, v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
 
     q0_target_value = batch.reward + discount * (1-batch.terminal) * q0_target_value # (B, 1)
+    q0_target_probs, q0_proj_metrics = categorical_project(q0_target_value, v_min, v_max, num_atoms) # (B, num_atoms)
 
     # vt target
     obs_repeat = batch.obs[..., jnp.newaxis, :].repeat(num_q_samples, axis=-2)
@@ -249,12 +239,12 @@ def update_critic(
         rep_xt_1,
         rep_t_1
     ) # (E, B, N, num_atoms)
-    vt_target_value1 = logits_to_value(vt_target_value1, v_min, v_max, num_atoms) # (B, 1)
+    vt_target_value1 = logits_to_value(vt_target_value1, v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
     vt_target_value2 = q0_target(
         obs_repeat,
         rep_xt_1
-    )
-    rng, vt_target_value2 = get_target(rng, vt_target_value2, False, q_target, rho)
+    ) # (E, B, N, num_atoms)
+    vt_target_value2 = logits_to_value(vt_target_value2, v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
     vt_target_value = (t != 1) * vt_target_value1 + (t == 1) * vt_target_value2
 
     vt_actor_eps = history
@@ -269,12 +259,19 @@ def update_critic(
             {"params": q0_params},
             batch.obs,
             batch.action
-        ) # (E, B, 1)
-        loss = ((pred - q0_target_value[jnp.newaxis, :])**2).mean()
+        ) # (E, B, num_atoms)
+        log_probs = jax.nn.log_softmax(pred, axis=-1)
+        loss = -(q0_target_probs[jnp.newaxis, :] * log_probs).sum(axis=-1).mean()
+        E, B, _ = pred.shape
+        q0_value = logits_to_value(pred.reshape(E, B, 1, num_atoms), v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
         return loss, {
             "loss/q0_loss": loss,
-            "misc/q0_mean": pred.mean(),
+            "misc/q0_mean": q0_value.mean(),
             "misc/reward": batch.reward.mean(),
+            "misc/q0_target_symlog_max": q0_proj_metrics["pre_clip_max"],
+            "misc/q0_target_symlog_min": q0_proj_metrics["pre_clip_min"],
+            "misc/q0_target_symlog_mean": q0_proj_metrics["pre_clip_mean"],
+            "misc/q0_target_clip_ratio": q0_proj_metrics["clip_ratio"],
         }
     def vt_loss_fn(vt_params: Param, *args, **kwargs) -> Tuple[jnp.ndarray, Metric]:
         pred = vt.apply(
@@ -287,7 +284,7 @@ def update_critic(
         log_probs = jax.nn.log_softmax(pred, axis=-1)
         loss = -(vt_target_probs[jnp.newaxis, :] * log_probs).sum(axis=-1).mean()
         E, B, _ = pred.shape
-        vt_value = logits_to_value(pred.reshape(E, B, 1, num_atoms), v_min, v_max, num_atoms) # (B, 1)
+        vt_value = logits_to_value(pred.reshape(E, B, 1, num_atoms), v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
         return loss, {
             "loss/vt_loss": loss,
             "misc/vt_mean": vt_value.mean(),
@@ -324,12 +321,11 @@ def update_actor(
     num_atoms: int,
     T: int,
     eta,
-    rho: float,
     num_q_samples: int,
-    q_target: str,
     solver: str,
     ema: float,
     do_ema_update: bool,
+    symexp_before_mean: bool,
 ) -> Tuple[PRNGKey, Model, Model, Metric]:
     alphas = actor.alphas
     alpha_hats = actor.alpha_hats
@@ -355,12 +351,12 @@ def update_actor(
             rep_xt_1,
             rep_t_1
         ) # (E, B, N, num_atoms)
-        target_1 = logits_to_value(target_1, v_min, v_max, num_atoms) # (B, 1)
+        target_1 = logits_to_value(target_1, v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
         target_2 = q0_target(
             obs_repeat,
             rep_xt_1
-        )
-        sample_rng_, target_2 = get_target(sample_rng_, target_2, False, q_target, rho=rho)
+        ) # (E, B, N, num_atoms)
+        target_2 = logits_to_value(target_2, v_min, v_max, num_atoms, symexp_before_mean) # (B, 1)
         target = (t != 1) * target_1 + (t == 1) * target_2
 
         actor_eps = history
@@ -388,15 +384,13 @@ def update_actor(
     "diffusion_steps",
     "discount",
     "eta",
-    "rho",
     "num_q_samples",
-    "q_target",
-    "maxQ",
     "solver",
     "critic_ema",
     "do_critic_ema_update",
     "actor_ema",
     "do_actor_ema_update",
+    "symexp_before_mean",
 ))
 def jit_train_step(
     rng: PRNGKey,
@@ -418,11 +412,9 @@ def jit_train_step(
     diffusion_steps: int,
     discount: float,
     eta: float,
-    rho: float,
     num_q_samples: int,
-    q_target: str,
-    maxQ: bool,
     solver: str,
+    symexp_before_mean: bool,
     # ema update
     critic_ema: float,
     do_critic_ema_update: bool,
@@ -445,13 +437,11 @@ def jit_train_step(
         T=diffusion_steps,
         discount=discount,
         eta=eta,
-        rho=rho,
         num_q_samples=num_q_samples,
-        q_target=q_target,
-        maxQ=maxQ,
         solver=solver,
         ema=critic_ema,
         do_ema_update=do_critic_ema_update,
+        symexp_before_mean=symexp_before_mean,
     )
     metrics.update(critic_metrics)
     if do_actor_update:
@@ -468,18 +458,17 @@ def jit_train_step(
             num_atoms=num_atoms,
             T=diffusion_steps,
             eta=eta,
-            rho=rho,
             num_q_samples=num_q_samples,
-            q_target=q_target,
             solver=solver,
             ema=actor_ema,
             do_ema_update=do_actor_ema_update,
+            symexp_before_mean=symexp_before_mean,
         )
         metrics.update(actor_metrics)
     return rng, q0, q0_target, vt, vt_target, actor, actor_target, metrics
     
 
-@partial(jax.jit, static_argnames=("T", "num_samples", "v_min", "v_max", "num_atoms"))
+@partial(jax.jit, static_argnames=("T", "num_samples", "v_min", "v_max", "num_atoms", "symexp_before_mean"))
 def jit_compute_statistics(
     rng: PRNGKey,
     vt_target: Model,
@@ -493,6 +482,7 @@ def jit_compute_statistics(
     v_min: float,
     v_max: float,
     num_atoms: int,
+    symexp_before_mean: bool,
 ) -> Tuple[PRNGKey, Metric]:
     """Compute per-timestep statistics for debugging and hyperparameter tuning."""
     alpha_hats = actor_target.alpha_hats
@@ -513,7 +503,7 @@ def jit_compute_statistics(
 
         # vt critic values (categorical: logits -> value)
         vt_logits = vt_target(obs, xt, t)  # (E, B, N, num_atoms)
-        vt_val = logits_to_value(vt_logits, v_min, v_max, num_atoms)  # (B, 1)
+        vt_val = logits_to_value(vt_logits, v_min, v_max, num_atoms, symexp_before_mean)  # (B, 1)
 
         # per-ensemble-member values for std computation
         atoms = get_atoms(v_min, v_max, num_atoms)
@@ -531,7 +521,7 @@ def jit_compute_statistics(
         def vt_fn_single(a, s, t_):
             logits = vt_target(s, a, t_)  # (E, num_atoms)
             logits = logits[:, jnp.newaxis, jnp.newaxis, :]  # (E, 1, 1, num_atoms)
-            return logits_to_value(logits, v_min, v_max, num_atoms).squeeze()
+            return logits_to_value(logits, v_min, v_max, num_atoms, symexp_before_mean).squeeze()
         vt_grad = jax.vmap(jax.grad(vt_fn_single))(
             xt.reshape(B * num_samples, -1),
             obs.reshape(B * num_samples, -1),
@@ -540,7 +530,9 @@ def jit_compute_statistics(
 
         # q0 gradient w.r.t. action
         def q0_fn_single(a, s):
-            return q0_target(s, a).mean(axis=0).squeeze()
+            logits = q0_target(s, a)  # (E, num_atoms)
+            logits = logits[:, jnp.newaxis, jnp.newaxis, :]  # (E, 1, 1, num_atoms)
+            return logits_to_value(logits, v_min, v_max, num_atoms, symexp_before_mean).squeeze()
         q0_grad = jax.vmap(jax.grad(q0_fn_single))(
             xt.reshape(B * num_samples, -1),
             obs.reshape(B * num_samples, -1),
@@ -642,12 +634,13 @@ class CategoricalBDPOAgent(BaseAgent):
             q0_lr = cfg.critic.lr
             vt_lr = cfg.critic.lr
         q0_def = Ensemblize(
-            base=ScalarCritic(
+            base=CategoricalCritic(
                 backbone=MLP(
                     hidden_dims=cfg.critic.hidden_dims,
                     activation=mish,
                     layer_norm=cfg.critic.layer_norm,
-                )
+                ),
+                output_nodes=cfg.critic.output_nodes,
             ),
             ensemble_size=cfg.critic.ensemble_size,
         )
@@ -731,11 +724,9 @@ class CategoricalBDPOAgent(BaseAgent):
             diffusion_steps=self.cfg.diffusion.steps,
             discount=self.cfg.critic.discount,
             eta=self.cfg.critic.eta,
-            rho=self.cfg.critic.rho,
             num_q_samples=self.cfg.critic.num_samples,
-            q_target=self.cfg.critic.q_target,
-            maxQ=self.cfg.critic.maxQ,
             solver=self.cfg.critic.solver,
+            symexp_before_mean=self.cfg.critic.symexp_before_mean,
             critic_ema=self.cfg.critic.ema,
             do_critic_ema_update=do_critic_ema_update,
             actor_ema=self.cfg.diffusion.actor.ema,
@@ -770,6 +761,7 @@ class CategoricalBDPOAgent(BaseAgent):
             self.cfg.critic.v_min,
             self.cfg.critic.v_max,
             self.cfg.critic.output_nodes,
+            self.cfg.critic.symexp_before_mean,
         )
         return stats
 
@@ -796,5 +788,8 @@ class CategoricalBDPOAgent(BaseAgent):
             num_samples=num_samples,
             solver=self.cfg.diffusion.solver,
             temperature=temperature,
+            v_min=self.cfg.critic.v_min,
+            v_max=self.cfg.critic.v_max,
+            num_atoms=self.cfg.critic.output_nodes,
         )
         return action, {}
