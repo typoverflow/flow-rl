@@ -5,4 +5,5 @@ from .dql import DQLAgent
 from .dtql import DTQLAgent
 from .fql.fql import FQLAgent
 from .iql import IQLAgent
+from .dpmd import OfflineDPMDAgent
 from .ivr import IVRAgent

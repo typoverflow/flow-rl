@@ -1,0 +1,47 @@
+# @package _global_
+
+data:
+  norm_obs: true
+  norm_reward: iql_mujoco
+
+eval:
+  num_samples: 10
+  interval: 50000
+
+pretrain_steps: 1_000_000
+train_steps: 1_000_000
+
+algo:
+  name: dpmd
+  num_particles: 64
+  num_samples: 10
+  reweight: linear
+  target_kl: 2.5
+  additive_noise: 0.2
+  temp_lr: 0.0003
+  behavior_lr: 0.0001
+  behavior_end_lr: 0.0001
+  behavior_lr_decay_steps: null
+  behavior_lr_decay_begin: 0
+  diffusion:
+    hidden_dims: [256, 256, 256]
+    activation: mish
+    time_dim: 64
+    steps: 20
+    lr: 0.0001
+    end_lr: 0.0001
+    lr_decay_steps: null
+    lr_decay_begin: 0
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+  critic:
+    hidden_dims: [256, 256]
+    ensemble_size: 2
+    discount: 0.99
+    lr: 0.0003
+    ema: 0.005
+  value:
+    hidden_dims: [256, 256]
+    lr: 0.0003
+    expectile: 0.7

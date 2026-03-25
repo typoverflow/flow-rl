@@ -27,6 +27,7 @@ SUPPORTED_AGENTS: Dict[str, Type[BaseAgent]] = {
     "dac": DACAgent,
     "dql": DQLAgent,
     "dtql": DTQLAgent,
+    "dpmd": OfflineDPMDAgent,
 }
 
 class Trainer():
