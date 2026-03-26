@@ -1,0 +1,31 @@
+# @package _global_
+
+algo:
+  name: dpmd_exp
+  backbone_cls: mlp
+  critic_hidden_dims: [512, 512, 512]
+  critic_activation: elu
+  critic_lr: 0.0003
+  temp_lr: 0.0003
+  discount: 0.99
+  num_samples: 10
+  num_particles: 64
+  target_kl: 2.0
+  reweight: exp
+  ema: 0.005
+  old_policy_update_interval: 1000
+  additive_noise: 0.2
+  diffusion:
+    backbone_cls: ${algo.backbone_cls}
+    activation: mish
+    time_dim: 64
+    hidden_dims: [512, 512, 512]
+    lr: 0.0001
+    end_lr: null
+    lr_decay_steps: null
+    lr_decay_begin: null
+    steps: 20
+    clip_sampler: true
+    x_min: -1.0
+    x_max: 1.0
+    solver: ddpm

@@ -280,10 +280,11 @@ class OfflineDPMDAgent(BaseAgent):
         actor_activation = get_activation(cfg.diffusion.activation)
 
         # shared backbone definition for actor and behavior
-        def make_backbone():
+        def make_backbone(behavior=False):
+            hidden_dims = cfg.diffusion.hidden_dims
             return ContinuousDDPMBackbone(
                 noise_predictor=MLP(
-                    hidden_dims=cfg.diffusion.hidden_dims,
+                    hidden_dims=hidden_dims,
                     output_dim=act_dim,
                     activation=actor_activation,
                 ),
@@ -324,7 +325,7 @@ class OfflineDPMDAgent(BaseAgent):
             actor_lr = cfg.diffusion.lr
 
         self.actor = ContinuousDDPM.create(
-            network=make_backbone(),
+            network=make_backbone(behavior=False),
             rng=actor_rng,
             inputs=init_inputs,
             optimizer=optax.adam(learning_rate=actor_lr),
@@ -343,7 +344,7 @@ class OfflineDPMDAgent(BaseAgent):
             behavior_lr = cfg.behavior_lr
 
         self.behavior = ContinuousDDPM.create(
-            network=make_backbone(),
+            network=make_backbone(behavior=True),
             rng=behavior_rng,
             inputs=init_inputs,
             optimizer=optax.adam(learning_rate=behavior_lr),

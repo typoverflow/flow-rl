@@ -8,15 +8,15 @@ eval:
   num_samples: 10
   interval: 50000
 
-pretrain_steps: 0
+pretrain_steps: 20_000
 train_steps: 1_000_000
 
 algo:
   name: dpmd
-  num_particles: 64
+  num_particles: 16
   num_samples: 10
   reweight: linear
-  target_kl: 2.5
+  target_kl: 2.0
   additive_noise: 0.0
   temp_lr: 0.0003
   behavior_lr: 0.0003
@@ -28,8 +28,8 @@ algo:
     activation: mish
     time_dim: 64
     steps: 20
-    lr: 0.0001
-    end_lr: 0.0001
+    lr: 0.0003
+    end_lr: 0.0003
     lr_decay_steps: null
     lr_decay_begin: 0
     clip_sampler: true

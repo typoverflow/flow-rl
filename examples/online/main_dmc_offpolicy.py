@@ -32,6 +32,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "diffsr_td3": DiffSRTD3Agent,
     "diffsr_ld": DiffSRLDAgent,
     "diffsr_qsm": DiffSRQSMAgent,
+    "dpmd_exp": DPMDAgent,
 }
 
 class OffPolicyTrainer():
