@@ -17,7 +17,7 @@ from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
 
-jax.config.update("jax_default_matmul_precision", "float32")
+# jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "sac": SACAgent,

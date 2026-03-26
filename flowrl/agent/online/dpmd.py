@@ -25,20 +25,17 @@ def solve_normalizer_exp(q: jnp.ndarray, temp: float):
 
 def solve_normalizer_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
     num_particles = q.shape[-1]
-    B = temp * negative
-    target_sum = temp * 1 - B
     q_sorted = jnp.sort(q, axis=-1)[..., ::-1]
     q_cumsum = jnp.cumsum(q_sorted, axis=-1)
 
-    # defining the number of active particles
+    # defining the number of active (non-clipped) particles
     k_indices = jnp.arange(1, num_particles+1).reshape(1, -1)
     excess = q_cumsum - k_indices * q_sorted
-    active_mask = excess <= target_sum
+    active_mask = excess <= temp * (1 - num_particles * negative)
     k = jnp.sum(active_mask, axis=-1, keepdims=True)
 
     sum_active = jnp.take_along_axis(q_cumsum, k-1, axis=-1)
-    nu = (sum_active - target_sum) / k
-    nu = nu - B
+    nu = (sum_active - temp * (1 - (num_particles - k) * negative)) / k
     return nu
 
 def solve_normalizer_square(q: jnp.ndarray, temp: float):
@@ -77,7 +74,7 @@ def jit_sample_actions(
     rng, xT_rng = jax.random.split(rng)
 
     # sample
-    obs_repeat = obs[..., jnp.newaxis, :].repeat(num_samples, axis=-2)
+    obs_repeat = jnp.broadcast_to(obs[:, jnp.newaxis, :], (obs.shape[0], num_samples, obs.shape[-1]))
     xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
     rng, actions, _ = actor.sample(rng, xT, obs_repeat, training)
     if best_of_n:
@@ -105,9 +102,13 @@ def jit_update_dpmd(
     negative_bound: float,
 ) -> Tuple[PRNGKey, ContinuousDDPM, Model, Model, jnp.ndarray, jnp.ndarray, Metric]:
 
-    # update critic
-    rng, next_action = jit_sample_actions(
-        rng,
+    # split RNG upfront to remove false sequential dependencies,
+    # allowing XLA to parallelize independent sampling calls
+    rng, critic_sample_rng, actor_sample_rng, noise_rng, add_noise_rng = jax.random.split(rng, 5)
+
+    # update critic (independent of actor sampling below)
+    _, next_action = jit_sample_actions(
+        critic_sample_rng,
         actor,
         critic_target,
         batch.next_obs,
@@ -136,9 +137,9 @@ def jit_update_dpmd(
 
     new_critic, critic_metrics = critic.apply_gradient(critic_loss_fn)
 
-    # update actor
-    rng, action_batch = jit_sample_actions(
-        rng,
+    # update actor (independent of critic update above)
+    _, action_batch = jit_sample_actions(
+        actor_sample_rng,
         actor_target,
         critic,
         batch.obs,
@@ -146,7 +147,6 @@ def jit_update_dpmd(
         num_samples=num_particles,
         best_of_n=False,
     )
-    rng, noise_rng = jax.random.split(rng)
     noise = jax.random.normal(noise_rng, action_batch.shape)
     action_batch = action_batch + noise * additive_noise
     q_batch = jax.vmap(
@@ -161,23 +161,25 @@ def jit_update_dpmd(
         weights = jnp.exp((q_batch - nu) / temp())
     elif reweight == "linear":
         nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound)
-        weights = jnp.maximum((q_batch - nu) / temp(), 0)
+        weights = jnp.maximum((q_batch - nu) / temp(), negative_bound)
     elif reweight == "square":
         nu = solve_normalizer_square(q_batch, temp())
         weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
     else:
         raise ValueError(f"Invalid reweighting method: {reweight}")
-    entropy = - jnp.sum(weights * jnp.log(weights+1e-6), axis=-1)
+    ent_weights = jnp.maximum(weights, 1e-6)
+    ent_weights = ent_weights / ent_weights.sum(axis=-1, keepdims=True)
+    entropy = - jnp.sum(ent_weights * jnp.log(ent_weights+1e-6), axis=-1)
     weights = weights * num_particles
 
-    rng, at, t, eps = actor.add_noise(rng, action_batch)
+    _, at, t, eps = actor.add_noise(add_noise_rng, action_batch)
 
     def actor_loss_fn(actor_params: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
         eps_pred = actor.apply(
             {"params": actor_params},
             at,
             t,
-            condition=batch.obs[:, jnp.newaxis, :].repeat(num_particles, axis=1),
+            condition=jnp.broadcast_to(batch.obs[:, jnp.newaxis, :], (batch.obs.shape[0], num_particles, batch.obs.shape[-1])),
             training=True,
             rngs={"dropout": dropout_rng},
         )
