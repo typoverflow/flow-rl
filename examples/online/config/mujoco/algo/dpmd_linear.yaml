@@ -10,12 +10,12 @@ algo:
   discount: 0.99
   num_samples: 10
   num_particles: 64
-  num_behavior_samples: 2
   target_kl: 2.0
   reweight: linear
   ema: 0.005
   old_policy_update_interval: 1000
   additive_noise: 0.2
+  negative_bound: 0.0
   diffusion:
     backbone_cls: ${algo.backbone_cls}
     activation: mish

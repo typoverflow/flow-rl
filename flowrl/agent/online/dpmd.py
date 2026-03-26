@@ -87,7 +87,7 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "reweight", "additive_noise"))
+@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "reweight", "additive_noise", "negative_bound"))
 def jit_update_dpmd(
     rng: PRNGKey,
     actor: ContinuousDDPM,
@@ -102,6 +102,7 @@ def jit_update_dpmd(
     target_kl: float,
     ema: float,
     additive_noise: float,
+    negative_bound: float,
 ) -> Tuple[PRNGKey, ContinuousDDPM, Model, Model, jnp.ndarray, jnp.ndarray, Metric]:
 
     # update critic
@@ -159,7 +160,7 @@ def jit_update_dpmd(
         nu = solve_normalizer_exp(q_batch, temp())
         weights = jnp.exp((q_batch - nu) / temp())
     elif reweight == "linear":
-        nu = solve_normalizer_linear(q_batch, temp())
+        nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound)
         weights = jnp.maximum((q_batch - nu) / temp(), 0)
     elif reweight == "square":
         nu = solve_normalizer_square(q_batch, temp())
@@ -334,6 +335,7 @@ class DPMDAgent(BaseAgent):
             target_kl=self.cfg.target_kl,
             ema=self.cfg.ema,
             additive_noise=self.cfg.additive_noise,
+            negative_bound=self.cfg.negative_bound,
         )
         if self._n_training_steps % self.cfg.old_policy_update_interval == 0:
             self.actor_target = ema_update(self.actor, self.actor_target, 1.0)

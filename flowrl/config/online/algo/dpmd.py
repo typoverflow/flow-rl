@@ -37,4 +37,5 @@ class DPMDConfig(BaseAlgoConfig):
     ema: float
     old_policy_update_interval: int
     additive_noise: float
+    negative_bound: float
     diffusion: DPMDDiffusionConfig
