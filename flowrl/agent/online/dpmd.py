@@ -45,7 +45,7 @@ def solve_normalizer_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
 
 def solve_normalizer_square(q: jnp.ndarray, temp: float):
     num_particles = q.shape[-1]
-    target_sum = temp ** 2
+    target_sum = temp ** 2 * num_particles
 
     q_sorted = jnp.sort(q, axis=-1)[..., ::-1]
     q_cumsum = jnp.cumsum(q_sorted, axis=-1)
