@@ -160,8 +160,8 @@ def jit_update_dpmd(
         nu = solve_normalizer_exp(q_batch, temp())
         weights = jnp.exp((q_batch - nu) / temp())
     elif reweight == "linear":
-        nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound)
-        weights = jnp.maximum((q_batch - nu) / temp(), negative_bound)
+        nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound/num_particles)
+        weights = jnp.maximum((q_batch - nu) / temp(), negative_bound/num_particles)
     elif reweight == "square":
         nu = solve_normalizer_square(q_batch, temp())
         weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
@@ -183,7 +183,8 @@ def jit_update_dpmd(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        loss = (weights[..., jnp.newaxis] * (eps_pred - eps) ** 2).mean()
+        loss = jnp.clip((eps_pred - eps) ** 2, a_max=3.0)
+        loss = (weights[..., jnp.newaxis] * loss).mean()
         return loss, {
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),
