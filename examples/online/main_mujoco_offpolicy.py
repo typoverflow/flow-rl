@@ -31,8 +31,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "nclql": NCLQLAgent,
     "dpmd_exp": DPMDAgent,
     "dpmd_linear": DPMDAgent,
-    "dpmd_square": DPMDAgent,
-    "dpmd": DPMDAgent,
+    "dpmd_gr_linear": DPMDAgent,
 }
 
 class OffPolicyTrainer():

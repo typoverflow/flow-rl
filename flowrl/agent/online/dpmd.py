@@ -59,6 +59,11 @@ def solve_normalizer_square(q: jnp.ndarray, temp: float):
     nu = (S1 - jnp.sqrt(jnp.maximum(delta, 0.0))) / k
     return nu
 
+def normalize_gr_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
+    q = (q - q.mean(axis=-1, keepdims=True)) / (q.std(axis=-1, keepdims=True) * temp + 1e-6)
+    q = jnp.maximum(q, negative)
+    return q
+
 @partial(jax.jit, static_argnames=("training", "num_samples", "best_of_n"))
 def jit_sample_actions(
     rng: PRNGKey,
@@ -96,7 +101,7 @@ def jit_update_dpmd(
     discount: float,
     reweight: str,
     num_particles: int,
-    target_kl: float,
+    target_kl: float | None,
     ema: float,
     additive_noise: float,
     negative_bound: float,
@@ -165,6 +170,8 @@ def jit_update_dpmd(
     elif reweight == "square":
         nu = solve_normalizer_square(q_batch, temp())
         weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
+    elif reweight == "gr_linear":
+        weights = normalize_gr_linear(q_batch, temp(), negative=negative_bound/num_particles)
     else:
         raise ValueError(f"Invalid reweighting method: {reweight}")
     ent_weights = jnp.maximum(weights, 1e-6)
@@ -196,21 +203,23 @@ def jit_update_dpmd(
         }
     new_actor, actor_metrics = actor.apply_gradient(actor_loss_fn)
 
-    def temp_loss_fn(temp_value: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
-        t = temp.apply({"params": temp_value}, rngs={"dropout": dropout_rng})
-        loss = t * (
-            target_kl + entropy.mean() - jnp.log(num_particles)
-        )
-        return loss, {
-            "loss/temp_loss": loss,
-            "misc/temp": t,
-        }
+    if target_kl is not None:
+        def temp_loss_fn(temp_value: Param, dropout_rng: PRNGKey) -> Tuple[jnp.ndarray, Metric]:
+            t = temp.apply({"params": temp_value}, rngs={"dropout": dropout_rng})
+            loss = t * (
+                target_kl + entropy.mean() - jnp.log(num_particles)
+            )
+            return loss, {
+                "loss/temp_loss": loss,
+                "misc/temp": t,
+            }
 
-    new_temp, temp_metrics = temp.apply_gradient(temp_loss_fn)
+        new_temp, temp_metrics = temp.apply_gradient(temp_loss_fn)
+    else:
+        new_temp, temp_metrics = temp, {"loss/temp_loss": 0.0, "misc/temp": temp()}
 
     # update the target networks
     new_critic_target = ema_update(new_critic, critic_target, ema)
-    # new_actor_target = ema_update(new_actor, actor_target, ema)
     new_actor_target = actor_target
     return rng, new_actor, new_actor_target, new_critic, new_critic_target, new_temp, {
         **critic_metrics,
@@ -293,7 +302,7 @@ class DPMDAgent(BaseAgent):
             t_schedule_n=1.0,
         )
         self.temp = Model.create(
-            PositiveTunableCoefficient(init_value=1.0),
+            PositiveTunableCoefficient(init_value=cfg.init_temp),
             rng=temp_rng,
             inputs=(),
             optimizer=optax.adam(learning_rate=cfg.temp_lr),
