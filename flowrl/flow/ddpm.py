@@ -210,7 +210,7 @@ class DDPM(Model):
                 alpha_3 = jnp.sqrt(1 - self.alpha_hats[t-1])
                 xt_1 = alpha_1 * (xt - alpha_2 * eps_theta) + alpha_3 * eps_theta
                 if self.clip_sampler:
-                    xt_1 = jnp.clip(xt_1, -self.x_min, self.x_max)
+                    xt_1 = jnp.clip(xt_1, self.x_min, self.x_max)
             else:
                 raise NotImplementedError(f"Unsupported solver {solver} for {type(self)}")
 
