@@ -177,7 +177,7 @@ def jit_update_dpmd(
     ent_weights = jnp.maximum(weights, 1e-6)
     ent_weights = ent_weights / ent_weights.sum(axis=-1, keepdims=True)
     entropy = - jnp.sum(ent_weights * jnp.log(ent_weights+1e-6), axis=-1)
-    weights = weights * num_particles
+    weights = weights
 
     _, at, t, eps = actor.add_noise(add_noise_rng, action_batch)
 
@@ -191,7 +191,18 @@ def jit_update_dpmd(
             rngs={"dropout": dropout_rng},
         )
         loss = jnp.clip((eps_pred - eps) ** 2, a_max=3.0)
-        loss = (weights[..., jnp.newaxis] * loss).mean()
+        loss = loss.mean(axis=-1)
+        # negative_weights = jnp.where(weights < 0.0, -loss, -float('inf'))
+        negative_weights = - loss
+        negative_weights = jax.nn.softmax(negative_weights, axis=1) 
+        negative_weights = jax.lax.stop_gradient(negative_weights)
+        loss = jnp.where(
+            weights > 0.0, 
+            weights * loss, 
+            - negative_weights * loss
+        )
+        loss = loss.mean()
+        # loss = (weights[..., jnp.newaxis] * loss).mean()
         return loss, {
             "loss/actor_loss": loss,
             "misc/weights": weights.mean(),
