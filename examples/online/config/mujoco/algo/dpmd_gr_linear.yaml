@@ -1,7 +1,7 @@
 # @package _global_
 
 algo:
-  name: dpmd_linear
+  name: dpmd_gr_linear
   backbone_cls: mlp
   critic_hidden_dims: [256, 256]
   critic_activation: relu

@@ -16,6 +16,7 @@ algo:
   old_policy_update_interval: 1000
   init_temp: 1.0
   additive_noise: 0.2
+  negative_bound: null
   diffusion:
     backbone_cls: ${algo.backbone_cls}
     activation: mish
