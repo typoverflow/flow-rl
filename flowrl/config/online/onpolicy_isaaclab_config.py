@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from .hb_config import EvalConfig, LogConfig
 
@@ -10,7 +10,7 @@ class Config:
     device: str
     task: str
     algo: Any
-    action_bound: float
+    action_bound: Optional[float]
     disable_bootstrap: bool
     norm_obs: bool
     train_frames: int
