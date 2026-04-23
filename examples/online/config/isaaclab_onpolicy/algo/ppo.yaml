@@ -2,23 +2,26 @@
 
 algo:
   name: ppo
-  num_envs: 1024
+  num_envs: 4096
   rollout_length: 24
   backbone_cls: mlp
   actor_hidden_dims: [256, 256, 256]
   critic_hidden_dims: [256, 256, 256]
   activation: elu
-  actor_lr: 0.0001
-  critic_lr: 0.001
+  actor_lr: 1.0e-4
+  critic_lr: 1.0e-3
+  init_noise_std: 1.0
   gamma: 0.99
   gae_lambda: 0.95
   clip_epsilon: 0.2
-  entropy_coeff: 0.0001
-  reward_scaling: 1.0
+  entropy_coeff: 0.005
+  value_loss_coef: 1.0
+  use_clipped_value_loss: true
+  desired_kl: 0.01
+  schedule: adaptive
   normalize_advantage: true
   num_minibatches: 4
-  num_epochs: 4
-  batch_size: 6144
-  clip_grad_norm: 1.0
+  num_epochs: 5
+  max_grad_norm: 1.0
 
-train_frames: 100_000_000
+train_frames: 200_000_000
