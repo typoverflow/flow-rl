@@ -5,10 +5,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+import wandb
 from flowrl.agent.online import DPPOAgent, FPOAgent, FPOPPAgent, GenPOAgent, PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
@@ -17,7 +17,8 @@ from flowrl.types import Dict, RolloutBatch
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
 
-jax.config.update("jax_default_matmul_precision", "float32")
+# disabled by default for faster computation, enable if see stability issues
+# jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
