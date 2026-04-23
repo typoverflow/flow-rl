@@ -42,10 +42,18 @@ Offline RL:
 | FQL | `flowrl/agent/offline/fql/fql.py` |
 | BDPO | `flowrl/agent/offline/bdpo/bdpo.py` |
 
-Online RL:
+Online RL (On-Policy):
 | Algorithm | Location |
 |:---:|:---:|
 | PPO | `flowrl/agent/online/ppo.py` |
+| DPPO | `flowrl/agent/online/dppo.py` |
+| FPO | `flowrl/agent/online/fpo.py` |
+| FPOPP | `flowrl/agent/online/fpopp.py` |
+| GenPO | `flowrl/agent/online/genpo.py` |
+
+Online RL (Off-Policy):
+| Algorithm | Location |
+|:---:|:---:|
 | SAC | `flowrl/agent/online/sac.py` |
 | TD3 | `flowrl/agent/online/td3.py` |
 | TD7 | `flowrl/agent/online/td7/td7.py` |
@@ -53,11 +61,7 @@ Online RL:
 | QVPO | `flowrl/agent/online/qvpo.py` |
 | DACER | `flowrl/agent/online/dacer.py` |
 | SDAC | `flowrl/agent/online/sdac.py` |
-| DPPO | `flowrl/agent/online/dppo.py` |
 | DPMD | `flowrl/agent/online/dpmd.py` |
-| FPO | `flowrl/agent/online/fpo.py` |
-| FPOPP | `flowrl/agent/online/fpopp.py` |
-| GenPO | `flowrl/agent/online/genpo.py` |
 | IDEM | `flowrl/agent/online/idem.py` |
 
 ## 📝 Citing Flow RL
