@@ -1,5 +1,5 @@
 # Specify which GPUs to use
-GPUS=(1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
+GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
 SEEDS=(0 1 2 3 4)
 NUM_EACH_GPU=1
 
