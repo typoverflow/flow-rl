@@ -59,12 +59,6 @@ Online RL:
 | FPOPP | `flowrl/agent/online/fpopp.py` |
 | GenPO | `flowrl/agent/online/genpo.py` |
 | IDEM | `flowrl/agent/online/idem.py` |
-| NCLQL | `flowrl/agent/online/nclql.py` |
-| CtrlSR-QSM | `flowrl/agent/online/ctrlsr/ctrlsr_qsm.py` |
-| CtrlSR-TD3 | `flowrl/agent/online/ctrlsr/ctrlsr_td3.py` |
-| DiffSR-LD | `flowrl/agent/online/diffsr/diffsr_ld.py` |
-| DiffSR-QSM | `flowrl/agent/online/diffsr/diffsr_qsm.py` |
-| DiffSR-TD3 | `flowrl/agent/online/diffsr/diffsr_td3.py` |
 
 ## 📝 Citing Flow RL
 If you use Flow RL in your research, please cite:
