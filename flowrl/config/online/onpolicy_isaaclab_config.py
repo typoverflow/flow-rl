@@ -1,8 +1,22 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
-from .hb_config import EvalConfig, LogConfig
 
+@dataclass
+class EvalConfig:
+    num_episodes: int
+    num_samples: int
+
+
+@dataclass
+class LogConfig:
+    dir: str
+    tag: str
+    save_ckpt: bool
+    save_video: bool
+    # wandb
+    project: str
+    entity: str
 
 @dataclass
 class Config:
@@ -10,7 +24,7 @@ class Config:
     device: str
     task: str
     algo: Any
-    action_bound: float
+    action_bound: Optional[float]
     disable_bootstrap: bool
     norm_obs: bool
     train_frames: int

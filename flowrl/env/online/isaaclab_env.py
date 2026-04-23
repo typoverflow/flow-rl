@@ -76,10 +76,13 @@ class IsaacLabEnv:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
         actions_torch = self._to_torch(actions)
         if self.action_bound is not None:
-            actions_torch = self._torch.clamp(actions_torch, -1.0, 1.0) * self.action_bound
+            actions_torch = actions_torch * self.action_bound
         obs_dict, rew, terminations, truncations, infos = self.envs.step(actions_torch)
         if self.disable_bootstrap:
+            # Fold time-outs into terminations and drop the bootstrap flag so the
+            # agent treats every episode end as a hard termination.
             terminations = terminations | truncations
+            truncations = self._torch.zeros_like(truncations)
         obs = self._to_numpy(obs_dict["policy"])
         return (
             obs,
