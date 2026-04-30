@@ -77,6 +77,8 @@ def jit_sample_actions(
     obs_repeat = jnp.broadcast_to(obs[:, jnp.newaxis, :], (obs.shape[0], num_samples, obs.shape[-1]))
     xT = jax.random.normal(xT_rng, (*obs_repeat.shape[:-1], actor.x_dim))
     rng, actions, _ = actor.sample(rng, xT, obs_repeat, training)
+    if num_samples == 1:
+        return rng, actions[:, 0]
     if best_of_n:
         qs = critic(obs_repeat, actions)
         qs = qs.min(axis=0).reshape(B, num_samples)
@@ -84,7 +86,7 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "reweight", "additive_noise", "negative_bound"))
+@partial(jax.jit, static_argnames=("discount", "target_kl", "num_behavior_samples", "num_particles", "ema", "reweight", "additive_noise", "negative_bound"))
 def jit_update_dpmd(
     rng: PRNGKey,
     actor: ContinuousDDPM,
@@ -95,6 +97,7 @@ def jit_update_dpmd(
     batch: Batch,
     discount: float,
     reweight: str,
+    num_behavior_samples: int,
     num_particles: int,
     target_kl: float,
     ema: float,
@@ -109,14 +112,13 @@ def jit_update_dpmd(
     # update critic (independent of actor sampling below)
     _, next_action = jit_sample_actions(
         critic_sample_rng,
-        actor,
+        actor_target,
         critic_target,
         batch.next_obs,
         training=False,
-        num_samples=1,
-        best_of_n=False,
+        num_samples=num_behavior_samples,
+        best_of_n=num_behavior_samples > 1,
     )
-    next_action = next_action[:, 0]
     q_target = critic_target(batch.next_obs, next_action)
     q_target = batch.reward + discount * (1 - batch.terminal) * q_target.min(axis=0)
 
@@ -183,7 +185,7 @@ def jit_update_dpmd(
             training=True,
             rngs={"dropout": dropout_rng},
         )
-        loss = jnp.clip((eps_pred - eps) ** 2, a_max=3.0)
+        loss = jnp.clip((eps_pred - eps) ** 2, a_max=5.0)
         loss = (weights[..., jnp.newaxis] * loss).mean()
         return loss, {
             "loss/actor_loss": loss,
@@ -334,6 +336,7 @@ class DPMDAgent(BaseAgent):
             batch,
             discount=self.cfg.discount,
             reweight=self.cfg.reweight,
+            num_behavior_samples=self.cfg.num_behavior_samples,
             num_particles=self.cfg.num_particles,
             target_kl=self.cfg.target_kl,
             ema=self.cfg.ema,

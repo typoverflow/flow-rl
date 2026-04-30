@@ -31,6 +31,7 @@ class DPMDConfig(BaseAlgoConfig):
     temp_lr: float
     discount: float
     num_samples: int
+    num_behavior_samples: int
     num_particles: int
     target_kl: float
     reweight: str

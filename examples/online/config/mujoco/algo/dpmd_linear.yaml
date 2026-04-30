@@ -9,6 +9,7 @@ algo:
   temp_lr: 0.0003
   discount: 0.99
   num_samples: 10
+  num_behavior_samples: 1
   num_particles: 64
   target_kl: 2.0
   reweight: linear
