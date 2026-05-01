@@ -369,6 +369,4 @@ class DPMDAgent(BaseAgent):
             num_samples=num_samples,
             best_of_n=deterministic,
         )
-        if num_samples == 1:
-            action = action[:, 0]
         return action, {}
