@@ -1,28 +1,44 @@
 # Specify which GPUs to use
 GPUS=(2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
-SEEDS=(0 1 2 3 4)
-NUM_EACH_GPU=1
+SEEDS=(0 1 2)
+NUM_EACH_GPU=2
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
-    "Swimmer-v5"
-    "HalfCheetah-v5"
-    "Ant-v5"
-    "Walker2d-v5"
-    "Hopper-v5"
-    "Humanoid-v5"
-    # "InvertedDoublePendulum-v5"
-    # "InvertedPendulum-v5"
-    # "Pusher-v5"
-    # "Reacher-v5"
-    # "HumanoidStandup-v5"
+    # "acrobot-swingup"
+    # "ball_in_cup-catch"
+    # "cartpole-balance"
+    # "cartpole-balance_sparse"
+    # "cartpole-swingup"
+    # "cartpole-swingup_sparse"
+    "cheetah-run"
+    # "dog-run"
+    # "dog-stand"
+    # "dog-trot"
+    # "dog-walk"
+    # "finger-spin"
+    # "finger-turn_easy"
+    # "finger-turn_hard"
+    # "fish-swim"
+    "hopper-hop"
+    # "hopper-stand"
+    # "humanoid-run"
+    # "humanoid-stand"
+    # "humanoid-walk"
+    # "pendulum-swingup"
+    "quadruped-run"
+    # "quadruped-walk"
+    # "reacher-easy"
+    # "reacher-hard"
+    "walker-run"
+    # "walker-stand"
+    # "walker-walk"
 )
 
 SHARED_ARGS=(
-    "algo=dpmd_exp"
-    "log.tag=particle64-bon4"
-    "algo.num_behavior_samples=4"
+    "algo=dpmd_linear"
+    "log.tag=default"
     "log.entity=haitongma-harvard-university"
     "log.project=simpo-neurips"
 )
@@ -37,8 +53,9 @@ run_task() {
     device=${GPUS[$device_idx]}
     echo "Running $env $seed on GPU $device"
     export CUDA_VISIBLE_DEVICES=$device
+    export EGL_VISIBLE_DEVICES=$device
     export XLA_PYTHON_CLIENT_PREALLOCATE="false"
-    command="python3 examples/online/main_mujoco_offpolicy.py task=$task seed=$seed ${SHARED_ARGS[@]}"
+    command="python3 examples/online/main_dmc_offpolicy.py task=$task seed=$seed ${SHARED_ARGS[@]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else
