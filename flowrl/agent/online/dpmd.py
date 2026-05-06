@@ -39,6 +39,8 @@ def solve_normalizer_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
     return nu
 
 def solve_normalizer_square(q: jnp.ndarray, temp: float):
+    q_max = jnp.max(q, axis=-1, keepdims=True)
+    q = q - q_max
     num_particles = q.shape[-1]
     target_sum = temp ** 2
 
@@ -57,7 +59,7 @@ def solve_normalizer_square(q: jnp.ndarray, temp: float):
     S2 = jnp.take_along_axis(q_squared_cumsum, k-1, axis=-1)
     delta = S1**2 - k * S2 + k * target_sum
     nu = (S1 - jnp.sqrt(jnp.maximum(delta, 0.0))) / k
-    return nu
+    return nu + q_max
 
 @partial(jax.jit, static_argnames=("training", "num_samples", "best_of_n"))
 def jit_sample_actions(
@@ -86,7 +88,7 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "target_kl", "num_behavior_samples", "num_particles", "ema", "reweight", "additive_noise", "negative_bound"))
+@partial(jax.jit, static_argnames=("discount", "target_kl", "num_behavior_samples", "num_particles", "ema", "reweight", "negative_bound"))
 def jit_update_dpmd(
     rng: PRNGKey,
     actor: ContinuousDDPM,
@@ -112,7 +114,7 @@ def jit_update_dpmd(
     # update critic (independent of actor sampling below)
     _, next_action = jit_sample_actions(
         critic_sample_rng,
-        actor_target,
+        actor,
         critic_target,
         batch.next_obs,
         training=False,
@@ -162,16 +164,14 @@ def jit_update_dpmd(
         nu = solve_normalizer_exp(q_batch, temp())
         weights = jnp.exp((q_batch - nu) / temp())
     elif reweight == "linear":
-        nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound/num_particles)
-        weights = jnp.maximum((q_batch - nu) / temp(), negative_bound/num_particles)
+        nu = solve_normalizer_linear(q_batch, temp())
+        weights = jnp.maximum((q_batch - nu) / temp(), 0)
     elif reweight == "square":
         nu = solve_normalizer_square(q_batch, temp())
         weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
     else:
         raise ValueError(f"Invalid reweighting method: {reweight}")
-    ent_weights = jnp.maximum(weights, 1e-6)
-    ent_weights = ent_weights / ent_weights.sum(axis=-1, keepdims=True)
-    entropy = - jnp.sum(ent_weights * jnp.log(ent_weights+1e-6), axis=-1)
+    entropy = - jnp.sum(weights * jnp.log(weights+1e-6), axis=-1)
     weights = weights * num_particles
 
     _, at, t, eps = actor.add_noise(add_noise_rng, action_batch)
@@ -326,6 +326,12 @@ class DPMDAgent(BaseAgent):
         self._n_training_steps = 0
 
     def train_step(self, batch: Batch, step: int) -> Metric:
+        decay_steps = max(self.cfg.additive_noise_decay_steps, 1)
+        progress = min(step / decay_steps, 1.0)
+        additive_noise = (
+            self.cfg.additive_noise_init
+            + (self.cfg.additive_noise_end - self.cfg.additive_noise_init) * progress
+        )
         self.rng, self.actor, self.actor_target, self.critic, self.critic_target, self.temp, metrics = jit_update_dpmd(
             self.rng,
             self.actor,
@@ -340,9 +346,10 @@ class DPMDAgent(BaseAgent):
             num_particles=self.cfg.num_particles,
             target_kl=self.cfg.target_kl,
             ema=self.cfg.ema,
-            additive_noise=self.cfg.additive_noise,
+            additive_noise=additive_noise,
             negative_bound=self.cfg.negative_bound,
         )
+        metrics["misc/additive_noise"] = additive_noise
         if self._n_training_steps % self.cfg.old_policy_update_interval == 0:
             self.actor_target = ema_update(self.actor, self.actor_target, 1.0)
         self._n_training_steps += 1
@@ -359,7 +366,7 @@ class DPMDAgent(BaseAgent):
         if deterministic:
             num_samples = self.cfg.num_samples
         else:
-            num_samples = 1
+            num_samples = self.cfg.num_behavior_samples
         self.rng, action = jit_sample_actions(
             self.rng,
             self.actor,
@@ -367,6 +374,6 @@ class DPMDAgent(BaseAgent):
             obs,
             training=False,
             num_samples=num_samples,
-            best_of_n=deterministic,
+            best_of_n=num_samples > 1,
         )
         return action, {}

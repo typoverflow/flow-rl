@@ -11,11 +11,13 @@ algo:
   num_samples: 10
   num_behavior_samples: 1
   num_particles: 64
-  target_kl: 2.0
+  target_kl: 2.5
   reweight: linear
   ema: 0.005
   old_policy_update_interval: 1000
-  additive_noise: 0.2
+  additive_noise_init: 0.2
+  additive_noise_end: 0.2
+  additive_noise_decay_steps: 1
   negative_bound: 0.0
   diffusion:
     backbone_cls: ${algo.backbone_cls}

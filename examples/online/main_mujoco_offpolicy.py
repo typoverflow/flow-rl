@@ -32,7 +32,6 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "dpmd_exp": DPMDAgent,
     "dpmd_linear": DPMDAgent,
     "dpmd_square": DPMDAgent,
-    "dpmd": DPMDAgent,
 }
 
 class OffPolicyTrainer():
