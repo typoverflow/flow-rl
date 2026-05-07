@@ -105,6 +105,8 @@ def jit_update_dpmd(
     ema: float,
     additive_noise: float,
     negative_bound: float,
+    weights_offset: float,
+    neg_weight_reg: float,
 ) -> Tuple[PRNGKey, ContinuousDDPM, Model, Model, jnp.ndarray, jnp.ndarray, Metric]:
 
     # split RNG upfront to remove false sequential dependencies,
@@ -164,14 +166,17 @@ def jit_update_dpmd(
         nu = solve_normalizer_exp(q_batch, temp())
         weights = jnp.exp((q_batch - nu) / temp())
     elif reweight == "linear":
-        nu = solve_normalizer_linear(q_batch, temp())
-        weights = jnp.maximum((q_batch - nu) / temp(), 0)
+        nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound/num_particles)
+        weights = jnp.maximum((q_batch - nu) / temp(), (negative_bound + weights_offset)/num_particles)
     elif reweight == "square":
         nu = solve_normalizer_square(q_batch, temp())
         weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
     else:
         raise ValueError(f"Invalid reweighting method: {reweight}")
-    entropy = - jnp.sum(weights * jnp.log(weights+1e-6), axis=-1)
+    neg_mask = (weights < 0).astype(jnp.float32)
+    ent_weights = jnp.maximum(weights, 1e-6)
+    ent_weights = ent_weights / ent_weights.sum(axis=-1, keepdims=True)
+    entropy = - jnp.sum(ent_weights * jnp.log(ent_weights+1e-6), axis=-1)
     weights = weights * num_particles
 
     _, at, t, eps = actor.add_noise(add_noise_rng, action_batch)
@@ -325,6 +330,18 @@ class DPMDAgent(BaseAgent):
         # define tracking variables
         self._n_training_steps = 0
 
+    def _compute_weights_offset(self) -> jnp.ndarray:
+        t = self._n_training_steps
+        schedule = self.cfg.weights_offset_schedule
+        if schedule == "exp_decay":
+            return self.cfg.weights_offset * jnp.exp(-self.cfg.weights_offset_decay_rate * t)
+        elif schedule == "reverse_linear":
+            total_steps = 1_000_000.0
+            progress = jnp.clip(t / total_steps, 0.0, 1.0)
+            return self.cfg.weights_offset * progress
+        else:
+            raise ValueError(f"Unknown weights_offset_schedule: {schedule}")
+
     def train_step(self, batch: Batch, step: int) -> Metric:
         decay_steps = max(self.cfg.additive_noise_decay_steps, 1)
         progress = min(step / decay_steps, 1.0)
@@ -332,6 +349,7 @@ class DPMDAgent(BaseAgent):
             self.cfg.additive_noise_init
             + (self.cfg.additive_noise_end - self.cfg.additive_noise_init) * progress
         )
+        weights_offset = self._compute_weights_offset()
         self.rng, self.actor, self.actor_target, self.critic, self.critic_target, self.temp, metrics = jit_update_dpmd(
             self.rng,
             self.actor,
@@ -348,6 +366,8 @@ class DPMDAgent(BaseAgent):
             ema=self.cfg.ema,
             additive_noise=additive_noise,
             negative_bound=self.cfg.negative_bound,
+            weights_offset=weights_offset,
+            neg_weight_reg=self.cfg.neg_weight_reg,
         )
         metrics["misc/additive_noise"] = additive_noise
         if self._n_training_steps % self.cfg.old_policy_update_interval == 0:
