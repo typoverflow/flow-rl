@@ -3,9 +3,11 @@ from .ctrlsr import *
 from .dacer import DACERAgent
 from .diffsr import *
 from .dpmd import DPMDAgent
+from .dpmd_classification import DPMDClassificationAgent
 from .dppo import DPPOAgent
 from .fpo import FPOAgent
 from .fpopp import FPOPPAgent
+from .gempo import GeMPOAgent
 from .genpo import GenPOAgent
 from .idem import IDEMAgent
 from .nclql import NCLQLAgent
