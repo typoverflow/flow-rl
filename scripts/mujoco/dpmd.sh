@@ -20,7 +20,7 @@ TASKS=(
 )
 
 SHARED_ARGS=(
-    "algo=dpmd_exp"
+    "algo=dpmd"
     "log.tag=default"
 )
 

@@ -5,6 +5,7 @@ from .algo.ctrlsr import *
 from .algo.diffsr import *
 from .algo.dpmd import DPMDConfig
 from .algo.fpo import FPOConfig
+from .algo.gempo import GeMPOConfig
 from .algo.idem import IDEMConfig
 from .algo.ppo import PPOConfig
 from .algo.qsm import QSMConfig
@@ -34,6 +35,7 @@ _CONFIGS = {
     "td3": TD3Config,
     "td7": TD7Config,
     "dpmd": DPMDConfig,
+    "gempo": GeMPOConfig,
     "qsm": QSMConfig,
     "idem": IDEMConfig,
     "ppo": PPOConfig,

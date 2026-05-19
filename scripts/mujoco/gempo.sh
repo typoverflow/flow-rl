@@ -1,7 +1,7 @@
 # Specify which GPUs to use
 GPUS=(0 1 2 3 4 5 6 7)  # Modify this array to specify which GPUs to use
 SEEDS=(0 1 2 3 4)
-NUM_EACH_GPU=2
+NUM_EACH_GPU=3
 
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
@@ -19,12 +19,12 @@ TASKS=(
     "HumanoidStandup-v5"
 )
 
+# pick one of: gempo_exp / gempo_linear / gempo_square
 SHARED_ARGS=(
-    "algo=nclql"
+    "algo=gempo_exp"
     "log.tag=default"
-    "log.project=flow-rl-online"
-    "log.entity=gaochenxiao"
 )
+
 
 run_task() {
     task=$1

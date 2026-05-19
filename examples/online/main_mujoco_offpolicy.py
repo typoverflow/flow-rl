@@ -30,10 +30,11 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "idem": IDEMAgent,
     "dacer": DACERAgent,
     "nclql": NCLQLAgent,
-    "dpmd_exp": DPMDAgent,
-    "dpmd_linear": DPMDAgent,
-    "dpmd_square": DPMDAgent,
     "dpmd": DPMDAgent,
+    "dpmd_classification": DPMDClassificationAgent,
+    "gempo_exp": GeMPOAgent,
+    "gempo_linear": GeMPOAgent,
+    "gempo_square": GeMPOAgent,
 }
 
 class OffPolicyTrainer():
