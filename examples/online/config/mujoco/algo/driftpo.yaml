@@ -1,0 +1,39 @@
+# @package _global_
+
+algo:
+  name: driftpo
+  backbone_cls: mlp
+
+  actor_hidden_dims: [256, 256, 256]
+  actor_activation: mish
+  actor_lr: 0.0003
+  noise_dim: 16
+
+  critic_hidden_dims: [256, 256]
+  critic_activation: relu
+  critic_lr: 0.0003
+  critic_ensemble_size: 5
+
+  discount: 0.99
+  ema: 0.005
+
+  # drifting policy
+  opt_method: first         # "first" or "zeroth"
+  bandwidth: 0.05           # RBF bandwidth (floor when bandwidth_mode='median')
+  bandwidth_mode: median    # "fixed" or "median"
+  temp: 1.0                 # softmax temperature under 'fixed' / 'normalize'
+  temp_mode: balance        # "fixed" | "normalize" | "balance" | "raw"
+  pos_strength: ${oc.select:algo.pos_strength_dict.${task},4.0}
+  pos_strength_dict:
+    Walker2d-v5: 2.0
+    Hopper-v5: 2.0
+  drift_scale: 1.0
+  max_step: ${oc.select:algo.max_step_dict.${task},1.0}
+  max_step_dict:
+    Humanoid-v5: 0.5
+  num_pos_samples: 16
+  num_neg_samples: 32
+
+  num_samples: 10           # best-of-N at eval time
+  x_min: -1.0
+  x_max: 1.0

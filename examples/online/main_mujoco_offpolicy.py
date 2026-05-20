@@ -31,7 +31,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "dacer": DACERAgent,
     "nclql": NCLQLAgent,
     "dpmd": DPMDAgent,
-    "dpmd_classification": DPMDClassificationAgent,
+    "driftpo": DriftPOAgent,
     "gempo_exp": GeMPOAgent,
     "gempo_linear": GeMPOAgent,
     "gempo_square": GeMPOAgent,
