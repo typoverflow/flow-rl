@@ -33,9 +33,7 @@ class DPMDConfig(BaseAlgoConfig):
     num_samples: int
     num_particles: int
     target_kl: float
-    reweight: str
     ema: float
     old_policy_update_interval: int
     additive_noise: float
-    negative_bound: float
     diffusion: DPMDDiffusionConfig

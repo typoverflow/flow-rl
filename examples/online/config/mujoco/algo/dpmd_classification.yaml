@@ -1,7 +1,7 @@
 # @package _global_
 
 algo:
-  name: dpmd
+  name: dpmd_classification
   backbone_cls: mlp
   critic_hidden_dims: [256, 256]
   critic_activation: relu
@@ -14,6 +14,7 @@ algo:
   ema: 0.005
   old_policy_update_interval: 1000
   additive_noise: 0.2
+  softmax_temp: 0.1
   diffusion:
     backbone_cls: ${algo.backbone_cls}
     activation: mish

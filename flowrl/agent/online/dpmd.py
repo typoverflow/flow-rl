@@ -23,42 +23,6 @@ def solve_normalizer_exp(q: jnp.ndarray, temp: float):
     nu = temp * jax.nn.logsumexp(q / temp, axis=-1, keepdims=True)
     return nu
 
-def solve_normalizer_linear(q: jnp.ndarray, temp: float, negative: float=0.0):
-    num_particles = q.shape[-1]
-    q_sorted = jnp.sort(q, axis=-1)[..., ::-1]
-    q_cumsum = jnp.cumsum(q_sorted, axis=-1)
-
-    # defining the number of active (non-clipped) particles
-    k_indices = jnp.arange(1, num_particles+1).reshape(1, -1)
-    excess = q_cumsum - k_indices * q_sorted
-    active_mask = excess <= temp * (1 - num_particles * negative)
-    k = jnp.sum(active_mask, axis=-1, keepdims=True)
-
-    sum_active = jnp.take_along_axis(q_cumsum, k-1, axis=-1)
-    nu = (sum_active - temp * (1 - (num_particles - k) * negative)) / k
-    return nu
-
-def solve_normalizer_square(q: jnp.ndarray, temp: float):
-    num_particles = q.shape[-1]
-    target_sum = temp ** 2
-
-    q_sorted = jnp.sort(q, axis=-1)[..., ::-1]
-    q_cumsum = jnp.cumsum(q_sorted, axis=-1)
-    q_squared_cumsum = jnp.cumsum(q_sorted ** 2, axis=-1)
-
-    k_indices = jnp.arange(1, num_particles+1).reshape(1, -1)
-    excess = q_squared_cumsum \
-            - 2 * q_cumsum * q_sorted \
-            + k_indices * (q_sorted ** 2)
-    active_mask = excess <= target_sum
-    k = jnp.maximum(jnp.sum(active_mask, axis=-1, keepdims=True), 1)
-
-    S1 = jnp.take_along_axis(q_cumsum, k-1, axis=-1)
-    S2 = jnp.take_along_axis(q_squared_cumsum, k-1, axis=-1)
-    delta = S1**2 - k * S2 + k * target_sum
-    nu = (S1 - jnp.sqrt(jnp.maximum(delta, 0.0))) / k
-    return nu
-
 @partial(jax.jit, static_argnames=("training", "num_samples", "best_of_n"))
 def jit_sample_actions(
     rng: PRNGKey,
@@ -84,7 +48,7 @@ def jit_sample_actions(
         actions = actions.reshape(B, num_samples, -1)[jnp.arange(B), best_idx]
     return rng, actions
 
-@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "reweight", "additive_noise", "negative_bound"))
+@partial(jax.jit, static_argnames=("discount", "target_kl", "num_particles", "ema", "additive_noise"))
 def jit_update_dpmd(
     rng: PRNGKey,
     actor: ContinuousDDPM,
@@ -94,12 +58,10 @@ def jit_update_dpmd(
     temp: Model,
     batch: Batch,
     discount: float,
-    reweight: str,
     num_particles: int,
     target_kl: float,
     ema: float,
     additive_noise: float,
-    negative_bound: float,
 ) -> Tuple[PRNGKey, ContinuousDDPM, Model, Model, jnp.ndarray, jnp.ndarray, Metric]:
 
     # split RNG upfront to remove false sequential dependencies,
@@ -156,17 +118,8 @@ def jit_update_dpmd(
     )(batch.obs, action_batch)
     q_batch = q_batch.mean(axis=0).squeeze(-1)
 
-    if reweight == "exp":
-        nu = solve_normalizer_exp(q_batch, temp())
-        weights = jnp.exp((q_batch - nu) / temp())
-    elif reweight == "linear":
-        nu = solve_normalizer_linear(q_batch, temp(), negative=negative_bound/num_particles)
-        weights = jnp.maximum((q_batch - nu) / temp(), negative_bound/num_particles)
-    elif reweight == "square":
-        nu = solve_normalizer_square(q_batch, temp())
-        weights = jnp.maximum((q_batch - nu) / temp(), 0) ** 2
-    else:
-        raise ValueError(f"Invalid reweighting method: {reweight}")
+    nu = solve_normalizer_exp(q_batch, temp())
+    weights = jnp.exp((q_batch - nu) / temp())
     ent_weights = jnp.maximum(weights, 1e-6)
     ent_weights = ent_weights / ent_weights.sum(axis=-1, keepdims=True)
     entropy = - jnp.sum(ent_weights * jnp.log(ent_weights+1e-6), axis=-1)
@@ -333,12 +286,10 @@ class DPMDAgent(BaseAgent):
             self.temp,
             batch,
             discount=self.cfg.discount,
-            reweight=self.cfg.reweight,
             num_particles=self.cfg.num_particles,
             target_kl=self.cfg.target_kl,
             ema=self.cfg.ema,
             additive_noise=self.cfg.additive_noise,
-            negative_bound=self.cfg.negative_bound,
         )
         if self._n_training_steps % self.cfg.old_policy_update_interval == 0:
             self.actor_target = ema_update(self.actor, self.actor_target, 1.0)

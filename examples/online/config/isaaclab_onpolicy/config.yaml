@@ -14,7 +14,7 @@ hydra:
 seed: 0
 device: '0'
 task: ???
-action_bound: 1.0
+action_bound: null
 disable_bootstrap: false
 norm_obs: true
 train_frames: 200_000_000

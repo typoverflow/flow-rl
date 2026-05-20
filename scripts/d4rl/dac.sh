@@ -7,21 +7,21 @@ NUM_EACH_GPU=3
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 TASKS=(
     # mujoco
-    # "hopper-medium-v2"
-    # "hopper-medium-replay-v2"
-    # "hopper-medium-expert-v2"
-    # "walker2d-medium-v2"
-    # "walker2d-medium-replay-v2"
-    # "walker2d-medium-expert-v2"
-    # "halfcheetah-medium-v2"
-    # "halfcheetah-medium-replay-v2"
-    # "halfcheetah-medium-expert-v2"
-    # # antmaze
-	# "antmaze-umaze-v0"
-    # "antmaze-umaze-diverse-v0"
-	# "antmaze-medium-play-v0"
-	# "antmaze-medium-diverse-v0"
-	# "antmaze-large-play-v0"
+    "hopper-medium-v2"
+    "hopper-medium-replay-v2"
+    "hopper-medium-expert-v2"
+    "walker2d-medium-v2"
+    "walker2d-medium-replay-v2"
+    "walker2d-medium-expert-v2"
+    "halfcheetah-medium-v2"
+    "halfcheetah-medium-replay-v2"
+    "halfcheetah-medium-expert-v2"
+    # antmaze
+	"antmaze-umaze-v0"
+    "antmaze-umaze-diverse-v0"
+	"antmaze-medium-play-v0"
+	"antmaze-medium-diverse-v0"
+	"antmaze-large-play-v0"
 	"antmaze-large-diverse-v0"
 )
 
@@ -29,8 +29,6 @@ TASKS=(
 SHARED_ARGS=(
     "algo=dac"
     "log.project=flow-rl"
-    "log.entity=lamda-rl"
-    "log.tag=default"
 )
 
 MUJOCO_ARGS=(

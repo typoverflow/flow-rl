@@ -17,6 +17,7 @@ from flowrl.types import *
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
 
+# disabled by default for faster computation, enable if see stability issues
 # jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
@@ -29,11 +30,11 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "idem": IDEMAgent,
     "dacer": DACERAgent,
     "nclql": NCLQLAgent,
-    "dpmd_exp": DPMDAgent,
-    "dpmd_linear": DPMDAgent,
-    "dpmd_square": DPMDAgent,
     "dpmd": DPMDAgent,
     "driftpo": DriftPOAgent,
+    "gempo_exp": GeMPOAgent,
+    "gempo_linear": GeMPOAgent,
+    "gempo_square": GeMPOAgent,
 }
 
 class OffPolicyTrainer():

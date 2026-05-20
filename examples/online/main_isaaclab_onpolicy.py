@@ -5,10 +5,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+import wandb
 from flowrl.agent.online import DPPOAgent, FPOAgent, FPOPPAgent, GenPOAgent, PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
@@ -17,7 +17,8 @@ from flowrl.types import Dict, RolloutBatch
 from flowrl.utils.logger import CompositeLogger
 from flowrl.utils.misc import set_seed_everywhere
 
-jax.config.update("jax_default_matmul_precision", "float32")
+# disabled by default for faster computation, enable if see stability issues
+# jax.config.update("jax_default_matmul_precision", "float32")
 
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
@@ -116,7 +117,11 @@ class IsaacLabOnPolicyTrainer:
                 jnp.array(obs_norm), deterministic=False
             )
             actions_np = np.array(actions)
-            actions_clipped = np.clip(actions_np, -1.0, 1.0)
+            actions_env = (
+                np.clip(actions_np, -1.0, 1.0)
+                if self.env.action_bound is not None
+                else actions_np
+            )
             all_actions[t] = actions_np
 
             # Generically collect algorithm-specific info
@@ -128,7 +133,7 @@ class IsaacLabOnPolicyTrainer:
             for k, v in info.items():
                 all_extras[k][t] = np.array(v)
 
-            next_obs, rewards, terminated, truncated, infos = self.env.step(actions_clipped)
+            next_obs, rewards, terminated, truncated, infos = self.env.step(actions_env)
 
             all_rewards[t] = rewards[..., np.newaxis]
             all_terminated[t] = terminated[..., np.newaxis]
@@ -209,8 +214,13 @@ class IsaacLabOnPolicyTrainer:
             actions, _ = self.agent.sample_actions(
                 jnp.array(obs_norm), deterministic=True
             )
-            actions_clipped = np.clip(np.array(actions), -1.0, 1.0)
-            obs, rewards, terminated, truncated, _ = self.env.step(actions_clipped)
+            actions_np = np.array(actions)
+            actions_env = (
+                np.clip(actions_np, -1.0, 1.0)
+                if self.env.action_bound is not None
+                else actions_np
+            )
+            obs, rewards, terminated, truncated, _ = self.env.step(actions_env)
 
             eval_returns += rewards * (1 - eval_dones)
             eval_lengths += 1 * (1 - eval_dones)

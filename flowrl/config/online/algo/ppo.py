@@ -13,15 +13,18 @@ class PPOConfig(BaseAlgoConfig):
     activation: str
     actor_lr: float
     critic_lr: float
+    init_noise_std: float
     gamma: float
     gae_lambda: float
     clip_epsilon: float
     entropy_coeff: float
-    reward_scaling: float
+    value_loss_coef: float
+    use_clipped_value_loss: bool
+    desired_kl: float
+    schedule: str
     normalize_advantage: bool
     num_envs: int
     rollout_length: int
     num_minibatches: int
     num_epochs: int
-    batch_size: int
-    clip_grad_norm: Optional[float]
+    max_grad_norm: Optional[float]

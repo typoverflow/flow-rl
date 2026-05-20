@@ -6,26 +6,25 @@ NUM_EACH_GPU=3
 PARALLEL=$((NUM_EACH_GPU * ${#GPUS[@]}))
 
 TASKS=(
-    "dog-run"
-    "dog-stand"
-    "dog-trot"
-    "dog-walk"
-    "humanoid-run"
-    "humanoid-stand"
-    "humanoid-walk"
+    "Ant-v5"
+    "Walker2d-v5"
+    "HalfCheetah-v5"
+    "Hopper-v5"
+    "Humanoid-v5"
+    "InvertedDoublePendulum-v5"
+    "InvertedPendulum-v5"
+    "Pusher-v5"
+    "Reacher-v5"
+    "Swimmer-v5"
+    "HumanoidStandup-v5"
 )
 
+# pick one of: gempo_exp / gempo_linear / gempo_square
 SHARED_ARGS=(
-    "algo=diffsr_qsm"
-    "algo.critic_ensemble_size=10"
-    "algo.diffusion.steps=5"
-    "algo.ld_temp=0.05"
-    "algo.wd=0.0"
-    "algo.clip_grad_norm=10.0"
-    "log.tag=ibc-gn10.0-ldtemp0.05-qens10-step5"
-    "log.project=flow-rl"
-    "log.entity=lambda-rl"
+    "algo=gempo_exp"
+    "log.tag=default"
 )
+
 
 run_task() {
     task=$1
@@ -35,7 +34,9 @@ run_task() {
     device_idx=$((slot % num_gpus))
     device=${GPUS[$device_idx]}
     echo "Running $env $seed on GPU $device"
-    command="python3 examples/online/main_dmc_offpolicy.py task=$task device=$device seed=$seed ${SHARED_ARGS[@]}"
+    export CUDA_VISIBLE_DEVICES=$device
+    export XLA_PYTHON_CLIENT_PREALLOCATE="false"
+    command="python3 examples/online/main_mujoco_offpolicy.py task=$task seed=$seed ${SHARED_ARGS[@]}"
     if [ -n "$DRY_RUN" ]; then
         echo $command
     else
@@ -43,7 +44,6 @@ run_task() {
         $command
     fi
 }
-
 
 . env_parallel.bash
 if [ -n "$DRY_RUN" ]; then
