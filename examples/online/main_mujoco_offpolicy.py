@@ -6,10 +6,10 @@ import hydra
 import jax
 import numpy as np
 import omegaconf
-import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+import wandb
 from flowrl.agent.online import *
 from flowrl.config.online.mujoco_config import Config
 from flowrl.dataset.buffer.state import ReplayBuffer, RMSNormalizer
@@ -33,6 +33,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "dpmd_linear": DPMDAgent,
     "dpmd_square": DPMDAgent,
     "dpmd": DPMDAgent,
+    "driftpo": DriftPOAgent,
 }
 
 class OffPolicyTrainer():
