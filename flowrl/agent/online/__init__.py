@@ -3,7 +3,6 @@ from .ctrlsr import *
 from .dacer import DACERAgent
 from .diffsr import *
 from .dpmd import DPMDAgent
-from .dpmd_classification import DPMDClassificationAgent
 from .dppo import DPPOAgent
 from .driftpo import DriftPOAgent
 from .fpo import FPOAgent
