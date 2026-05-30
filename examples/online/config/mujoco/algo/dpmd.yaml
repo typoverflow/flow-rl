@@ -10,7 +10,7 @@ algo:
   discount: 0.99
   num_samples: 10
   num_particles: 64
-  target_kl: 2.0
+  target_kl: ${oc.select:algo.target_kl_dict.${task}, 2.0}
   ema: 0.005
   old_policy_update_interval: 1000
   additive_noise: 0.2
@@ -28,3 +28,6 @@ algo:
     x_min: -1.0
     x_max: 1.0
     solver: ddpm
+  target_kl_dict:
+    Hopper-v5: 3.0
+    Ant-v5: 1.0
