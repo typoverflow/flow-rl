@@ -4,7 +4,8 @@ from .algo.base import BaseAlgoConfig
 from .algo.ctrlsr import *
 from .algo.diffsr import *
 from .algo.dpmd import DPMDConfig
-from .algo.fpo import FPOConfig
+from .algo.dppo import DPPOConfig
+from .algo.fpopp import FPOPPConfig
 from .algo.gempo import GeMPOConfig
 from .algo.idem import IDEMConfig
 from .algo.ppo import PPOConfig
@@ -39,7 +40,8 @@ _CONFIGS = {
     "qsm": QSMConfig,
     "idem": IDEMConfig,
     "ppo": PPOConfig,
-    "fpo": FPOConfig,
+    "dppo": DPPOConfig,
+    "fpopp": FPOPPConfig,
     "ctrlsr_td3": CtrlSRTD3Config,
     "diffsr_td3": DiffSRTD3Config,
     "diffsr_ld": DiffSRLDConfig,

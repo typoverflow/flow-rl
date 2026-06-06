@@ -32,12 +32,12 @@ class DPPOConfig(BaseAlgoConfig):
     clip_epsilon: float
     clip_epsilon_base: float
     clip_epsilon_rate: float
-    reward_scaling: float
+    value_loss_coef: float
+    use_clipped_value_loss: bool
     normalize_advantage: bool
     num_envs: int
     rollout_length: int
     num_minibatches: int
     num_epochs: int
-    batch_size: int
-    clip_grad_norm: Optional[float]
+    max_grad_norm: Optional[float]
     diffusion: DPPODiffusionConfig

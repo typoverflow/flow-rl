@@ -47,7 +47,6 @@ Online RL (On-Policy):
 |:---:|:---:|
 | PPO | `flowrl/agent/online/ppo.py` |
 | DPPO | `flowrl/agent/online/dppo.py` |
-| FPO | `flowrl/agent/online/fpo.py` |
 | FPOPP | `flowrl/agent/online/fpopp.py` |
 | GenPO | `flowrl/agent/online/genpo.py` |
 

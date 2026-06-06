@@ -18,10 +18,8 @@ algo:
   value_loss_coef: 1.0
   use_clipped_value_loss: true
   desired_kl: 0.01
-  schedule: adaptive
+  schedule: fixed
   normalize_advantage: true
   num_minibatches: 4
   num_epochs: 5
   max_grad_norm: 1.0
-
-train_frames: 200_000_000

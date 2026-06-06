@@ -5,11 +5,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import omegaconf
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
-import wandb
-from flowrl.agent.online import DPPOAgent, FPOAgent, FPOPPAgent, GenPOAgent, PPOAgent
+from flowrl.agent.online import DPPOAgent, FPOPPAgent, GenPOAgent, PPOAgent
 from flowrl.config.online.onpolicy_isaaclab_config import Config
 from flowrl.dataset.buffer.state import EmpiricalNormalizer
 from flowrl.env.online.isaaclab_env import IsaacLabEnv
@@ -23,7 +23,6 @@ from flowrl.utils.misc import set_seed_everywhere
 SUPPORTED_AGENTS: Dict[str, type] = {
     "ppo": PPOAgent,
     "dppo": DPPOAgent,
-    "fpo": FPOAgent,
     "fpopp": FPOPPAgent,
     "genpo": GenPOAgent,
 }

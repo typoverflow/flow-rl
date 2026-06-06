@@ -5,7 +5,6 @@ from .diffsr import *
 from .dpmd import DPMDAgent
 from .dppo import DPPOAgent
 from .driftpo import DriftPOAgent
-from .fpo import FPOAgent
 from .fpopp import FPOPPAgent
 from .gempo import GeMPOAgent
 from .genpo import GenPOAgent

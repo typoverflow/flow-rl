@@ -6,7 +6,12 @@ import jax.numpy as jnp
 import optax
 
 from flowrl.agent.base import BaseAgent
-from flowrl.agent.online.ppo import compute_gae
+from flowrl.agent.online.ppo import (
+    clipped_value_loss,
+    compute_gae,
+    make_minibatch_indices,
+    normalize_advantages,
+)
 from flowrl.config.online.algo.dppo import DPPOConfig
 from flowrl.flow.continuous_ddpm import (
     ContinuousDDPM,
@@ -24,10 +29,10 @@ from flowrl.types import Metric, PRNGKey, RolloutBatch
 
 @partial(jax.jit, static_argnames=("steps", "min_logprob_std"))
 def jit_compute_chain_log_probs(
-    actor: ContinuousDDPM, 
-    obs: jnp.ndarray, 
+    actor: ContinuousDDPM,
+    obs: jnp.ndarray,
     chain: jnp.ndarray,
-    steps: int, 
+    steps: int,
     min_logprob_std: float,
 ) -> jnp.ndarray:
     ts = quad_t_schedule(steps, n=actor.t_schedule_n,
@@ -79,37 +84,39 @@ def jit_sample_actions(
 
 
 @partial(jax.jit, static_argnames=(
-    "gamma", 
-    "gae_lambda", 
+    "gamma",
+    "gae_lambda",
     "gamma_denoising",
-    "clip_epsilon", 
-    "clip_epsilon_base", 
+    "clip_epsilon",
+    "clip_epsilon_base",
     "clip_epsilon_rate",
-    "reward_scaling", 
+    "value_loss_coef",
+    "use_clipped_value_loss",
     "normalize_advantage",
-    "num_epochs", 
-    "num_minibatches", 
+    "num_epochs",
+    "num_minibatches",
     "batch_size",
-    "denoising_steps", 
+    "denoising_steps",
     "min_logprob_std",
 ))
 def jit_update_dppo(
-    rng: PRNGKey, 
-    actor: ContinuousDDPM, 
-    critic: Model, 
+    rng: PRNGKey,
+    actor: ContinuousDDPM,
+    critic: Model,
     rollout: RolloutBatch,
-    gamma: float, 
-    gae_lambda: float, 
+    gamma: float,
+    gae_lambda: float,
     gamma_denoising: float,
-    clip_epsilon: float, 
-    clip_epsilon_base: float, 
+    clip_epsilon: float,
+    clip_epsilon_base: float,
     clip_epsilon_rate: float,
-    reward_scaling: float, 
+    value_loss_coef: float,
+    use_clipped_value_loss: bool,
     normalize_advantage: bool,
-    num_epochs: int, 
-    num_minibatches: int, 
+    num_epochs: int,
+    num_minibatches: int,
     batch_size: int,
-    denoising_steps: int, 
+    denoising_steps: int,
     min_logprob_std: float,
 ):
     T, B = rollout.rewards.shape[:2]
@@ -119,15 +126,18 @@ def jit_update_dppo(
     next_value_pred = critic(rollout.next_obs)
     gae_vs, gae_advantages = jax.lax.stop_gradient(compute_gae(
         terminated=rollout.terminated, truncated=rollout.truncated,
-        rewards=rollout.rewards * reward_scaling,
+        rewards=rollout.rewards,
         values=value_pred, next_values=next_value_pred,
         gae_lambda=gae_lambda, gamma=gamma,
     ))
+    if normalize_advantage:
+        gae_advantages = normalize_advantages(gae_advantages)
 
     flat_obs = rollout.obs.reshape(T * B, -1)
     flat_chains = rollout.extras["action_chains"].reshape(T * B, K + 1, -1)
     flat_adv = gae_advantages.reshape(T * B, 1)
     flat_vs = gae_vs.reshape(T * B, 1)
+    flat_old_values = value_pred.reshape(T * B, 1)
 
     flat_old_step_lps = jax.lax.stop_gradient(
         jit_compute_chain_log_probs(actor, flat_obs, flat_chains, K, min_logprob_std)
@@ -145,8 +155,7 @@ def jit_update_dppo(
     def epoch_step(carry, _):
         rng, actor, critic = carry
         rng, perm_rng = jax.random.split(rng)
-        perm = jax.random.permutation(perm_rng, T * B)[:num_minibatches * batch_size]
-        mb_indices = perm.reshape(num_minibatches, batch_size)
+        mb_indices = make_minibatch_indices(perm_rng, T * B, num_minibatches, batch_size)
 
         def minibatch_step(carry, indices):
             rng, actor, critic = carry
@@ -157,9 +166,7 @@ def jit_update_dppo(
             mb_old_step_lps = flat_old_step_lps[indices]
             mb_adv = flat_adv[indices]
             mb_vs = flat_vs[indices]
-
-            if normalize_advantage:
-                mb_adv = (mb_adv - mb_adv.mean()) / (mb_adv.std() + 1e-8)
+            mb_old_values = flat_old_values[indices]
 
             def actor_loss_fn(actor_params, dropout_rng):
                 diff_actor = actor.replace(state=actor.state.replace(params=actor_params))
@@ -180,13 +187,14 @@ def jit_update_dppo(
             new_actor, actor_info = actor.apply_gradient(actor_loss_fn)
 
             def critic_loss_fn(critic_params, dropout_rng):
-                v = critic.apply({"params": critic_params}, 
+                v = critic.apply({"params": critic_params},
                                  mb_obs,
-                                 training=True, 
+                                 training=True,
                                  rngs={"dropout": dropout_rng})
-                v_loss = jnp.mean((mb_vs - v) ** 2)
-                return v_loss, {
-                    "loss/value_loss": v_loss, 
+                v_loss = clipped_value_loss(
+                    v, mb_old_values, mb_vs, clip_epsilon, use_clipped_value_loss)
+                return value_loss_coef * v_loss, {
+                    "loss/value_loss": v_loss,
                     "misc/value_mean": jnp.mean(v)}
 
             new_critic, critic_info = critic.apply_gradient(critic_loss_fn)
@@ -202,8 +210,11 @@ def jit_update_dppo(
     metrics = jax.tree.map(lambda x: x.mean(), all_metrics)
     metrics.update({
         "misc/reward_mean": rollout.rewards.mean(),
+        "misc/obs_mean": flat_obs.mean(),
+        "misc/obs_std": flat_obs.std(axis=0).mean(),
         "misc/advantages_mean": flat_adv.mean(),
         "misc/advantages_std": flat_adv.std(axis=0).mean(),
+        "misc/returns_mean": flat_vs.mean(),
     })
     return rng, actor, critic, metrics
 
@@ -227,60 +238,62 @@ class DPPOAgent(BaseAgent):
 
         backbone_def = ContinuousDDPMBackbone(
             noise_predictor=backbone_cls(
-                hidden_dims=cfg.diffusion.hidden_dims, 
+                hidden_dims=cfg.diffusion.hidden_dims,
                 output_dim=act_dim,
                 activation=actor_activation),
             time_embedding=LearnableFourierEmbedding(
                 output_dim=cfg.diffusion.time_dim),
             cond_embedding=MLP(
-                hidden_dims=(128, 128), 
+                hidden_dims=(128, 128),
                 activation=actor_activation),
         )
         self.actor = ContinuousDDPM.create(
-            network=backbone_def, 
+            network=backbone_def,
             rng=actor_rng,
             inputs=(jnp.ones((1, act_dim)), jnp.zeros((1, 1)), jnp.ones((1, obs_dim))),
-            x_dim=act_dim, 
+            x_dim=act_dim,
             steps=cfg.diffusion.steps,
-            noise_schedule=cfg.diffusion.noise_schedule, 
+            noise_schedule=cfg.diffusion.noise_schedule,
             noise_schedule_params={},
             clip_sampler=cfg.diffusion.clip_sampler,
-            x_min=cfg.diffusion.x_min, 
+            x_min=cfg.diffusion.x_min,
             x_max=cfg.diffusion.x_max,
             t_schedule_n=1.0,
             optimizer=optax.adam(learning_rate=cfg.actor_lr),
-            clip_grad_norm=cfg.clip_grad_norm,
+            clip_grad_norm=cfg.max_grad_norm,
         )
 
         critic_def = ScalarCritic(
             backbone=backbone_cls(
-            hidden_dims=cfg.critic_hidden_dims, 
+            hidden_dims=cfg.critic_hidden_dims,
             activation=critic_activation))
         self.critic = Model.create(
-            critic_def, 
-            critic_rng, 
+            critic_def,
+            critic_rng,
             inputs=(jnp.ones((1, obs_dim)),),
             optimizer=optax.adam(learning_rate=cfg.critic_lr),
-            clip_grad_norm=cfg.clip_grad_norm,
+            clip_grad_norm=cfg.max_grad_norm,
         )
 
     def train_step(self, rollout: RolloutBatch, step: int) -> Metric:
+        batch_size = self.cfg.num_envs * self.cfg.rollout_length // self.cfg.num_minibatches
         self.rng, self.actor, self.critic, metrics = jit_update_dppo(
-            self.rng, 
-            self.actor, 
-            self.critic, 
+            self.rng,
+            self.actor,
+            self.critic,
             rollout,
-            gamma=self.cfg.gamma, 
+            gamma=self.cfg.gamma,
             gae_lambda=self.cfg.gae_lambda,
             gamma_denoising=self.cfg.gamma_denoising,
             clip_epsilon=self.cfg.clip_epsilon,
             clip_epsilon_base=self.cfg.clip_epsilon_base,
             clip_epsilon_rate=self.cfg.clip_epsilon_rate,
-            reward_scaling=self.cfg.reward_scaling,
+            value_loss_coef=self.cfg.value_loss_coef,
+            use_clipped_value_loss=self.cfg.use_clipped_value_loss,
             normalize_advantage=self.cfg.normalize_advantage,
             num_epochs=self.cfg.num_epochs,
             num_minibatches=self.cfg.num_minibatches,
-            batch_size=self.cfg.batch_size,
+            batch_size=batch_size,
             denoising_steps=self.cfg.diffusion.steps,
             min_logprob_std=self.cfg.diffusion.min_logprob_denoising_std,
         )
@@ -291,10 +304,10 @@ class DPPOAgent(BaseAgent):
     ) -> Tuple[jnp.ndarray, Metric]:
         assert num_samples == 1, "DPPO only supports num_samples=1"
         self.rng, action, chain, log_prob = jit_sample_actions(
-            self.rng, 
-            self.actor, 
+            self.rng,
+            self.actor,
             obs,
-            self.cfg.diffusion.steps, 
+            self.cfg.diffusion.steps,
             self.cfg.diffusion.min_logprob_denoising_std,
         )
         return action, {"log_prob": log_prob, "action_chains": chain}

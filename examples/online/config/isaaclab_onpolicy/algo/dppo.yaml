@@ -2,11 +2,11 @@
 
 algo:
   name: dppo
-  num_envs: 1024
+  num_envs: 4096
   rollout_length: 24
   backbone_cls: mlp
   critic_hidden_dims: [256, 256, 256]
-  critic_activation: mish
+  critic_activation: elu
   actor_lr: 0.0001
   critic_lr: 0.001
   gamma: 0.99
@@ -15,12 +15,12 @@ algo:
   clip_epsilon: 0.2
   clip_epsilon_base: 0.001
   clip_epsilon_rate: 3.0
-  reward_scaling: 1.0
+  value_loss_coef: 1.0
+  use_clipped_value_loss: true
   normalize_advantage: true
   num_minibatches: 4
-  num_epochs: 4
-  batch_size: 6144
-  clip_grad_norm: 1.0
+  num_epochs: 5
+  max_grad_norm: 1.0
   diffusion:
     hidden_dims: [256, 256, 256]
     activation: mish
