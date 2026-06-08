@@ -34,4 +34,8 @@ class GenPOConfig(BaseAlgoConfig):
     clip_grad_norm: Optional[float]
     entropy_coeff: float
     compress_coef: float
+    value_loss_coef: float
+    use_clipped_value_loss: bool
+    schedule: str
+    desired_kl: float
     flow: GenPOFlowConfig

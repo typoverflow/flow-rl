@@ -1,7 +1,7 @@
 # @package _global_
 algo:
   name: genpo
-  num_envs: 1024
+  num_envs: 4096
   rollout_length: 24
   backbone_cls: mlp
   critic_hidden_dims: [256, 256, 256]
@@ -13,17 +13,19 @@ algo:
   reward_scaling: 1.0
   normalize_advantage: true
   num_minibatches: 4
-  num_epochs: 4
+  num_epochs: 5
   batch_size: 6144
   clip_grad_norm: 1.0
-  entropy_coeff: 0.002
+  entropy_coeff: 0.0
   compress_coef: 0.01
+  value_loss_coef: 1.0
+  use_clipped_value_loss: true
+  schedule: adaptive
+  desired_kl: 0.01
   flow:
     activation: elu
     hidden_dims: [256, 256, 256]
     time_dim: 32
     steps: 5
-    mix_para: 0.9
+    mix_para: 0.95
     lr: 0.0001
-
-train_frames: 100_000_000
