@@ -62,6 +62,9 @@ Online RL (Off-Policy):
 | SDAC | `flowrl/agent/online/sdac.py` |
 | DPMD | `flowrl/agent/online/dpmd.py` |
 | IDEM | `flowrl/agent/online/idem.py` |
+| DriftPO | `flowrl/agent/online/driftpo.py` |
+| GeMPO | `flowrl/agent/online/gempo.py` |
+| NCLQL | `flowrl/agent/online/nclql.py` |
 
 ## 📝 Citing Flow RL
 If you use Flow RL in your research, please cite:
