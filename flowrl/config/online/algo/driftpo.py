@@ -22,18 +22,17 @@ class DriftPOConfig(BaseAlgoConfig):
     discount: float
     ema: float
 
-    # drifting policy specific
-    opt_method: str        # "first" or "zeroth"
-    bandwidth: float       # kernel bandwidth h (floor when bandwidth_mode='median')
-    bandwidth_mode: str    # "fixed" or "median"
-    temp: float            # temperature lambda; meaning depends on temp_mode
-    temp_mode: str         # "fixed" | "normalize" | "balance" | "raw"
-    pos_strength: float    # for temp_mode='balance', target ratio ||V_pos|| / ||V_neg|| per sample
-    drift_scale: float     # global scaling for V (step size)
-    max_step: float        # if > 0, clip ||V||_2 to this radius before forming the target
-    num_pos_samples: int   # MC samples for zeroth-order V^+
-    num_neg_samples: int   # MC samples for V^- (kernelized mean-shift)
+    # drifting policy: V = base_step_size * h_t * (g/s - (lam/h_t/s) m), regress a toward sg(a + V)
+    temp: float                  # temperature lambda; target pi* propto exp(Q / temp); the per-env knob
+    base_step_size: float        # effective drift step = base_step_size * h_t
 
-    num_samples: int       # best-of-N action selection at eval time
+    # annealed bandwidth h_t: bandwidth_init -> bandwidth_end over bandwidth_anneal_steps gradient steps
+    bandwidth_init: float
+    bandwidth_end: float
+    bandwidth_anneal_steps: int
+
+    num_train_samples: int       # drift MC samples: a^+ ~ N(a, h_t I) and a^- ~ pi (shared count)
+
+    num_samples: int             # best-of-N action selection at eval time
     x_min: float
     x_max: float

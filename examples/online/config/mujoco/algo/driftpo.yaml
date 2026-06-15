@@ -17,22 +17,18 @@ algo:
   discount: 0.99
   ema: 0.005
 
-  # drifting policy
-  opt_method: first         # "first" or "zeroth"
-  bandwidth: 0.05           # RBF bandwidth (floor when bandwidth_mode='median')
-  bandwidth_mode: median    # "fixed" or "median"
-  temp: 1.0                 # softmax temperature under 'fixed' / 'normalize'
-  temp_mode: balance        # "fixed" | "normalize" | "balance" | "raw"
-  pos_strength: ${oc.select:algo.pos_strength_dict.${task},4.0}
-  pos_strength_dict:
-    Walker2d-v5: 2.0
-    Hopper-v5: 2.0
-  drift_scale: 1.0
-  max_step: ${oc.select:algo.max_step_dict.${task},1.0}
-  max_step_dict:
-    Humanoid-v5: 0.5
-  num_pos_samples: 16
-  num_neg_samples: 32
+  # drifting policy (tuned on HalfCheetah-v5: 8502@400k, 10715@1M)
+  temp: ${oc.select:algo.temp_dict.${task},0.1}   # lambda for pi* propto exp(Q/temp); the per-env knob
+  temp_dict:
+    HalfCheetah-v5: 0.1
+  base_step_size: 0.04       # effective drift step = base_step_size * h_t
+
+  # annealed bandwidth h_init -> h_end
+  bandwidth_init: 0.2
+  bandwidth_end: 0.01
+  bandwidth_anneal_steps: 1000000
+
+  num_train_samples: 32     # drift MC samples (a^+ neighborhood == a^- policy)
 
   num_samples: 10           # best-of-N at eval time
   x_min: -1.0
