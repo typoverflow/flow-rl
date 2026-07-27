@@ -29,6 +29,8 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "qsm": QSMAgent,
     "idem": IDEMAgent,
     "dacer": DACERAgent,
+    "dime": DIMEAgent,
+    "flac": FLACAgent,
     "nclql": NCLQLAgent,
     "dpmd": DPMDAgent,
     "driftpo": DriftPOAgent,

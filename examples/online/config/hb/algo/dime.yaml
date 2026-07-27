@@ -1,0 +1,45 @@
+# @package _global_
+
+algo:
+  name: dime
+  critic_hidden_dims: [2048, 2048]
+  critic_activation: relu
+  critic_ensemble_size: 2
+  critic_lr: 0.0003
+  critic_num_atoms: 101
+  critic_v_min: -200.0
+  critic_v_max: 200.0
+  critic_entropy_coef: 0.005
+  batch_renorm: true
+  batch_norm_momentum: 0.99
+  batch_norm_epsilon: 0.001
+  batch_norm_warmup: 100000
+  actor_lr: 0.0003
+  actor_grad_clip: 1.0
+  adam_b1: 0.5
+  adam_b2: 0.999
+  discount: 0.99
+  actor_update_freq: 3
+  target_actor_ema: 1.0
+  init_temperature: 1.0
+  temperature_lr: 0.001
+  target_entropy_scale: 4.0
+  sampler:
+    hidden_dims: [256, 256, 256]
+    activation: gelu
+    layer_norm: false
+    time_dim: 256
+    steps: 16
+    prior_std: 2.5
+    dt: 0.1
+    friction: 1.0
+    learn_dt: true
+    learn_friction: true
+    per_dim_friction: true
+    schedule_min: 0.001
+    schedule_offset: 0.008
+    schedule_power: 2
+    output_clip: 10000.0
+    output_kernel_init: 1.0e-8
+
+utd: 2

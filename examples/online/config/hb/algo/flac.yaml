@@ -1,0 +1,32 @@
+# @package _global_
+
+algo:
+  name: flac
+  critic_backbone_cls: flac
+  critic_hidden_dims: [512, 2048, 2048, 512]
+  critic_activation: gelu
+  critic_layer_norm: true
+  critic_initializer: xavier_uniform
+  critic_ensemble_size: 2
+  critic_lr: 0.0003
+  distributional_critic: true
+  critic_num_atoms: 101
+  critic_v_min: -10.0
+  critic_v_max: 150.0
+  discount: 0.99
+  ema: 0.1
+  reward_scale: 1.0
+  update_actor_every: 2
+  target_kinetic_coef: 2.5
+  init_log_alpha: 0.0
+  alpha_lr: 0.00003
+  clip_grad_norm: null
+  flow:
+    hidden_dims: [512, 512]
+    activation: elu
+    layer_norm: true
+    initializer: xavier_uniform
+    lr: 0.0003
+    steps: 1
+
+norm_obs: true

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -28,6 +28,7 @@ class Config:
     frame_skip: int
     frame_stack: int
     batch_size: int
+    utd: int
     buffer_size: int
     lap_alpha: float
     norm_obs: bool

@@ -3,9 +3,11 @@ from hydra.core.config_store import ConfigStore
 from .algo.base import BaseAlgoConfig
 from .algo.ctrlsr import *
 from .algo.diffsr import *
+from .algo.dime import DIMEConfig
 from .algo.dpmd import DPMDConfig
 from .algo.dppo import DPPOConfig
 from .algo.fpopp import FPOPPConfig
+from .algo.flac import FLACConfig
 from .algo.gempo import GeMPOConfig
 from .algo.idem import IDEMConfig
 from .algo.ppo import PPOConfig
@@ -33,6 +35,7 @@ cs.store(group="algo", name="base", node=BaseAlgoConfig)
 _CONFIGS = {
     "sac": SACConfig,
     "sdac": SDACConfig,
+    "dime": DIMEConfig,
     "td3": TD3Config,
     "td7": TD7Config,
     "dpmd": DPMDConfig,
@@ -42,6 +45,7 @@ _CONFIGS = {
     "ppo": PPOConfig,
     "dppo": DPPOConfig,
     "fpopp": FPOPPConfig,
+    "flac": FLACConfig,
     "ctrlsr_td3": CtrlSRTD3Config,
     "diffsr_td3": DiffSRTD3Config,
     "diffsr_ld": DiffSRLDConfig,

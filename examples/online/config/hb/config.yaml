@@ -16,6 +16,7 @@ task: ???
 frame_skip: 2
 frame_stack: 1
 batch_size: 256
+utd: 1
 buffer_size: 1_000_000
 lap_alpha: 0.0
 norm_obs: false

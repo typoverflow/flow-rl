@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 import flax.linen as nn
 import jax
@@ -93,3 +93,75 @@ class Model(PyTreeNode, ABC):
             tx=optimizer
         )
         return self.replace(state=new_state)
+
+
+class BatchStatTrainState(TrainState):
+    batch_stats: Any
+
+
+@dataclass
+class BatchStatModel(Model):
+    """Model wrapper for networks with mutable BatchNorm-style statistics."""
+
+    state: BatchStatTrainState
+    dropout_rng: PRNGKey = field(pytree_node=True)
+
+    @classmethod
+    def create(
+        cls,
+        network: nn.Module,
+        rng: PRNGKey,
+        inputs: Sequence[jnp.ndarray],
+        optimizer: Optional[optax.GradientTransformation] = None,
+        clip_grad_norm: float = None,
+        input_kwargs: Optional[dict] = None,
+    ) -> "BatchStatModel":
+        param_rng, dropout_rng, batch_stats_rng = jax.random.split(rng, 3)
+        variables = network.init(
+            {
+                "params": param_rng,
+                "dropout": dropout_rng,
+                "batch_stats": batch_stats_rng,
+            },
+            *inputs,
+            **(input_kwargs or {}),
+        )
+        if optimizer is None:
+            optimizer = empty_optimizer()
+        elif clip_grad_norm:
+            optimizer = optax.chain(
+                optax.clip_by_global_norm(max_norm=clip_grad_norm),
+                optimizer,
+            )
+        state = BatchStatTrainState.create(
+            apply_fn=network.apply,
+            params=variables.get("params", {}),
+            batch_stats=variables.get("batch_stats", {}),
+            tx=optimizer,
+        )
+        return cls(state=state, dropout_rng=dropout_rng)
+
+    def __call__(self, *args, **kwargs):
+        return self.state.apply_fn(
+            {
+                "params": self.state.params,
+                "batch_stats": self.state.batch_stats,
+            },
+            *args,
+            **kwargs,
+        )
+
+    def apply_gradient(self, loss_fn) -> Tuple["BatchStatModel", Metric]:
+        dropout_rng, next_dropout_rng = jax.random.split(self.dropout_rng)
+        grad_fn = jax.grad(loss_fn, has_aux=True)
+        grads, (metrics, batch_stats) = grad_fn(
+            self.state.params,
+            self.state.batch_stats,
+            dropout_rng,
+        )
+        state = self.state.apply_gradients(grads=grads)
+        state = state.replace(batch_stats=batch_stats)
+        return self.replace(
+            state=state,
+            dropout_rng=next_dropout_rng,
+        ), metrics

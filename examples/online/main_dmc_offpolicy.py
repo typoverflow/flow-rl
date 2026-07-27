@@ -29,6 +29,7 @@ SUPPORTED_AGENTS: Dict[str, BaseAgent] = {
     "dpmd": DPMDAgent,
     "qsm": QSMAgent,
     "dacer": DACERAgent,
+    "dime": DIMEAgent,
     "ctrlsr_td3": CtrlSRTD3Agent,
     "diffsr_td3": DiffSRTD3Agent,
     "diffsr_ld": DiffSRLDAgent,
@@ -63,6 +64,10 @@ class OffPolicyTrainer():
 
         # create env
         self.frame_skip = cfg.frame_skip
+        self.update_per_iter = int(cfg.utd)
+        assert self.update_per_iter > 0, (
+            f"utd ({cfg.utd}) must produce at least one update per iteration"
+        )
         self.train_env = DMControlEnv(cfg.task, cfg.seed, False, cfg.frame_skip, cfg.frame_stack)
         self.eval_env = [DMControlEnv(cfg.task, cfg.seed + i*100, False, cfg.frame_skip, cfg.frame_stack) for i in range(cfg.eval.num_episodes)]
 
@@ -130,15 +135,16 @@ class OffPolicyTrainer():
                 if self.global_frame < cfg.warmup_frames:
                     train_metrics = {}
                 else:
-                    batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
-                    if self.cfg.norm_obs:
-                        batch.obs = self.obs_normalizer.normalize(batch.obs)
-                        batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
-                    train_metrics = self.agent.train_step(batch, step=self.global_frame)
-                    if self.use_lap_buffer:
-                        new_priorities = train_metrics.pop("priority")
-                        self.buffer.update(indices, new_priorities)
-                        train_metrics["misc/max_priority"] = self.buffer.max_priority
+                    for _ in range(self.update_per_iter):
+                        batch, indices = self.buffer.sample(batch_size=cfg.batch_size)
+                        if self.cfg.norm_obs:
+                            batch.obs = self.obs_normalizer.normalize(batch.obs)
+                            batch.next_obs = self.obs_normalizer.normalize(batch.next_obs)
+                        train_metrics = self.agent.train_step(batch, step=self.global_frame)
+                        if self.use_lap_buffer:
+                            new_priorities = train_metrics.pop("priority")
+                            self.buffer.update(indices, new_priorities)
+                            train_metrics["misc/max_priority"] = self.buffer.max_priority
 
                 if self.use_lap_buffer and self.global_frame % cfg.lap_reset_frames == 0:
                     self.buffer.reset_max_priority()

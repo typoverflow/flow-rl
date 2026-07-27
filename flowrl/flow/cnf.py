@@ -67,6 +67,8 @@ class ContinuousNormalizingFlow(Model):
         optimizer: Optional[optax.GradientTransformation]=None,
         clip_grad_norm: float=None
     ) -> 'ContinuousNormalizingFlow':
+        if steps < 1:
+            raise ValueError(f"CNF steps must be positive, got {steps}")
         ret = super().create(network, rng, inputs, optimizer, clip_grad_norm)
 
         return ret.replace(
@@ -89,7 +91,7 @@ class ContinuousNormalizingFlow(Model):
         vel = x1 - x0
         return rng, xt, t, vel
 
-    def _ode_step(
+    def _velocity(
         self,
         dropout_rng: PRNGKey,
         t: jnp.ndarray,
@@ -97,20 +99,63 @@ class ContinuousNormalizingFlow(Model):
         xt: jnp.ndarray,
         training: bool,
         params: Optional[Param]=None,
-    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-        """Move flow forward one step with Euler method"""
+    ) -> jnp.ndarray:
         if training:
-            vel = self.apply(
+            return self.apply(
                 {"params": params}, xt, t, condition=condition, training=training, rngs={"dropout": dropout_rng}
             )
+        return self(xt, t, condition=condition, training=training)
+
+    def _ode_step(
+        self,
+        dropout_rng: PRNGKey,
+        t: jnp.ndarray,
+        condition: jnp.ndarray,
+        xt: jnp.ndarray,
+        training: bool,
+        solver: str,
+        params: Optional[Param]=None,
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Move the flow one step and return its integration point."""
+        dt = 1.0 / self.steps
+        if solver == "euler":
+            integration_point = xt
+            vel = self._velocity(
+                dropout_rng,
+                t,
+                condition,
+                integration_point,
+                training,
+                params,
+            )
+        elif solver == "midpoint":
+            start_rng, midpoint_rng = jax.random.split(dropout_rng)
+            start_vel = self._velocity(
+                start_rng,
+                t,
+                condition,
+                xt,
+                training,
+                params,
+            )
+            integration_point = xt + start_vel * dt / 2
+            vel = self._velocity(
+                midpoint_rng,
+                t + dt / 2,
+                condition,
+                integration_point,
+                training,
+                params,
+            )
         else:
-            vel = self(xt, t, condition=condition, training=training)
-        x_next = xt + vel / self.steps
+            raise ValueError(f"Unsupported CNF solver: {solver}")
+
+        x_next = xt + vel * dt
         if self.clip_sampler:
             x_next = jnp.clip(x_next, self.x_min, self.x_max)
-        return x_next, vel
+        return x_next, integration_point, vel
 
-    @partial(jax.jit, static_argnames=("training"))
+    @partial(jax.jit, static_argnames=("training", "solver"))
     def sample(
         self,
         rng: PRNGKey,
@@ -118,23 +163,26 @@ class ContinuousNormalizingFlow(Model):
         condition: Optional[jnp.ndarray]=None,
         training: bool=False,
         params: Optional[Param]=None,
+        solver: str="euler",
     ) -> Tuple[PRNGKey, jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+        """Integrate the flow and return integration points and velocities."""
         t_proto = jnp.ones((*x0.shape[:-1], 1), dtype=jnp.int32)
 
         def fn(input, t):
             rng_, xt = input
             rng_, dropout_rng_ = jax.random.split(rng_, 2)
 
-            x_next, vel = self._ode_step(
+            x_next, integration_point, vel = self._ode_step(
                 dropout_rng_,
                 t*t_proto,
                 condition,
                 xt,
                 training=training,
+                solver=solver,
                 params=params,
             )
 
-            return (rng_, x_next), (xt, vel)
+            return (rng_, x_next), (integration_point, vel)
 
         output, history = jax.lax.scan(fn, (rng, x0), self.step2t(jnp.arange(self.steps)), unroll=True)
         rng, x1 = output

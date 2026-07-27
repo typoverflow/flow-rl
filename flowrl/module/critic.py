@@ -263,7 +263,7 @@ class CategoricalCritic(nn.Module):
             x = obs
         else:
             x = jnp.concatenate([obs, action], axis=-1)
-        x = self.backbone(x)
+        x = self.backbone(x, training=training)
         x = nn.Dense(
             self.output_nodes, kernel_init=self.kernel_init(), bias_init=self.bias_init()
         )(x)
